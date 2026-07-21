@@ -32,10 +32,6 @@ public sealed partial class AuthorizationServerProvisioner(
             await ProvisionClientAsync(client, cancellationToken);
         }
 
-        // An empty collection is indistinguishable from a missing configuration provider. Requiring
-        // both sides of the manifest prevents a transient configuration failure from becoming a
-        // destructive operation. Deleting the final managed client/scope must use an explicit
-        // deprovisioning mechanism instead of an empty manifest.
         if (configuredScopes.Count == 0 || configuredClients.Count == 0)
         {
             LogPruningSkipped(logger, configuredScopes.Count, configuredClients.Count);
@@ -69,16 +65,17 @@ public sealed partial class AuthorizationServerProvisioner(
             MarkAsManaged(descriptor.Properties);
             await scopeManager.CreateAsync(descriptor, cancellationToken);
             LogProvisionedScope(logger, configuration.Name);
+            return;
         }
-        else
-        {
-            CopyProperties(
-                await scopeManager.GetPropertiesAsync(scope, cancellationToken),
-                descriptor.Properties);
-            MarkAsManaged(descriptor.Properties);
-            await scopeManager.UpdateAsync(scope, descriptor, cancellationToken);
-            LogReconciledScope(logger, configuration.Name);
-        }
+
+        var properties = await scopeManager.GetPropertiesAsync(
+            scope,
+            cancellationToken);
+        EnsureManaged(properties, "scope", configuration.Name);
+        CopyProperties(properties, descriptor.Properties);
+        MarkAsManaged(descriptor.Properties);
+        await scopeManager.UpdateAsync(scope, descriptor, cancellationToken);
+        LogReconciledScope(logger, configuration.Name);
     }
 
     private async Task ProvisionClientAsync(
@@ -125,16 +122,17 @@ public sealed partial class AuthorizationServerProvisioner(
             MarkAsManaged(descriptor.Properties);
             await applicationManager.CreateAsync(descriptor, cancellationToken);
             LogProvisionedClient(logger, configuration.ClientId);
+            return;
         }
-        else
-        {
-            CopyProperties(
-                await applicationManager.GetPropertiesAsync(application, cancellationToken),
-                descriptor.Properties);
-            MarkAsManaged(descriptor.Properties);
-            await applicationManager.UpdateAsync(application, descriptor, cancellationToken);
-            LogReconciledClient(logger, configuration.ClientId);
-        }
+
+        var properties = await applicationManager.GetPropertiesAsync(
+            application,
+            cancellationToken);
+        EnsureManaged(properties, "client", configuration.ClientId);
+        CopyProperties(properties, descriptor.Properties);
+        MarkAsManaged(descriptor.Properties);
+        await applicationManager.UpdateAsync(application, descriptor, cancellationToken);
+        LogReconciledClient(logger, configuration.ClientId);
     }
 
     private async Task RemoveStaleClientsAsync(
@@ -206,6 +204,19 @@ public sealed partial class AuthorizationServerProvisioner(
         properties.TryGetValue(OwnershipProperty, out var value) &&
         value.ValueKind == JsonValueKind.String &&
         string.Equals(value.GetString(), OwnershipValue, StringComparison.Ordinal);
+
+    internal static void EnsureManaged(
+        IReadOnlyDictionary<string, JsonElement> properties,
+        string resourceType,
+        string identifier)
+    {
+        if (!IsManaged(properties))
+        {
+            throw new InvalidOperationException(
+                $"The OAuth {resourceType} '{identifier}' already exists but is not owned by this provisioner. " +
+                "Refusing to adopt or overwrite an operator-managed registration.");
+        }
+    }
 
     private static void CopyProperties(
         IReadOnlyDictionary<string, JsonElement> source,
