@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Sdk Name="Aspire.AppHost.Sdk" Version="13.4.6" />
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsAspireHost>true</IsAspireHost>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+    <PackageReference Include="Aspire.Hosting.RabbitMQ" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Services/Identity/Identity.Api/Identity.Api.csproj" />
+    <ProjectReference Include="../../Services/Identity/Identity.Migrator/Identity.Migrator.csproj" />
+    <ProjectReference Include="../../Services/ServiceTemplate/ServiceTemplate.Api/ServiceTemplate.Api.csproj" />
+    <ProjectReference Include="../../Services/ServiceTemplate/ServiceTemplate.Migrator/ServiceTemplate.Migrator.csproj" />
+  </ItemGroup>
+</Project>

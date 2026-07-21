@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Identity.Api/Identity.Api.csproj" />
+    <ProjectReference Include="../../../Shared/Microservices.ServiceDefaults/Microservices.ServiceDefaults.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="../Identity.Api/appsettings.json" Link="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../Identity.Api/appsettings.Development.json" Link="appsettings.Development.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
