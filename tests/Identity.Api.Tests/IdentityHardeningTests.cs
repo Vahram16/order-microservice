@@ -42,7 +42,7 @@ public sealed class IdentityHardeningTests
     {
         var now = new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero);
 
-        var nextAttempt = IdentityNotificationOutboxWorker.GetNextAttemptAtUtc(
+        var nextAttempt = IdentityNotificationOutboxDispatcher.GetNextAttemptAtUtc(
             completedAttempts: 5,
             maximumAttempts: 12,
             now,
@@ -56,7 +56,7 @@ public sealed class IdentityHardeningTests
     {
         var now = new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero);
 
-        var nextAttempt = IdentityNotificationOutboxWorker.GetNextAttemptAtUtc(
+        var nextAttempt = IdentityNotificationOutboxDispatcher.GetNextAttemptAtUtc(
             completedAttempts: 3,
             maximumAttempts: 12,
             now,
@@ -70,7 +70,7 @@ public sealed class IdentityHardeningTests
     {
         var now = new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero);
 
-        var nextAttempt = IdentityNotificationOutboxWorker.GetNextAttemptAtUtc(
+        var nextAttempt = IdentityNotificationOutboxDispatcher.GetNextAttemptAtUtc(
             completedAttempts: 12,
             maximumAttempts: 12,
             now,
