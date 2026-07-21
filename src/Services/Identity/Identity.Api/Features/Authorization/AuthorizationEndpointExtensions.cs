@@ -44,7 +44,6 @@ internal static class AuthorizationEndpointExtensions
             .AllowAnonymous()
             .RequireRateLimiting(IdentityServiceExtensions.AccountRateLimitPolicy)
             .RequireCors(IdentityServiceExtensions.BrowserCorsPolicy)
-            .Accepts<LogoutConfirmationRequest>("application/json")
             .ExcludeFromDescription();
 
         return endpoints;
