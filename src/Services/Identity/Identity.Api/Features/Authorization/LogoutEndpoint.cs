@@ -27,7 +27,6 @@ internal static class LogoutEndpoint
 
     public static async Task<IResult> CompleteAsync(
         HttpContext context,
-        LogoutConfirmationRequest request,
         LogoutInteractionProtector interactionProtector,
         SignInManager<ApplicationUser> signInManager)
     {
@@ -35,6 +34,16 @@ internal static class LogoutEndpoint
             throw new InvalidOperationException(
                 "The OpenID Connect end-session request cannot be retrieved.");
 
+        if (!context.Request.HasFormContentType)
+        {
+            return Results.BadRequest();
+        }
+
+        var form = await context.Request.ReadFormAsync(
+            context.RequestAborted);
+        var request = new LogoutConfirmationRequest(
+            form[nameof(LogoutConfirmationRequest.InteractionToken)]
+                .ToString());
         var completionUri = GetLocalRequestUri(context.Request);
         if (!interactionProtector.IsValid(
                 request.InteractionToken,
