@@ -19,7 +19,12 @@ var identityApi = builder.AddProject<Projects.Identity_Api>("identity-api")
     .WithEnvironment("AuthorizationServer__Issuer", identityIssuer)
     .WithHttpHealthCheck("/health", endpointName: "https")
     .WaitFor(identityDatabase)
-    .WaitForCompletion(identityMigrations);
+    .WaitForCompletion(identityMigrations)
+    .WithUrlForEndpoint("https", url =>
+    {
+        url.DisplayText = "Scalar";
+        url.Url = "/scalar/v1";
+    });
 
 var migrations = builder.AddProject<Projects.ServiceTemplate_Migrator>("service-template-migrator")
     .WithReference(serviceDatabase)
@@ -34,6 +39,11 @@ builder.AddProject<Projects.ServiceTemplate_Api>("service-template-api")
     .WaitFor(serviceDatabase)
     .WaitForCompletion(migrations)
     .WaitFor(rabbitMq)
-    .WaitFor(identityApi);
+    .WaitFor(identityApi)
+    .WithUrlForEndpoint("https", url =>
+    {
+        url.DisplayText = "Scalar";
+        url.Url = "/scalar/v1";
+    });
 
 await builder.Build().RunAsync();
