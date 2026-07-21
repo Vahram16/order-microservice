@@ -4,6 +4,7 @@ using Identity.Api.Features.Accounts;
 using Identity.Api.Features.Authorization;
 using Identity.Api.Features.Profile;
 using Identity.Api.Model;
+using Identity.Api.Notifications;
 using Identity.Api.Security;
 using MediatR;
 using Microservices.Application;
@@ -46,6 +47,7 @@ internal static class IdentityEndpointExtensions
         services.AddSingleton<PasswordBlocklist>();
         services.AddScoped<IPasswordValidator<ApplicationUser>,
             BlockedPasswordValidator>();
+        services.AddScoped<IdentityNotificationOutboxDispatcher>();
 
         services.AddOpenIddict()
             .AddServer(options =>
