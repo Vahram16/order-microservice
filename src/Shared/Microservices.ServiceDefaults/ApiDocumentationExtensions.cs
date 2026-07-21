@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.OpenApi;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi;
 using Scalar.AspNetCore;
 
@@ -11,8 +13,8 @@ public static class ApiDocumentationExtensions
     private const string DocumentName = "v1";
     private const string BearerScheme = "Bearer";
     private const string DeveloperDocumentationContentSecurityPolicy =
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; " +
-        "style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; " +
+        "default-src 'self'; script-src 'self' 'unsafe-inline' https:; " +
+        "style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; " +
         "font-src 'self' data:; connect-src 'self' http: https:; " +
         "worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; " +
         "form-action 'self'";
@@ -31,8 +33,8 @@ public static class ApiDocumentationExtensions
                 document.Info.Version = context.DocumentName;
                 return Task.CompletedTask;
             });
-            options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
-            options.AddOperationTransformer<BearerSecurityRequirementTransformer>();
+            options.AddDocumentTransformer(new BearerSecuritySchemeTransformer());
+            options.AddOperationTransformer(new BearerSecurityRequirementTransformer());
         });
 
         return builder;
