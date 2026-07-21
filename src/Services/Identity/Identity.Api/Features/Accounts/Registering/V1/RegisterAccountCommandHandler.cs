@@ -1,3 +1,5 @@
+using System.Text;
+using Identity.Api.Infrastructure;
 using Identity.Api.Model;
 using Identity.Api.Notifications;
 using Identity.Api.Persistence;
@@ -6,7 +8,6 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using System.Text;
 
 namespace Identity.Api.Features.Accounts.Registering.V1;
 
