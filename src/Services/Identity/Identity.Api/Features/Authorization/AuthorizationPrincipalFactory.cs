@@ -148,9 +148,9 @@ internal static class AuthorizationPrincipalFactory
         IReadOnlySet<string> scopes,
         UserManager<ApplicationUser> userManager)
     {
-        var roles = scopes.Contains(Scopes.Roles)
+        IEnumerable<string> roles = scopes.Contains(Scopes.Roles)
             ? await userManager.GetRolesAsync(user)
-            : [];
+            : Array.Empty<string>();
         identity.SetClaims(Claims.Role, roles);
     }
 
