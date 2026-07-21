@@ -1,4 +1,5 @@
 using System.Text;
+using Identity.Api.Infrastructure;
 using Identity.Api.Model;
 using Identity.Api.Notifications;
 using Microservices.Application;
