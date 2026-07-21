@@ -2,7 +2,7 @@ using FluentValidation;
 
 namespace Identity.Api.Features.Accounts.ConfirmingEmail.V1;
 
-internal sealed class ResendEmailConfirmationCommandValidator
+public sealed class ResendEmailConfirmationCommandValidator
     : AbstractValidator<ResendEmailConfirmationCommand>
 {
     public ResendEmailConfirmationCommandValidator() =>
