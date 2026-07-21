@@ -7,6 +7,8 @@ namespace Identity.Api.Features.Authorization;
 
 internal static class LogoutEndpoint
 {
+    private const string InteractionTokenFormField = "interactionToken";
+
     public static IResult Begin(
         HttpContext context,
         LogoutInteractionProtector interactionProtector,
@@ -42,8 +44,7 @@ internal static class LogoutEndpoint
         var form = await context.Request.ReadFormAsync(
             context.RequestAborted);
         var request = new LogoutConfirmationRequest(
-            form[nameof(LogoutConfirmationRequest.InteractionToken)]
-                .ToString());
+            form[InteractionTokenFormField].ToString());
         var completionUri = GetLocalRequestUri(context.Request);
         if (!interactionProtector.IsValid(
                 request.InteractionToken,
@@ -52,7 +53,7 @@ internal static class LogoutEndpoint
             return Results.ValidationProblem(
                 new Dictionary<string, string[]>
                 {
-                    [nameof(request.InteractionToken)] =
+                    [InteractionTokenFormField] =
                     ["The logout interaction is invalid or has expired."]
                 });
         }
