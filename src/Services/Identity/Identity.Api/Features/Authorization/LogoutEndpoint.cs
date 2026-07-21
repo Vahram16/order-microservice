@@ -1,4 +1,5 @@
 using Identity.Api.Model;
+using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using OpenIddict.Server.AspNetCore;
