@@ -1,4 +1,6 @@
+using Identity.Api.Infrastructure;
 using Identity.Api.Model;
+using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
@@ -39,13 +41,15 @@ internal static class AuthorizeEndpoint
               timeProvider.GetUtcNow() - authenticationTime.Value >
               TimeSpan.FromSeconds(request.MaxAge.Value)));
         var reauthenticationMarkerMatched =
-            authentication is { Succeeded: true } &&
+            authentication is { Succeeded: true, Principal: not null } &&
             OidcAuthenticationState.ConsumeReauthenticationMarker(
                 context,
                 dataProtectionProvider,
                 authorizationReturnUri);
+        var authenticatedPrincipal = authentication.Principal;
 
-        if (authentication is not { Succeeded: true } ||
+        if (!authentication.Succeeded ||
+            authenticatedPrincipal is null ||
             forceAuthentication && !reauthenticationMarkerMatched)
         {
             if (request.HasPromptValue(PromptValues.None))
@@ -69,7 +73,7 @@ internal static class AuthorizeEndpoint
                 [IdentityConstants.ApplicationScheme]);
         }
 
-        var user = await userManager.GetUserAsync(authentication.Principal);
+        var user = await userManager.GetUserAsync(authenticatedPrincipal);
         if (user is null || !user.IsActive || !await signInManager.CanSignInAsync(user))
         {
             await signInManager.SignOutAsync();
