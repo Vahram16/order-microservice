@@ -4,6 +4,7 @@ using Identity.Api.Model;
 using Identity.Api.Security;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -11,6 +12,9 @@ namespace Identity.Api.Tests;
 
 public sealed class IdentityInteractionSecurityTests
 {
+    private static readonly IServiceProvider TestServices =
+        new ServiceCollection().BuildServiceProvider();
+
     [Fact]
     public void LogoutInteractionIsBoundToTheExactCompletionUri()
     {
@@ -132,7 +136,7 @@ public sealed class IdentityInteractionSecurityTests
             [],
             new UpperInvariantLookupNormalizer(),
             new IdentityErrorDescriber(),
-            null,
+            TestServices,
             NullLogger<UserManager<ApplicationUser>>.Instance);
 
     private sealed class TestTimeProvider(DateTimeOffset utcNow) : TimeProvider
