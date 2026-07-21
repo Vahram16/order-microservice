@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Security.Claims;
 using Identity.Api.Model;
 using Microsoft.AspNetCore.Identity;
@@ -145,18 +146,18 @@ internal static class AuthorizationPrincipalFactory
     private static async Task SetRolesAsync(
         ClaimsIdentity identity,
         ApplicationUser user,
-        IReadOnlySet<string> scopes,
+        HashSet<string> scopes,
         UserManager<ApplicationUser> userManager)
     {
-        IEnumerable<string> roles = scopes.Contains(Scopes.Roles)
-            ? await userManager.GetRolesAsync(user)
-            : Array.Empty<string>();
+        var roles = scopes.Contains(Scopes.Roles)
+            ? (await userManager.GetRolesAsync(user)).ToImmutableArray()
+            : ImmutableArray<string>.Empty;
         identity.SetClaims(Claims.Role, roles);
     }
 
     private static async Task<ClaimsPrincipal> CreatePrincipalAsync(
         ClaimsIdentity identity,
-        IReadOnlySet<string> scopes,
+        HashSet<string> scopes,
         IOpenIddictScopeManager scopeManager)
     {
         var principal = new ClaimsPrincipal(identity);
