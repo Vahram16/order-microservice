@@ -44,7 +44,7 @@ internal sealed class IdentityInteractionUrlBuilder(
 
     private string AddQuery(
         string path,
-        IReadOnlyDictionary<string, string?> parameters)
+        IDictionary<string, string?> parameters)
     {
         var uri = new Uri(_origin, path.TrimStart('/')).ToString();
         return QueryHelpers.AddQueryString(uri, parameters);
