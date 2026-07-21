@@ -84,7 +84,7 @@ internal sealed class LogoutInteractionProtector
             return false;
         }
 
-        var queryIndex = value.IndexOf('?', StringComparison.Ordinal);
+        var queryIndex = value.IndexOf('?');
         var path = queryIndex >= 0 ? value[..queryIndex] : value;
         return string.Equals(
             path,
