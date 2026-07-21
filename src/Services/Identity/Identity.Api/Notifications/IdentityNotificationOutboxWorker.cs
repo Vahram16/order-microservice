@@ -71,11 +71,17 @@ internal sealed partial class IdentityNotificationOutboxWorker(
                 continue;
             }
 
+            IdentityNotificationPayload? payload = null;
             try
             {
                 var json = protector.Unprotect(message.ProtectedPayload);
-                var payload = JsonSerializer.Deserialize<IdentityNotificationPayload>(json) ??
+                payload = JsonSerializer.Deserialize<IdentityNotificationPayload>(json) ??
                     throw new JsonException("The notification payload is empty.");
+                if (payload.ExpiresAtUtc <= timeProvider.GetUtcNow())
+                {
+                    throw new ExpiredIdentityNotificationException();
+                }
+
                 await transport.SendAsync(payload, cancellationToken);
 
                 message.ProcessedAtUtc = timeProvider.GetUtcNow();
@@ -95,6 +101,7 @@ internal sealed partial class IdentityNotificationOutboxWorker(
                 await RecordFailureAsync(
                     dbContext,
                     message,
+                    payload?.ExpiresAtUtc,
                     exception,
                     cancellationToken);
             }
@@ -116,17 +123,26 @@ internal sealed partial class IdentityNotificationOutboxWorker(
     private async Task RecordFailureAsync(
         IdentityServiceDbContext dbContext,
         IdentityNotificationOutboxMessage message,
+        DateTimeOffset? expiresAtUtc,
         Exception exception,
         CancellationToken cancellationToken)
     {
+        var now = timeProvider.GetUtcNow();
         message.AttemptCount++;
         message.LockId = null;
         message.LockedUntilUtc = null;
         message.LastError = GetSafeError(exception);
+        var nextAttemptAtUtc = IsPermanent(exception)
+            ? null
+            : GetNextAttemptAtUtc(
+                message.AttemptCount,
+                _options.MaximumAttempts,
+                now,
+                expiresAtUtc);
 
-        if (IsPermanent(exception) || message.AttemptCount >= _options.MaximumAttempts)
+        if (nextAttemptAtUtc is null)
         {
-            message.DeadLetteredAtUtc = timeProvider.GetUtcNow();
+            message.DeadLetteredAtUtc = now;
             message.ProtectedPayload = string.Empty;
             LogNotificationDeadLettered(
                 logger,
@@ -136,8 +152,7 @@ internal sealed partial class IdentityNotificationOutboxWorker(
         }
         else
         {
-            message.AvailableAtUtc = timeProvider.GetUtcNow() +
-                GetRetryDelay(message.AttemptCount);
+            message.AvailableAtUtc = nextAttemptAtUtc.Value;
             LogNotificationDeferred(
                 logger,
                 message.Id,
@@ -210,7 +225,7 @@ internal sealed partial class IdentityNotificationOutboxWorker(
     }
 
     private static bool IsPermanent(Exception exception) =>
-        exception is CryptographicException or JsonException ||
+        exception is CryptographicException or JsonException or ExpiredIdentityNotificationException ||
         exception is HttpRequestException
         {
             StatusCode: >= HttpStatusCode.BadRequest and < HttpStatusCode.InternalServerError and
@@ -223,9 +238,28 @@ internal sealed partial class IdentityNotificationOutboxWorker(
             ? $"HTTP {(int)statusCode}"
             : exception.GetType().Name;
 
-    private static TimeSpan GetRetryDelay(int attempt)
+    internal static DateTimeOffset? GetNextAttemptAtUtc(
+        int completedAttempts,
+        int maximumAttempts,
+        DateTimeOffset now,
+        DateTimeOffset? expiresAtUtc)
     {
-        var seconds = Math.Min(3600, 10 * Math.Pow(2, Math.Min(attempt - 1, 8)));
+        if (completedAttempts >= maximumAttempts)
+        {
+            return null;
+        }
+
+        var nextAttemptAtUtc = now + GetRetryDelay(completedAttempts);
+        return expiresAtUtc is { } expiresAt && nextAttemptAtUtc >= expiresAt
+            ? null
+            : nextAttemptAtUtc;
+    }
+
+    internal static TimeSpan GetRetryDelay(int completedAttempts)
+    {
+        var seconds = Math.Min(
+            3600,
+            10 * Math.Pow(2, Math.Min(completedAttempts - 1, 8)));
         return TimeSpan.FromSeconds(seconds);
     }
 
@@ -264,4 +298,7 @@ internal sealed partial class IdentityNotificationOutboxWorker(
     private static partial void LogDispatchCycleFailed(
         ILogger logger,
         Exception exception);
+
+    private sealed class ExpiredIdentityNotificationException
+        : Exception("The account notification token expired before delivery.");
 }
