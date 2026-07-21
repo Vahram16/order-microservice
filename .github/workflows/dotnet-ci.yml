@@ -38,6 +38,18 @@ jobs:
             dotnet restore "$project" 2>&1 | tee -a Logs/restore.log
           done < <(find src tests -name '*.csproj' -type f | sort)
 
+      - name: Verify API-only identity boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          identity_api="src/Services/Identity/Identity.Api"
+          if grep -RInE --include='*.cs' \
+            '(text/html|<!doctype[[:space:]]+html|<html([[:space:]>]))' \
+            "$identity_api"; then
+            echo "Identity.Api must not render application HTML."
+            exit 1
+          fi
+
       - name: Build source projects
         shell: bash
         run: |
