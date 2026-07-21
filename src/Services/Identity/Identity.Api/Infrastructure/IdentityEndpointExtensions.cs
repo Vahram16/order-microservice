@@ -1,7 +1,6 @@
 using FluentValidation;
 using Identity.Api.Features.Accounts;
 using Identity.Api.Features.Authorization;
-using Identity.Api.Features.Presentation;
 using Identity.Api.Features.Profile;
 using MediatR;
 using Microservices.Application;
@@ -21,7 +20,6 @@ internal static class IdentityEndpointExtensions
             mediator.AddOpenBehavior(typeof(ValidationBehavior<,>));
             mediator.LicenseKey = applicationConfiguration["Licensing:MediatR"];
         });
-        services.AddSingleton<IdentityPageRenderer>();
 
         return services;
     }
