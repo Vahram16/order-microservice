@@ -1,5 +1,6 @@
 using FluentValidation;
 using Identity.Api.Features.Accounts;
+using Identity.Api.Features.Authorization;
 using Identity.Api.Features.Profile;
 using MediatR;
 using Microservices.Application;
@@ -26,6 +27,7 @@ internal static class IdentityEndpointExtensions
     public static IEndpointRouteBuilder MapIdentityApplication(
         this IEndpointRouteBuilder endpoints)
     {
+        endpoints.MapAuthorizationEndpoints();
         endpoints.MapAccountEndpoints();
         endpoints.MapProfileEndpoints();
         return endpoints;
