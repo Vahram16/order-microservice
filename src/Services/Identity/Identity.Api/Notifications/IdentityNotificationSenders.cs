@@ -185,7 +185,8 @@ internal sealed class WebhookIdentityNotificationTransport(
                 eventId = payload.EventId,
                 template = payload.Template,
                 recipient = payload.Recipient,
-                actionUrl = payload.ActionUrl
+                actionUrl = payload.ActionUrl,
+                expiresAtUtc = payload.ExpiresAtUtc
             })
         };
         request.Headers.TryAddWithoutValidation(
