@@ -1,6 +1,9 @@
+using System.Reflection;
 using System.Text.Json;
 using Identity.Api.Notifications;
+using Identity.Api.Persistence;
 using Identity.Api.Provisioning;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Identity.Api.Tests;
 
@@ -35,6 +38,25 @@ public sealed class IdentityHardeningTests
             properties,
             "client",
             "managed-client");
+    }
+
+    [Fact]
+    public void NotificationWorkerCreatesScopesInsteadOfCapturingDbContext()
+    {
+        var workerParameters = GetConstructorParameters(
+            typeof(IdentityNotificationOutboxWorker));
+        var dispatcherParameters = GetConstructorParameters(
+            typeof(IdentityNotificationOutboxDispatcher));
+
+        Assert.Contains(
+            workerParameters,
+            parameter => parameter.ParameterType == typeof(IServiceScopeFactory));
+        Assert.DoesNotContain(
+            workerParameters,
+            parameter => parameter.ParameterType == typeof(IdentityServiceDbContext));
+        Assert.Contains(
+            dispatcherParameters,
+            parameter => parameter.ParameterType == typeof(IdentityServiceDbContext));
     }
 
     [Fact]
@@ -78,4 +100,12 @@ public sealed class IdentityHardeningTests
 
         Assert.Null(nextAttempt);
     }
+
+    private static ParameterInfo[] GetConstructorParameters(Type type) =>
+        type.GetConstructors(
+                BindingFlags.Instance |
+                BindingFlags.Public |
+                BindingFlags.NonPublic)
+            .Single()
+            .GetParameters();
 }
