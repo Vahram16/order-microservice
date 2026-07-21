@@ -9,6 +9,7 @@ using ServiceTemplate.Api.Persistence;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddApiDocumentation("Service Template API");
 builder.Services.AddProblemDetails();
 builder.Services.AddApiSecurity(builder.Configuration, builder.Environment);
 builder.Services.AddPostgresDbContext<ServiceTemplateDbContext>(
@@ -35,6 +36,7 @@ app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapDefaultEndpoints();
+app.MapApiDocumentation();
 
 await app.RunAsync();
 
