@@ -64,6 +64,7 @@ internal static class GetCurrentProfileEndpoint
                         : Results.Ok(profile);
                 })
             .RequireAuthorization(IdentityServiceExtensions.ProfilePolicy)
+            .RequireCors(IdentityServiceExtensions.BrowserCorsPolicy)
             .Produces<CurrentProfile>()
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
