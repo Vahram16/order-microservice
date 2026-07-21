@@ -1,8 +1,6 @@
-using System.Security.Claims;
 using Identity.Api.Model;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
 using static OpenIddict.Abstractions.OpenIddictConstants;
@@ -28,23 +26,14 @@ internal static class TokenEndpoint
                 throw new InvalidOperationException("The client application cannot be found.");
             var displayName = await applicationManager.GetLocalizedDisplayNameAsync(application) ??
                 request.ClientId!;
-            var identity = new ClaimsIdentity(
-                TokenValidationParameters.DefaultAuthenticationType,
-                Claims.Name,
-                Claims.Role);
-            identity.SetClaim(Claims.Subject, $"client:{request.ClientId}")
-                .SetClaim(Claims.Name, displayName);
-
-            var servicePrincipal = new ClaimsPrincipal(identity);
-            servicePrincipal.SetScopes(request.GetScopes());
-            servicePrincipal.SetResources(
-                await scopeManager.ListResourcesAsync(
-                    servicePrincipal.GetScopes()).ToListAsync());
-            servicePrincipal.SetDestinations(
-                AuthorizationPrincipalFactory.GetDestinations);
+            var principal = await AuthorizationPrincipalFactory.CreateServicePrincipalAsync(
+                request.ClientId!,
+                displayName,
+                request.GetScopes(),
+                scopeManager);
 
             return Results.SignIn(
-                servicePrincipal,
+                principal,
                 authenticationScheme:
                     OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
         }
@@ -87,32 +76,12 @@ internal static class TokenEndpoint
         var scopes = request.IsRefreshTokenGrantType() && request.GetScopes().Any()
             ? request.GetScopes()
             : storedPrincipal.GetScopes();
-        var requestedScopes = scopes.ToHashSet(StringComparer.Ordinal);
-        var refreshedIdentity = new ClaimsIdentity(
-            storedPrincipal.Claims,
-            TokenValidationParameters.DefaultAuthenticationType,
-            Claims.Name,
-            Claims.Role);
-        refreshedIdentity.SetClaim(Claims.Subject, user.Id.ToString("D"))
-            .SetClaim(Claims.Name, user.DisplayName)
-            .SetClaim(Claims.PreferredUsername, user.UserName)
-            .SetClaim(Claims.Email, user.Email)
-            .SetClaim(Claims.EmailVerified, user.EmailConfirmed)
-            .SetClaim(
-                AuthorizationPrincipalFactory.SecurityStampClaim,
-                await userManager.GetSecurityStampAsync(user));
-        refreshedIdentity.SetClaims(
-            Claims.Role,
-            requestedScopes.Contains(Scopes.Roles)
-                ? [.. await userManager.GetRolesAsync(user)]
-                : []);
-
-        var principal = new ClaimsPrincipal(refreshedIdentity);
-        principal.SetScopes(requestedScopes);
-        principal.SetResources(
-            await scopeManager.ListResourcesAsync(principal.GetScopes()).ToListAsync());
-        principal.SetAuthorizationId(storedPrincipal.GetAuthorizationId());
-        principal.SetDestinations(AuthorizationPrincipalFactory.GetDestinations);
+        var principal = await AuthorizationPrincipalFactory.RefreshUserPrincipalAsync(
+            storedPrincipal,
+            user,
+            scopes,
+            userManager,
+            scopeManager);
 
         return Results.SignIn(
             principal,
