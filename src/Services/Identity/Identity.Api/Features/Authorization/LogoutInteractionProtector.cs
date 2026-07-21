@@ -75,7 +75,7 @@ internal sealed class LogoutInteractionProtector
     private static bool IsLogoutCompletionUri(string value)
     {
         if (string.IsNullOrWhiteSpace(value) ||
-            !value.StartsWith("/", StringComparison.Ordinal) ||
+            value[0] != '/' ||
             value.StartsWith("//", StringComparison.Ordinal) ||
             value.Contains('\\') ||
             value.Contains('\r') ||
