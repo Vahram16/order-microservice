@@ -33,7 +33,11 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseIdentitySecurityHeaders();
 app.UseRouting();
-app.UseCors();
+app.UseWhen(
+    context =>
+        !context.Request.Path.StartsWithSegments("/connect/authorize") &&
+        !context.Request.Path.StartsWithSegments("/account"),
+    branch => branch.UseCors(IdentityServiceExtensions.BrowserCorsPolicy));
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
