@@ -74,8 +74,11 @@ it never replaces resource ownership or tenant checks inside the owning service.
   credential: a secret from the secret store (`client_secret_basic`) or a public JSON Web Key Set
   for `private_key_jwt`. Secret-in-request-body authentication is disabled.
 - Machine clients use OAuth 2.0 client credentials and receive no user identity.
-- Password and implicit grants are intentionally unsupported. Identity's application cookie exists
-  only on the identity-service login pages; APIs accept bearer access tokens, never that cookie.
+- Password and implicit grants are intentionally unsupported. `Identity.Api` owns the secure
+  application cookie, while a separately deployed interaction frontend owns the login, access-denied,
+  logout-confirmation, confirmation, recovery, and MFA presentation. APIs accept bearer access
+  tokens for protected resources; the Identity cookie is used only for authorization-server browser
+  interactions.
 - ASP.NET Identity authenticator and recovery-code completion are supported for accounts that have
   two-factor authentication enabled. Enrollment belongs in a separately authorized account slice.
 
@@ -86,6 +89,29 @@ OpenIddict publishes discovery and signing keys from `/.well-known/openid-config
 endpoints are `/connect/authorize`, `/connect/par`, `/connect/token`, `/connect/revocation`,
 `/connect/logout`, and `/connect/userinfo`. HTTPS is mandatory outside Development.
 Pushed authorization is granted only to clients configured to require it.
+
+Account operations are Web API endpoints. The frontend owns all application HTML. Email
+confirmation is submitted as JSON to `POST /api/v1/accounts/email-confirmation`; registration and
+password recovery use the corresponding versioned JSON endpoints. The Identity API never constructs
+or returns application pages.
+
+Interactive protocol handoffs use this contract:
+
+1. An unauthenticated `/connect/authorize` request challenges the Identity application cookie.
+2. The cookie challenge redirects to `IdentityInteraction:PublicOrigin` plus the configured login
+   path and supplies only a validated local `returnUrl`.
+3. The frontend submits credentials to the Identity API, receives the secure HTTP-only session
+   cookie, then navigates to that local return URL so OpenIddict can finish authorization.
+4. `GET /connect/logout` is validated and cached by OpenIddict, then redirects to the configured
+   frontend logout page with a short-lived protected interaction token and a local completion URI.
+5. After user confirmation, the frontend posts `application/x-www-form-urlencoded` with
+   `interactionToken` to that completion URI. The API binds the token to the exact cached logout
+   request, clears the Identity session, and lets OpenIddict perform the registered post-logout
+   redirect.
+
+The interaction frontend and API must be published behind the same HTTPS origin in production.
+This keeps the cookie first-party and removes cross-site cookie assumptions while allowing the UI
+and API to remain separate deployable components.
 
 ### Audiences and scopes
 
@@ -127,11 +153,15 @@ Aspire first runs `identity-migrator`, which applies the identity schema and rec
 OpenIddict scopes and clients, then starts `Identity.Api` at the Development issuer
 `https://localhost:7100/`. The development `booking-web` registration permits only the redirect and
 post-logout URIs in `Identity.Api/appsettings.Development.json`; change those values to the exact
-local frontend URLs when necessary. Registration and recovery notifications are written to the
-Identity API log only in Development. The sample API validates tokens for `booking-public-api`
-against this issuer. Local OpenIddict signing/encryption keys are ephemeral by default, so local
-tokens intentionally stop working after an Identity API restart; production always requires
-persistent certificates.
+local frontend URLs when necessary. `IdentityInteraction:PublicOrigin` identifies the frontend that
+renders browser interactions, and `AuthorizationServer:CorsOrigins` authorizes that exact origin to
+call the credentialed Identity account/session endpoints. Registration and recovery notifications
+are written to the Identity API log only in Development. Notification action URLs use
+`IdentityNotifications:PublicOrigin` and point to the frontend application, which submits the token
+to the Identity Web API. The sample API validates tokens for `booking-public-api` against this
+issuer. Local OpenIddict signing/encryption keys are ephemeral by default, so local tokens
+intentionally stop working after an Identity API restart; production always requires persistent
+certificates.
 
 ## Migrations
 
@@ -189,17 +219,27 @@ unsafe. Supply all secrets through the deployment secret provider, never committ
   require exactly one secret-manager-generated Base64url `ClientSecret` or a public-only
   `JsonWebKeySetPath`; the client's private key never enters this service. Enable refresh tokens
   and pushed authorization requests only for clients designed to use them.
-- Configure browser origins separately in the API's safe runtime
-  `AuthorizationServer:CorsOrigins` list. Origins must be exact HTTPS origins, wildcards are not
-  accepted, and cross-origin credentials are not enabled. Do not inject the client manifest or
-  confidential-client secrets into API replicas.
-- Set `IdentityNotifications:Provider` to `Webhook`, `PublicOrigin` to the public HTTPS identity
-  origin, and `WebhookEndpoint` to the production notification service. Store
-  a secret-manager-generated Base64url `WebhookApiKey` as a secret. `DevelopmentLog` is forbidden
-  in production because confirmation and reset links contain one-time credentials. The API commits
-  an encrypted notification outbox record in the same database transaction as account creation;
-  the worker uses leases, bounded retries, deduplication, dead-lettering, and an idempotency key.
-  Alert on dead-lettered rows and repeated webhook failures.
+- Set `IdentityInteraction:PublicOrigin` to the issuer's HTTPS origin and route its configured
+  `/account/*` paths to the interaction frontend while routing `/connect/*` and `/api/*` to
+  `Identity.Api`. Production startup rejects a different interaction origin. Keep protected
+  interaction tokens short-lived; never replace them with an unvalidated external return URL.
+- Configure only exact first-party origins in `AuthorizationServer:CorsOrigins`. Wildcards are not
+  accepted. Credentialed CORS is enabled because the frontend must establish the Identity session
+  cookie; production should normally list only the same public identity origin. Do not inject the
+  client manifest or confidential-client secrets into API replicas.
+- Mount a curated common/compromised-password blocklist and set its absolute path in
+  `IdentityPasswordPolicy:BlocklistPath`. Production startup requires at least
+  `IdentityPasswordPolicy:MinimumBlocklistEntries` distinct entries. Update the mounted dataset as
+  part of the security-maintenance process; submitted passwords are checked locally and are never
+  logged or sent to the notification provider.
+- Set `IdentityNotifications:Provider` to `Webhook`, `PublicOrigin` to the public HTTPS frontend
+  origin that owns confirmation and recovery pages, and `WebhookEndpoint` to the production
+  notification service. Store a secret-manager-generated Base64url `WebhookApiKey` as a secret.
+  `DevelopmentLog` is forbidden in production because confirmation and reset links contain one-time
+  credentials. The frontend extracts the one-time values from the action URL and submits them to the
+  versioned Identity API endpoint. The API commits an encrypted notification outbox record in the same
+  database transaction as account creation; the worker uses leases, bounded retries, deduplication,
+  dead-lettering, and an idempotency key. Alert on dead-lettered rows and repeated webhook failures.
 - Provide `ConnectionStrings:identity-db` from the secret store. Data Protection keys are persisted
   in that database and encrypted with the configured encryption certificate, so backup and
   certificate-rotation procedures must preserve both. Use separate database roles: schema-owner
@@ -257,10 +297,11 @@ shipping.
 1. Rename the service template for the first bounded context.
 2. Implement one end-to-end vertical slice with its validator and tests.
 3. Add its service-owned integration contracts and consumer.
-4. Add container images, deployment manifests, an external secret provider, edge rate limits, and
-   CI/CD for the chosen hosting platform; provision production Identity clients and certificates.
+4. Add container images, deployment manifests, an external secret provider, edge rate limits,
+   image/dependency scanning, and deployment promotion for the chosen hosting platform; provision
+   production Identity clients, certificates, frontend routes, and password blocklist.
 5. Add the product-specific, step-up-protected slices for authenticator/passkey enrollment,
-   recovery-code regeneration, administrative user management, and any breached-password service
-   selected by the security team. The current service deliberately does not expose unsafe generic
-   admin endpoints or bootstrap an administrator.
+   recovery-code regeneration, administrative user management, and any additional breached-password
+   intelligence selected by the security team. The current service deliberately does not expose
+   unsafe generic admin endpoints or bootstrap an administrator.
 6. Add a persisted saga only when a concrete cross-service workflow is known.

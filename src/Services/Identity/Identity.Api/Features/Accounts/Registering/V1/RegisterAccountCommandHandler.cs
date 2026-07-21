@@ -1,10 +1,8 @@
 using System.Text;
-using FluentValidation;
 using Identity.Api.Infrastructure;
 using Identity.Api.Model;
 using Identity.Api.Notifications;
 using Identity.Api.Persistence;
-using MediatR;
 using Microservices.Application;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
@@ -13,39 +11,16 @@ using Npgsql;
 
 namespace Identity.Api.Features.Accounts.Registering.V1;
 
-public sealed record RegisterAccount(
-    string Email,
-    string Password,
-    string DisplayName) : ICommand;
-
-public sealed class RegisterAccountValidator : AbstractValidator<RegisterAccount>
-{
-    public RegisterAccountValidator()
-    {
-        RuleFor(command => command.Email)
-            .NotEmpty()
-            .MaximumLength(254)
-            .EmailAddress();
-        RuleFor(command => command.Password)
-            .NotEmpty()
-            .MinimumLength(15)
-            .MaximumLength(128);
-        RuleFor(command => command.DisplayName)
-            .NotEmpty()
-            .MaximumLength(100);
-    }
-}
-
-internal sealed class RegisterAccountHandler(
+internal sealed class RegisterAccountCommandHandler(
     UserManager<ApplicationUser> userManager,
     IIdentityNotificationSender notificationSender,
     IdentityServiceDbContext dbContext,
     DummyPasswordVerifier dummyPasswordVerifier,
     TimeProvider timeProvider)
-    : ICommandHandler<RegisterAccount>
+    : ICommandHandler<RegisterAccountCommand>
 {
     public async Task Handle(
-        RegisterAccount command,
+        RegisterAccountCommand command,
         CancellationToken cancellationToken)
     {
         var startedAt = timeProvider.GetTimestamp();
@@ -120,27 +95,4 @@ internal sealed class RegisterAccountHandler(
             SqlState: PostgresErrorCodes.UniqueViolation,
             ConstraintName: "ux_users_normalized_email" or "UserNameIndex"
         };
-}
-
-internal static class RegisterAccountEndpoint
-{
-    public static IEndpointRouteBuilder MapRegisterAccount(
-        this IEndpointRouteBuilder endpoints)
-    {
-        endpoints.MapPost(
-                "/api/v1/accounts/register",
-                async (RegisterAccount request, ISender sender, CancellationToken cancellationToken) =>
-                {
-                    await sender.Send(request, cancellationToken);
-                    return Results.Accepted();
-                })
-            .AllowAnonymous()
-            .RequireRateLimiting(IdentityServiceExtensions.AccountRateLimitPolicy)
-            .Produces(StatusCodes.Status202Accepted)
-            .ProducesValidationProblem()
-            .WithName("RegisterIdentityAccount")
-            .WithSummary("Register a customer account and send an email confirmation.");
-
-        return endpoints;
-    }
 }
