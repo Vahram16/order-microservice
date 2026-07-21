@@ -1,5 +1,4 @@
 using Identity.Api.Features.Presentation;
-using Identity.Api.Infrastructure;
 using MediatR;
 using Microsoft.AspNetCore.Antiforgery;
 
@@ -7,45 +6,7 @@ namespace Identity.Api.Features.Accounts.ConfirmingEmail.V1;
 
 internal static class ConfirmEmailEndpoint
 {
-    private const string ConfirmEmailPath = "/account/confirm-email";
-
-    public static IEndpointRouteBuilder MapConfirmEmail(
-        this IEndpointRouteBuilder endpoints)
-    {
-        endpoints.MapGet(ConfirmEmailPath, RenderConfirmation)
-            .AllowAnonymous()
-            .RequireRateLimiting(IdentityServiceExtensions.AccountRateLimitPolicy)
-            .ExcludeFromDescription();
-
-        endpoints.MapPost(ConfirmEmailPath, ConfirmAsync)
-            .AllowAnonymous()
-            .RequireRateLimiting(IdentityServiceExtensions.AccountRateLimitPolicy)
-            .ExcludeFromDescription();
-
-        endpoints.MapPost(
-                "/api/v1/accounts/email-confirmation/resend",
-                async (
-                    ResendEmailConfirmationRequest request,
-                    ISender sender,
-                    CancellationToken cancellationToken) =>
-                {
-                    await sender.Send(
-                        new ResendEmailConfirmationCommand(request.Email),
-                        cancellationToken);
-                    return Results.Accepted();
-                })
-            .AllowAnonymous()
-            .RequireCors(IdentityServiceExtensions.BrowserCorsPolicy)
-            .RequireRateLimiting(IdentityServiceExtensions.AccountRateLimitPolicy)
-            .Produces(StatusCodes.Status202Accepted)
-            .ProducesValidationProblem()
-            .WithName("ResendIdentityEmailConfirmation")
-            .WithSummary("Send another confirmation when an eligible account exists.");
-
-        return endpoints;
-    }
-
-    private static IResult RenderConfirmation(
+    public static IResult Render(
         HttpContext context,
         Guid userId,
         string code,
@@ -61,7 +22,7 @@ internal static class ConfirmEmailEndpoint
         return Results.Content(page, "text/html; charset=utf-8");
     }
 
-    private static async Task<IResult> ConfirmAsync(
+    public static async Task<IResult> HandleAsync(
         HttpContext context,
         IAntiforgery antiforgery,
         IdentityPageRenderer pageRenderer,
