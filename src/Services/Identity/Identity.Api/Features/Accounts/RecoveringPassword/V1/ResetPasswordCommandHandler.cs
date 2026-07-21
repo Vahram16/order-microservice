@@ -1,4 +1,5 @@
 using System.Text;
+using Identity.Api.Infrastructure;
 using Identity.Api.Model;
 using Microservices.Application;
 using Microsoft.AspNetCore.Identity;
