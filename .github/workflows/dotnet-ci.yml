@@ -33,35 +33,44 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p Logs
           while IFS= read -r project; do
-            dotnet restore "$project"
+            dotnet restore "$project" 2>&1 | tee -a Logs/restore.log
           done < <(find src tests -name '*.csproj' -type f | sort)
 
       - name: Build source projects
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p Logs
           while IFS= read -r project; do
-            dotnet build "$project" --configuration Release --no-restore
+            printf '\n=== %s ===\n' "$project" | tee -a Logs/build.log
+            dotnet build "$project" --configuration Release --no-restore 2>&1 \
+              | tee -a Logs/build.log
           done < <(find src -name '*.csproj' -type f | sort)
 
       - name: Run tests
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p Logs
           while IFS= read -r project; do
+            printf '\n=== %s ===\n' "$project" | tee -a Logs/test.log
             dotnet test "$project" \
               --configuration Release \
               --no-restore \
               --logger "trx" \
-              --results-directory TestResults
+              --results-directory TestResults 2>&1 \
+              | tee -a Logs/test.log
           done < <(find tests -name '*.csproj' -type f | sort)
 
-      - name: Upload test results
+      - name: Upload CI diagnostics
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: test-results
-          path: TestResults/**/*.trx
+          name: ci-diagnostics
+          path: |
+            Logs/*.log
+            TestResults/**/*.trx
           if-no-files-found: ignore
           retention-days: 14
