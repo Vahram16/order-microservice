@@ -23,6 +23,7 @@ public static class IdentityServiceExtensions
     public const string AccountRateLimitPolicy = "identity-account";
     public const string LoginRateLimitPolicy = "identity-login";
     public const string TokenRateLimitPolicy = "identity-token";
+    public const string BrowserCorsPolicy = "identity-browser";
     public const string ProfilePolicy = "identity-profile";
     private const string IdentityApiAudience = "identity-api";
 
@@ -221,7 +222,8 @@ public static class IdentityServiceExtensions
             });
 
         builder.Services.AddAuthorizationBuilder()
-            .SetFallbackPolicy(new AuthorizationPolicyBuilder()
+            .SetFallbackPolicy(new AuthorizationPolicyBuilder(
+                    OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme)
                 .RequireAuthenticatedUser()
                 .Build())
             .AddPolicy(ProfilePolicy, policy =>
@@ -265,7 +267,9 @@ public static class IdentityServiceExtensions
             {
                 context.Response.Headers.TryAdd("X-Content-Type-Options", "nosniff");
                 context.Response.Headers.TryAdd("Referrer-Policy", "no-referrer");
-                context.Response.Headers.TryAdd("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+                context.Response.Headers.TryAdd(
+                    "Permissions-Policy",
+                    "camera=(), microphone=(), geolocation=()");
                 context.Response.Headers.TryAdd(
                     "Content-Security-Policy",
                     "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
@@ -343,7 +347,7 @@ public static class IdentityServiceExtensions
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        services.AddCors(options => options.AddDefaultPolicy(policy =>
+        services.AddCors(options => options.AddPolicy(BrowserCorsPolicy, policy =>
         {
             if (origins.Length == 0)
             {
