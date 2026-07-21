@@ -1,6 +1,9 @@
+using System.Reflection;
 using System.Text.Json;
 using Identity.Api.Notifications;
+using Identity.Api.Persistence;
 using Identity.Api.Provisioning;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Identity.Api.Tests;
 
@@ -38,11 +41,30 @@ public sealed class IdentityHardeningTests
     }
 
     [Fact]
+    public void NotificationWorkerCreatesScopesInsteadOfCapturingDbContext()
+    {
+        var workerParameters = GetConstructorParameters(
+            typeof(IdentityNotificationOutboxWorker));
+        var dispatcherParameters = GetConstructorParameters(
+            typeof(IdentityNotificationOutboxDispatcher));
+
+        Assert.Contains(
+            workerParameters,
+            parameter => parameter.ParameterType == typeof(IServiceScopeFactory));
+        Assert.DoesNotContain(
+            workerParameters,
+            parameter => parameter.ParameterType == typeof(IdentityServiceDbContext));
+        Assert.Contains(
+            dispatcherParameters,
+            parameter => parameter.ParameterType == typeof(IdentityServiceDbContext));
+    }
+
+    [Fact]
     public void NotificationRetryStopsBeforeTokenExpiry()
     {
         var now = new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero);
 
-        var nextAttempt = IdentityNotificationOutboxWorker.GetNextAttemptAtUtc(
+        var nextAttempt = IdentityNotificationOutboxDispatcher.GetNextAttemptAtUtc(
             completedAttempts: 5,
             maximumAttempts: 12,
             now,
@@ -56,7 +78,7 @@ public sealed class IdentityHardeningTests
     {
         var now = new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero);
 
-        var nextAttempt = IdentityNotificationOutboxWorker.GetNextAttemptAtUtc(
+        var nextAttempt = IdentityNotificationOutboxDispatcher.GetNextAttemptAtUtc(
             completedAttempts: 3,
             maximumAttempts: 12,
             now,
@@ -70,7 +92,7 @@ public sealed class IdentityHardeningTests
     {
         var now = new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero);
 
-        var nextAttempt = IdentityNotificationOutboxWorker.GetNextAttemptAtUtc(
+        var nextAttempt = IdentityNotificationOutboxDispatcher.GetNextAttemptAtUtc(
             completedAttempts: 12,
             maximumAttempts: 12,
             now,
@@ -78,4 +100,12 @@ public sealed class IdentityHardeningTests
 
         Assert.Null(nextAttempt);
     }
+
+    private static ParameterInfo[] GetConstructorParameters(Type type) =>
+        type.GetConstructors(
+                BindingFlags.Instance |
+                BindingFlags.Public |
+                BindingFlags.NonPublic)
+            .Single()
+            .GetParameters();
 }

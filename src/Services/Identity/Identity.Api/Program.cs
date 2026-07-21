@@ -4,6 +4,7 @@ using Identity.Api.Persistence;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddApiDocumentation("Identity API");
 builder.AddIdentityService();
 builder.Services.AddIdentityApplication(builder.Configuration);
 builder.Services.AddProblemDetails();
@@ -34,6 +35,7 @@ app.UseAuthorization();
 
 app.MapDefaultEndpoints();
 app.MapIdentityApplication();
+app.MapApiDocumentation();
 
 await app.RunAsync();
 
