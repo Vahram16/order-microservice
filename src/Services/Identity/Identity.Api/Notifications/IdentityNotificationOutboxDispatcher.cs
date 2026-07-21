@@ -52,15 +52,6 @@ internal sealed partial class IdentityNotificationOutboxDispatcher(
                 }
 
                 await transport.SendAsync(payload, cancellationToken);
-
-                message.ProcessedAtUtc = timeProvider.GetUtcNow();
-                message.ProtectedPayload = string.Empty;
-                message.LockId = null;
-                message.LockedUntilUtc = null;
-                message.LastError = null;
-                await dbContext.SaveChangesAsync(cancellationToken);
-                dbContext.ChangeTracker.Clear();
-                LogNotificationDelivered(logger, message.Id);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -73,7 +64,17 @@ internal sealed partial class IdentityNotificationOutboxDispatcher(
                     payload?.ExpiresAtUtc,
                     exception,
                     cancellationToken);
+                continue;
             }
+
+            message.ProcessedAtUtc = timeProvider.GetUtcNow();
+            message.ProtectedPayload = string.Empty;
+            message.LockId = null;
+            message.LockedUntilUtc = null;
+            message.LastError = null;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            dbContext.ChangeTracker.Clear();
+            LogNotificationDelivered(logger, message.Id);
         }
 
         if (cleanupExpiredRecords)
