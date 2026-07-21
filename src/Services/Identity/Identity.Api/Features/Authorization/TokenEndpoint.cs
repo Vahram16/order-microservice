@@ -1,4 +1,5 @@
 using Identity.Api.Model;
+using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using OpenIddict.Abstractions;
@@ -26,14 +27,14 @@ internal static class TokenEndpoint
                 throw new InvalidOperationException("The client application cannot be found.");
             var displayName = await applicationManager.GetLocalizedDisplayNameAsync(application) ??
                 request.ClientId!;
-            var principal = await AuthorizationPrincipalFactory.CreateServicePrincipalAsync(
+            var servicePrincipal = await AuthorizationPrincipalFactory.CreateServicePrincipalAsync(
                 request.ClientId!,
                 displayName,
                 request.GetScopes(),
                 scopeManager);
 
             return Results.SignIn(
-                principal,
+                servicePrincipal,
                 authenticationScheme:
                     OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
         }
@@ -76,7 +77,7 @@ internal static class TokenEndpoint
         var scopes = request.IsRefreshTokenGrantType() && request.GetScopes().Any()
             ? request.GetScopes()
             : storedPrincipal.GetScopes();
-        var principal = await AuthorizationPrincipalFactory.RefreshUserPrincipalAsync(
+        var refreshedPrincipal = await AuthorizationPrincipalFactory.RefreshUserPrincipalAsync(
             storedPrincipal,
             user,
             scopes,
@@ -84,7 +85,7 @@ internal static class TokenEndpoint
             scopeManager);
 
         return Results.SignIn(
-            principal,
+            refreshedPrincipal,
             authenticationScheme:
                 OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
     }
