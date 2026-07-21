@@ -18,34 +18,59 @@ internal static class AuthorizationPrincipalFactory
         UserManager<ApplicationUser> userManager,
         IOpenIddictScopeManager scopeManager)
     {
+        var identity = CreateIdentity(user);
+        identity.SetClaim(
+            Claims.AuthenticationTime,
+            authenticationTime.ToUnixTimeSeconds());
+        await SetSecurityStampAsync(identity, user, userManager);
+
+        var requestedScopes = scopes.ToHashSet(StringComparer.Ordinal);
+        await SetRolesAsync(identity, user, requestedScopes, userManager);
+        return await CreatePrincipalAsync(identity, requestedScopes, scopeManager);
+    }
+
+    public static async Task<ClaimsPrincipal> RefreshUserPrincipalAsync(
+        ClaimsPrincipal storedPrincipal,
+        ApplicationUser user,
+        IEnumerable<string> scopes,
+        UserManager<ApplicationUser> userManager,
+        IOpenIddictScopeManager scopeManager)
+    {
+        var identity = new ClaimsIdentity(
+            storedPrincipal.Claims,
+            TokenValidationParameters.DefaultAuthenticationType,
+            Claims.Name,
+            Claims.Role);
+        SetUserClaims(identity, user);
+        await SetSecurityStampAsync(identity, user, userManager);
+
+        var requestedScopes = scopes.ToHashSet(StringComparer.Ordinal);
+        await SetRolesAsync(identity, user, requestedScopes, userManager);
+        var principal = await CreatePrincipalAsync(
+            identity,
+            requestedScopes,
+            scopeManager);
+        principal.SetAuthorizationId(storedPrincipal.GetAuthorizationId());
+        return principal;
+    }
+
+    public static async Task<ClaimsPrincipal> CreateServicePrincipalAsync(
+        string clientId,
+        string displayName,
+        IEnumerable<string> scopes,
+        IOpenIddictScopeManager scopeManager)
+    {
         var identity = new ClaimsIdentity(
             TokenValidationParameters.DefaultAuthenticationType,
             Claims.Name,
             Claims.Role);
-        identity.SetClaim(Claims.Subject, user.Id.ToString("D"))
-            .SetClaim(Claims.Name, user.DisplayName)
-            .SetClaim(Claims.PreferredUsername, user.UserName)
-            .SetClaim(Claims.Email, user.Email)
-            .SetClaim(Claims.EmailVerified, user.EmailConfirmed)
-            .SetClaim(Claims.AuthenticationTime, authenticationTime.ToUnixTimeSeconds())
-            .SetClaim(
-                SecurityStampClaim,
-                await userManager.GetSecurityStampAsync(user));
+        identity.SetClaim(Claims.Subject, $"client:{clientId}")
+            .SetClaim(Claims.Name, displayName);
 
-        var requestedScopes = scopes.ToHashSet(StringComparer.Ordinal);
-        if (requestedScopes.Contains(Scopes.Roles))
-        {
-            identity.SetClaims(
-                Claims.Role,
-                [.. await userManager.GetRolesAsync(user)]);
-        }
-
-        var principal = new ClaimsPrincipal(identity);
-        principal.SetScopes(requestedScopes);
-        principal.SetResources(
-            await scopeManager.ListResourcesAsync(principal.GetScopes()).ToListAsync());
-        principal.SetDestinations(GetDestinations);
-        return principal;
+        return await CreatePrincipalAsync(
+            identity,
+            scopes.ToHashSet(StringComparer.Ordinal),
+            scopeManager);
     }
 
     public static IEnumerable<string> GetDestinations(Claim claim)
@@ -88,5 +113,57 @@ internal static class AuthorizationPrincipalFactory
                 yield return Destinations.AccessToken;
                 yield break;
         }
+    }
+
+    private static ClaimsIdentity CreateIdentity(ApplicationUser user)
+    {
+        var identity = new ClaimsIdentity(
+            TokenValidationParameters.DefaultAuthenticationType,
+            Claims.Name,
+            Claims.Role);
+        SetUserClaims(identity, user);
+        return identity;
+    }
+
+    private static void SetUserClaims(
+        ClaimsIdentity identity,
+        ApplicationUser user) =>
+        identity.SetClaim(Claims.Subject, user.Id.ToString("D"))
+            .SetClaim(Claims.Name, user.DisplayName)
+            .SetClaim(Claims.PreferredUsername, user.UserName)
+            .SetClaim(Claims.Email, user.Email)
+            .SetClaim(Claims.EmailVerified, user.EmailConfirmed);
+
+    private static async Task SetSecurityStampAsync(
+        ClaimsIdentity identity,
+        ApplicationUser user,
+        UserManager<ApplicationUser> userManager) =>
+        identity.SetClaim(
+            SecurityStampClaim,
+            await userManager.GetSecurityStampAsync(user));
+
+    private static async Task SetRolesAsync(
+        ClaimsIdentity identity,
+        ApplicationUser user,
+        IReadOnlySet<string> scopes,
+        UserManager<ApplicationUser> userManager)
+    {
+        var roles = scopes.Contains(Scopes.Roles)
+            ? await userManager.GetRolesAsync(user)
+            : [];
+        identity.SetClaims(Claims.Role, roles);
+    }
+
+    private static async Task<ClaimsPrincipal> CreatePrincipalAsync(
+        ClaimsIdentity identity,
+        IReadOnlySet<string> scopes,
+        IOpenIddictScopeManager scopeManager)
+    {
+        var principal = new ClaimsPrincipal(identity);
+        principal.SetScopes(scopes);
+        principal.SetResources(
+            await scopeManager.ListResourcesAsync(principal.GetScopes()).ToListAsync());
+        principal.SetDestinations(GetDestinations);
+        return principal;
     }
 }
