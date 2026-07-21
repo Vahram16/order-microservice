@@ -4,20 +4,19 @@ namespace Identity.Api.Features.Accounts.ConfirmingEmail.V1;
 
 internal static class ConfirmEmailEndpointExtensions
 {
-    private const string ConfirmEmailPath = "/account/confirm-email";
-
     public static IEndpointRouteBuilder MapConfirmEmail(
         this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet(ConfirmEmailPath, ConfirmEmailEndpoint.Render)
+        endpoints.MapPost(
+                "/api/v1/accounts/email-confirmation",
+                ConfirmEmailEndpoint.HandleAsync)
             .AllowAnonymous()
+            .RequireCors(IdentityServiceExtensions.BrowserCorsPolicy)
             .RequireRateLimiting(IdentityServiceExtensions.AccountRateLimitPolicy)
-            .ExcludeFromDescription();
-
-        endpoints.MapPost(ConfirmEmailPath, ConfirmEmailEndpoint.HandleAsync)
-            .AllowAnonymous()
-            .RequireRateLimiting(IdentityServiceExtensions.AccountRateLimitPolicy)
-            .ExcludeFromDescription();
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesValidationProblem()
+            .WithName("ConfirmIdentityEmail")
+            .WithSummary("Confirm an account email using a one-time token.");
 
         endpoints.MapPost(
                 "/api/v1/accounts/email-confirmation/resend",
