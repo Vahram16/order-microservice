@@ -1,5 +1,4 @@
 using Identity.Api.Model;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using OpenIddict.Server.AspNetCore;
 
@@ -13,7 +12,10 @@ internal static class LogoutEndpoint
         await signInManager.SignOutAsync();
 
         return Results.SignOut(
-            new AuthenticationProperties { RedirectUri = "/" },
-            [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
+            authenticationSchemes:
+            [
+                IdentityConstants.ApplicationScheme,
+                OpenIddictServerAspNetCoreDefaults.AuthenticationScheme
+            ]);
     }
 }
