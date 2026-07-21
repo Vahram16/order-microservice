@@ -1,8 +1,11 @@
 using System.Reflection;
 using System.Text.Json;
+using Identity.Api.Configuration;
+using Identity.Api.Infrastructure;
 using Identity.Api.Notifications;
 using Identity.Api.Persistence;
 using Identity.Api.Provisioning;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Identity.Api.Tests;
@@ -57,6 +60,29 @@ public sealed class IdentityHardeningTests
         Assert.Contains(
             dispatcherParameters,
             parameter => parameter.ParameterType == typeof(IdentityServiceDbContext));
+    }
+
+    [Theory]
+    [InlineData(nameof(IdentityNotificationProvider.DevelopmentLog), false)]
+    [InlineData(nameof(IdentityNotificationProvider.Webhook), true)]
+    public void NotificationDispatcherRegistrationFollowsConfiguredProvider(
+        string provider,
+        bool expectedRegistration)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [$"{IdentityNotificationOptions.SectionName}:Provider"] = provider
+            })
+            .Build();
+        var services = new ServiceCollection();
+
+        services.AddIdentityApplication(configuration);
+
+        Assert.Equal(
+            expectedRegistration,
+            services.Any(descriptor =>
+                descriptor.ServiceType == typeof(IdentityNotificationOutboxDispatcher)));
     }
 
     [Fact]
