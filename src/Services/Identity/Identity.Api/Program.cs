@@ -6,7 +6,6 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.AddIdentityService();
 builder.Services.AddIdentityApplication(builder.Configuration);
-builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<IdentityExceptionHandler>();
 builder.Services.AddHealthChecks().AddDbContextCheck<IdentityServiceDbContext>();
@@ -41,7 +40,6 @@ app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapDefaultEndpoints();
-app.MapControllers();
 app.MapIdentityApplication();
 
 await app.RunAsync();
