@@ -299,6 +299,6 @@ internal sealed partial class IdentityNotificationOutboxWorker(
         ILogger logger,
         Exception exception);
 
-    private sealed class ExpiredIdentityNotificationException
+    private sealed class ExpiredIdentityNotificationException()
         : Exception("The account notification token expired before delivery.");
 }
