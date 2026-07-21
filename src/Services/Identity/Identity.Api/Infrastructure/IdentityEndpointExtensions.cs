@@ -47,7 +47,14 @@ internal static class IdentityEndpointExtensions
         services.AddSingleton<PasswordBlocklist>();
         services.AddScoped<IPasswordValidator<ApplicationUser>,
             BlockedPasswordValidator>();
-        services.AddScoped<IdentityNotificationOutboxDispatcher>();
+
+        var notificationProvider = applicationConfiguration
+            .GetValue<IdentityNotificationProvider>(
+                $"{IdentityNotificationOptions.SectionName}:Provider");
+        if (notificationProvider == IdentityNotificationProvider.Webhook)
+        {
+            services.AddScoped<IdentityNotificationOutboxDispatcher>();
+        }
 
         services.AddOpenIddict()
             .AddServer(options =>
