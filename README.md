@@ -87,6 +87,10 @@ endpoints are `/connect/authorize`, `/connect/par`, `/connect/token`, `/connect/
 `/connect/logout`, and `/connect/userinfo`. HTTPS is mandatory outside Development.
 Pushed authorization is granted only to clients configured to require it.
 
+Account operations are Web API endpoints. The frontend owns confirmation dialogs, success pages,
+password-reset pages, and logout confirmation. Email confirmation is submitted as JSON to
+`POST /api/v1/accounts/email-confirmation`; the Identity API does not render application HTML.
+
 ### Audiences and scopes
 
 Scope configuration maps each capability to the API resource that will consume it; that resource is
@@ -128,10 +132,11 @@ OpenIddict scopes and clients, then starts `Identity.Api` at the Development iss
 `https://localhost:7100/`. The development `booking-web` registration permits only the redirect and
 post-logout URIs in `Identity.Api/appsettings.Development.json`; change those values to the exact
 local frontend URLs when necessary. Registration and recovery notifications are written to the
-Identity API log only in Development. The sample API validates tokens for `booking-public-api`
-against this issuer. Local OpenIddict signing/encryption keys are ephemeral by default, so local
-tokens intentionally stop working after an Identity API restart; production always requires
-persistent certificates.
+Identity API log only in Development. Notification action URLs use `IdentityNotifications:PublicOrigin`
+and should point to the frontend application, which submits the token to the Identity Web API. The
+sample API validates tokens for `booking-public-api` against this issuer. Local OpenIddict
+signing/encryption keys are ephemeral by default, so local tokens intentionally stop working after
+an Identity API restart; production always requires persistent certificates.
 
 ## Migrations
 
@@ -193,13 +198,14 @@ unsafe. Supply all secrets through the deployment secret provider, never committ
   `AuthorizationServer:CorsOrigins` list. Origins must be exact HTTPS origins, wildcards are not
   accepted, and cross-origin credentials are not enabled. Do not inject the client manifest or
   confidential-client secrets into API replicas.
-- Set `IdentityNotifications:Provider` to `Webhook`, `PublicOrigin` to the public HTTPS identity
-  origin, and `WebhookEndpoint` to the production notification service. Store
-  a secret-manager-generated Base64url `WebhookApiKey` as a secret. `DevelopmentLog` is forbidden
-  in production because confirmation and reset links contain one-time credentials. The API commits
-  an encrypted notification outbox record in the same database transaction as account creation;
-  the worker uses leases, bounded retries, deduplication, dead-lettering, and an idempotency key.
-  Alert on dead-lettered rows and repeated webhook failures.
+- Set `IdentityNotifications:Provider` to `Webhook`, `PublicOrigin` to the public HTTPS frontend
+  origin that owns confirmation and recovery pages, and `WebhookEndpoint` to the production
+  notification service. Store a secret-manager-generated Base64url `WebhookApiKey` as a secret.
+  `DevelopmentLog` is forbidden in production because confirmation and reset links contain one-time
+  credentials. The frontend extracts the one-time values from the action URL and submits them to the
+  versioned Identity API endpoint. The API commits an encrypted notification outbox record in the same
+  database transaction as account creation; the worker uses leases, bounded retries, deduplication,
+  dead-lettering, and an idempotency key. Alert on dead-lettered rows and repeated webhook failures.
 - Provide `ConnectionStrings:identity-db` from the secret store. Data Protection keys are persisted
   in that database and encrypted with the configured encryption certificate, so backup and
   certificate-rotation procedures must preserve both. Use separate database roles: schema-owner
