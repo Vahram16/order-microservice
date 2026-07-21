@@ -15,9 +15,9 @@ public sealed class IdentityPageRendererTests
                 "\"><script>alert(1)</script>",
                 "<antiforgery>"));
 
-        Assert.DoesNotContain("<script>", page, StringComparison.Ordinal);
-        Assert.Contains("&lt;script&gt;", page, StringComparison.Ordinal);
-        Assert.Contains("&lt;antiforgery&gt;", page, StringComparison.Ordinal);
+        Assert.DoesNotContain("<script>", page);
+        Assert.Contains("&lt;script&gt;", page);
+        Assert.Contains("&lt;antiforgery&gt;", page);
     }
 
     [Fact]
@@ -28,7 +28,7 @@ public sealed class IdentityPageRendererTests
                 "/connect/logout?returnUrl=\"><script>alert(1)</script>",
                 "token"));
 
-        Assert.DoesNotContain("<script>", page, StringComparison.Ordinal);
-        Assert.Contains("&lt;script&gt;", page, StringComparison.Ordinal);
+        Assert.DoesNotContain("<script>", page);
+        Assert.Contains("&lt;script&gt;", page);
     }
 }
