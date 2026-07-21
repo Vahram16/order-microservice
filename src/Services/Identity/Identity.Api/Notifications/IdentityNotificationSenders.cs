@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Identity.Api.Configuration;
 using Identity.Api.Persistence;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -70,12 +71,14 @@ internal sealed class OutboxIdentityNotificationSender(
     IdentityServiceDbContext dbContext,
     IDataProtectionProvider dataProtectionProvider,
     IOptions<IdentityNotificationOptions> options,
+    IOptions<DataProtectionTokenProviderOptions> tokenOptions,
     TimeProvider timeProvider)
     : IIdentityNotificationSender
 {
     private const string EmailConfirmationTemplate = "identity.email-confirmation";
     private const string PasswordResetTemplate = "identity.password-reset";
     private readonly IdentityNotificationOptions _options = options.Value;
+    private readonly TimeSpan _tokenLifespan = tokenOptions.Value.TokenLifespan;
     private readonly IDataProtector _protector = dataProtectionProvider.CreateProtector(
         "Identity.Api.NotificationOutbox.v1");
 
@@ -112,9 +115,15 @@ internal sealed class OutboxIdentityNotificationSender(
     {
         var id = Guid.CreateVersion7();
         var now = timeProvider.GetUtcNow();
+        var expiresAtUtc = now + _tokenLifespan;
         var payload = _protector.Protect(
             System.Text.Json.JsonSerializer.Serialize(
-                new IdentityNotificationPayload(id, template, recipient, actionUrl)));
+                new IdentityNotificationPayload(
+                    id,
+                    template,
+                    recipient,
+                    actionUrl,
+                    expiresAtUtc)));
         var deduplicationKey = $"{template}:{userId:N}";
         var resendAfter = now - _options.DeduplicationWindow;
 
@@ -136,7 +145,8 @@ internal sealed class OutboxIdentityNotificationSender(
                 "DeadLetteredAtUtc" = NULL,
                 "LastError" = NULL
             WHERE target."DeadLetteredAtUtc" IS NOT NULL
-               OR target."ProcessedAtUtc" <= {{resendAfter}};
+               OR target."ProcessedAtUtc" <= {{resendAfter}}
+               OR target."CreatedAtUtc" <= {{now - _tokenLifespan}};
             """, cancellationToken);
     }
 
@@ -195,4 +205,5 @@ internal sealed record IdentityNotificationPayload(
     Guid EventId,
     string Template,
     string Recipient,
-    string ActionUrl);
+    string ActionUrl,
+    DateTimeOffset ExpiresAtUtc);
