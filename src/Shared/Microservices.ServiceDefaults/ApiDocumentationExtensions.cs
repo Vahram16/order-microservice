@@ -10,6 +10,12 @@ public static class ApiDocumentationExtensions
 {
     private const string DocumentName = "v1";
     private const string BearerScheme = "Bearer";
+    private const string DeveloperDocumentationContentSecurityPolicy =
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; " +
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; " +
+        "font-src 'self' data:; connect-src 'self' http: https:; " +
+        "worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; " +
+        "form-action 'self'";
 
     public static WebApplicationBuilder AddApiDocumentation(
         this WebApplicationBuilder builder,
@@ -40,13 +46,27 @@ public static class ApiDocumentationExtensions
         }
 
         app.MapOpenApi()
+            .AddEndpointFilter(AddDeveloperDocumentationHeadersAsync)
             .AllowAnonymous()
             .ExcludeFromDescription();
         app.MapScalarApiReference()
+            .AddEndpointFilter(AddDeveloperDocumentationHeadersAsync)
             .AllowAnonymous()
             .ExcludeFromDescription();
 
         return app;
+    }
+
+    private static async ValueTask<object?> AddDeveloperDocumentationHeadersAsync(
+        EndpointFilterInvocationContext context,
+        EndpointFilterDelegate next)
+    {
+        context.HttpContext.Response.Headers.CacheControl = "no-store, no-cache";
+        context.HttpContext.Response.Headers.Pragma = "no-cache";
+        context.HttpContext.Response.Headers["Content-Security-Policy"] =
+            DeveloperDocumentationContentSecurityPolicy;
+
+        return await next(context);
     }
 
     private sealed class BearerSecuritySchemeTransformer : IOpenApiDocumentTransformer
