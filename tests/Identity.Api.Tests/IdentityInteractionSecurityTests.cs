@@ -19,7 +19,7 @@ public sealed class IdentityInteractionSecurityTests
     public void LogoutInteractionIsBoundToTheExactCompletionUri()
     {
         var timeProvider = new TestTimeProvider(
-            DateTimeOffset.Parse("2026-07-21T12:00:00Z"));
+            new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
         var protector = CreateLogoutProtector(timeProvider);
         const string completionUri =
             "/connect/logout?request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Aone";
@@ -37,7 +37,7 @@ public sealed class IdentityInteractionSecurityTests
     public void LogoutInteractionExpires()
     {
         var timeProvider = new TestTimeProvider(
-            DateTimeOffset.Parse("2026-07-21T12:00:00Z"));
+            new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
         var protector = CreateLogoutProtector(timeProvider);
         const string completionUri = "/connect/logout?request_uri=opaque";
         var token = protector.Protect(completionUri);
