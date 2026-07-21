@@ -53,7 +53,7 @@ internal sealed class IdentityInteractionUrlBuilder(
     private static string NormalizeLocalReturnUrl(string? value)
     {
         if (string.IsNullOrWhiteSpace(value) ||
-            !value.StartsWith('/', StringComparison.Ordinal) ||
+            !value.StartsWith("/", StringComparison.Ordinal) ||
             value.StartsWith("//", StringComparison.Ordinal) ||
             value.Contains('\\') ||
             value.Contains('\r') ||
