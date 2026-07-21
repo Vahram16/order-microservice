@@ -71,7 +71,7 @@ internal sealed class IdentityInteractionOptionsValidator(
         List<string> failures)
     {
         if (string.IsNullOrWhiteSpace(value) ||
-            !value.StartsWith('/', StringComparison.Ordinal) ||
+            !value.StartsWith("/", StringComparison.Ordinal) ||
             value.StartsWith("//", StringComparison.Ordinal) ||
             value.Contains('\\') ||
             value.Contains('?') ||
