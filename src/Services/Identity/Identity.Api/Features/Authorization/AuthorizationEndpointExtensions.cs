@@ -35,8 +35,16 @@ internal static class AuthorizationEndpointExtensions
             .RequireCors(IdentityServiceExtensions.BrowserCorsPolicy)
             .ExcludeFromDescription();
 
-        endpoints.MapPost("/connect/logout", LogoutEndpoint.Handle)
+        endpoints.MapGet("/connect/logout", LogoutEndpoint.Begin)
             .AllowAnonymous()
+            .RequireRateLimiting(IdentityServiceExtensions.AccountRateLimitPolicy)
+            .ExcludeFromDescription();
+
+        endpoints.MapPost("/connect/logout", LogoutEndpoint.CompleteAsync)
+            .AllowAnonymous()
+            .RequireRateLimiting(IdentityServiceExtensions.AccountRateLimitPolicy)
+            .RequireCors(IdentityServiceExtensions.BrowserCorsPolicy)
+            .Accepts<LogoutConfirmationRequest>("application/json")
             .ExcludeFromDescription();
 
         return endpoints;
