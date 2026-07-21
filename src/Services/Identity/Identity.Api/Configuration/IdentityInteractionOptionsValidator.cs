@@ -73,11 +73,11 @@ internal sealed class IdentityInteractionOptionsValidator(
         if (string.IsNullOrWhiteSpace(value) ||
             !value.StartsWith('/', StringComparison.Ordinal) ||
             value.StartsWith("//", StringComparison.Ordinal) ||
-            value.Contains('\\', StringComparison.Ordinal) ||
-            value.Contains('?', StringComparison.Ordinal) ||
-            value.Contains('#', StringComparison.Ordinal) ||
-            value.Contains('\r', StringComparison.Ordinal) ||
-            value.Contains('\n', StringComparison.Ordinal))
+            value.Contains('\\') ||
+            value.Contains('?') ||
+            value.Contains('#') ||
+            value.Contains('\r') ||
+            value.Contains('\n'))
         {
             failures.Add(
                 $"'IdentityInteraction:{name}' must be a local absolute path without a query or fragment.");
