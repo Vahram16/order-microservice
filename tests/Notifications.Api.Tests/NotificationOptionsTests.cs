@@ -1,4 +1,5 @@
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Notifications.Api.Configuration;
 
 namespace Notifications.Api.Tests;
