@@ -1,5 +1,6 @@
 using System.Security.Cryptography.X509Certificates;
 using Identity.Api.Configuration;
+using Identity.Api.Infrastructure;
 using Identity.Api.Model;
 using Identity.Api.Persistence;
 using Microsoft.AspNetCore.DataProtection;
