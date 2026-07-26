@@ -94,7 +94,7 @@ internal static class NotificationServiceExtensions
 
     private static void AddOptions(
         IServiceCollection services,
-        IConfiguration configuration)
+        ConfigurationManager configuration)
     {
         services.AddSingleton<IValidateOptions<NotificationDeliveryOptions>,
             NotificationDeliveryOptionsValidator>();
