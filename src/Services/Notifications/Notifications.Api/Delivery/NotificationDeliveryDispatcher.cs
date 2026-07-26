@@ -45,35 +45,7 @@ internal sealed partial class NotificationDeliveryDispatcher(
 
             try
             {
-                if (delivery.ExpiresAtUtc <= timeProvider.GetUtcNow())
-                {
-                    throw new ExpiredNotificationException();
-                }
-
-                var json = _protector.Unprotect(delivery.ProtectedPayload);
-                var payload = JsonSerializer.Deserialize<IdentityNotificationDeliveryPayload>(json) ??
-                    throw new JsonException("The notification payload is empty.");
-                var templateAlias = ResolveTemplateAlias(payload.Template);
-                var result = await emailTransport.SendAsync(
-                    new EmailMessage(
-                        delivery.Id,
-                        payload.EventId,
-                        payload.Template,
-                        templateAlias,
-                        payload.Recipient,
-                        payload.ActionUrl,
-                        payload.ExpiresAtUtc),
-                    cancellationToken);
-
-                delivery.AcceptedByProviderAtUtc = timeProvider.GetUtcNow();
-                delivery.ProviderMessageId = result.ProviderMessageId;
-                delivery.ProtectedPayload = string.Empty;
-                delivery.LockId = null;
-                delivery.LockedUntilUtc = null;
-                delivery.LastError = null;
-                await dbContext.SaveChangesAsync(cancellationToken);
-                dbContext.ChangeTracker.Clear();
-                LogDelivered(logger, delivery.Id, result.ProviderMessageId);
+                await DeliverAsync(delivery, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -89,6 +61,40 @@ internal sealed partial class NotificationDeliveryDispatcher(
         {
             await CleanupAsync(now, cancellationToken);
         }
+    }
+
+    private async Task DeliverAsync(
+        NotificationDelivery delivery,
+        CancellationToken cancellationToken)
+    {
+        if (delivery.ExpiresAtUtc <= timeProvider.GetUtcNow())
+        {
+            throw new ExpiredNotificationException();
+        }
+
+        var json = _protector.Unprotect(delivery.ProtectedPayload);
+        var payload = JsonSerializer.Deserialize<IdentityNotificationDeliveryPayload>(json) ??
+            throw new JsonException("The notification payload is empty.");
+        var result = await emailTransport.SendAsync(
+            new EmailMessage(
+                delivery.Id,
+                payload.EventId,
+                payload.Template,
+                ResolveTemplateAlias(payload.Template),
+                payload.Recipient,
+                payload.ActionUrl,
+                payload.ExpiresAtUtc),
+            cancellationToken);
+
+        delivery.AcceptedByProviderAtUtc = timeProvider.GetUtcNow();
+        delivery.ProviderMessageId = result.ProviderMessageId;
+        delivery.ProtectedPayload = string.Empty;
+        delivery.LockId = null;
+        delivery.LockedUntilUtc = null;
+        delivery.LastError = null;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        dbContext.ChangeTracker.Clear();
+        LogDelivered(logger, delivery.Id, result.ProviderMessageId);
     }
 
     private string ResolveTemplateAlias(string template) => template switch
@@ -111,8 +117,7 @@ internal sealed partial class NotificationDeliveryDispatcher(
         delivery.LockedUntilUtc = null;
         delivery.LastError = GetSafeError(exception);
 
-        var transient = exception is EmailTransportException { IsTransient: true };
-        var nextAttempt = transient
+        var nextAttempt = exception is EmailTransportException { IsTransient: true }
             ? GetNextAttemptAtUtc(
                 delivery.AttemptCount,
                 _deliveryOptions.MaximumAttempts,
@@ -274,6 +279,11 @@ internal sealed partial class NotificationDeliveryDispatcher(
         int attempt,
         string error);
 
-    private sealed class ExpiredNotificationException : Exception;
-    private sealed class UnsupportedNotificationTemplateException : Exception;
+    private sealed class ExpiredNotificationException : Exception
+    {
+    }
+
+    private sealed class UnsupportedNotificationTemplateException : Exception
+    {
+    }
 }
