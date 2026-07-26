@@ -73,8 +73,9 @@ public sealed class IdentityHardeningTests
 
         IdentityNotificationRegistration.Add(services, configuration, options);
 
-        var sender = Assert.Single(services.Where(descriptor =>
-            descriptor.ServiceType == typeof(IIdentityNotificationSender)));
+        var sender = Assert.Single(
+            services,
+            descriptor => descriptor.ServiceType == typeof(IIdentityNotificationSender));
         Assert.Equal(typeof(DevelopmentIdentityNotificationSender), sender.ImplementationType);
         Assert.Equal(ServiceLifetime.Scoped, sender.Lifetime);
         Assert.DoesNotContain(services, descriptor =>
@@ -97,23 +98,29 @@ public sealed class IdentityHardeningTests
 
         IdentityNotificationRegistration.Add(services, configuration, options);
 
-        var sender = Assert.Single(services.Where(descriptor =>
-            descriptor.ServiceType == typeof(IIdentityNotificationSender)));
+        var sender = Assert.Single(
+            services,
+            descriptor => descriptor.ServiceType == typeof(IIdentityNotificationSender));
         Assert.Equal(typeof(OutboxIdentityNotificationSender), sender.ImplementationType);
         Assert.Equal(ServiceLifetime.Scoped, sender.Lifetime);
 
-        var transport = Assert.Single(services.Where(descriptor =>
-            descriptor.ServiceType == typeof(IIdentityNotificationTransport)));
+        var transport = Assert.Single(
+            services,
+            descriptor => descriptor.ServiceType == typeof(IIdentityNotificationTransport));
         Assert.Equal(ServiceLifetime.Scoped, transport.Lifetime);
 
-        var dispatcher = Assert.Single(services.Where(descriptor =>
-            descriptor.ServiceType == typeof(IdentityNotificationOutboxDispatcher)));
+        var dispatcher = Assert.Single(
+            services,
+            descriptor =>
+                descriptor.ServiceType == typeof(IdentityNotificationOutboxDispatcher));
         Assert.Equal(typeof(IdentityNotificationOutboxDispatcher), dispatcher.ImplementationType);
         Assert.Equal(ServiceLifetime.Scoped, dispatcher.Lifetime);
 
-        var worker = Assert.Single(services.Where(descriptor =>
-            descriptor.ServiceType == typeof(IHostedService) &&
-            descriptor.ImplementationType == typeof(IdentityNotificationOutboxWorker)));
+        var worker = Assert.Single(
+            services,
+            descriptor =>
+                descriptor.ServiceType == typeof(IHostedService) &&
+                descriptor.ImplementationType == typeof(IdentityNotificationOutboxWorker));
         Assert.Equal(ServiceLifetime.Singleton, worker.Lifetime);
     }
 
