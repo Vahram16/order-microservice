@@ -18,7 +18,7 @@ public sealed class NotificationOptionsTests
                 FromAddress = "notifications@example.com"
             });
 
-        Assert.Failed(result);
+        Assert.True(result.Failed);
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public sealed class NotificationOptionsTests
                 ApiKey = "local-development-notifications-webhook-key-2026"
             });
 
-        Assert.Failed(result);
+        Assert.True(result.Failed);
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public sealed class NotificationOptionsTests
             null,
             new NotificationDeliveryOptions { MaximumAttempts = 100 });
 
-        Assert.Failed(result);
+        Assert.True(result.Failed);
     }
 
     private sealed class TestHostEnvironment(string environmentName)
@@ -58,10 +58,4 @@ public sealed class NotificationOptionsTests
         public IFileProvider ContentRootFileProvider { get; set; } =
             new NullFileProvider();
     }
-}
-
-internal static class ValidateOptionsResultAssertions
-{
-    public static void Failed(this Assert _, Microsoft.Extensions.Options.ValidateOptionsResult result) =>
-        Assert.True(result.Failed);
 }
