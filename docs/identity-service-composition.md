@@ -29,6 +29,18 @@ This order is part of the service composition contract. Capability registration 
 
 Registration modules may depend on service-owned implementation types. Vertical feature handlers must depend on intent-focused contracts and must not resolve services manually.
 
+## Vertical slice ownership
+
+A feature or workflow may expose several related endpoints, but each independently executable business operation is represented by its own child slice. The parent endpoint extension is route composition only; it must not contain application behaviour.
+
+Examples:
+
+- `Accounts/EmailConfirmation/Confirm/V1` and `Accounts/EmailConfirmation/Resend/V1` are separate slices composed by `EmailConfirmationEndpointExtensions`.
+- `Accounts/PasswordRecovery/RequestReset/V1` and `Accounts/PasswordRecovery/ResetPassword/V1` are separate slices composed by `PasswordRecoveryEndpointExtensions`.
+- `Sessions/SigningIn/Password/V1`, `Sessions/SigningIn/Authenticator/V1`, and `Sessions/SigningIn/RecoveryCode/V1` are separate slices composed by `SignInEndpointExtensions`.
+
+Each slice owns its request contract, command or query, validator, handler, and endpoint adapter. Shared workflow mechanics may live at the parent workflow level when they are genuinely invariant across the child slices. Account endpoint composition must not own session endpoints; `AccountEndpoints` and `SessionEndpoints` are composed independently by the Identity application.
+
 ## Notification boundary
 
 Identity owns notification intent and durable enqueueing. It does not own provider-specific email delivery.
