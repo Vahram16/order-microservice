@@ -1,6 +1,7 @@
 using Notifications.Api.Features.IdentityNotifications.Receive.V1;
 using Notifications.Api.Infrastructure;
 using Notifications.Api.Persistence;
+using Notifications.Api.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,6 +19,7 @@ app.UseConfiguredForwardedHeaders();
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
 app.UseNotificationSecurityHeaders();
+app.UseInternalNotificationIngressAuthentication();
 app.UseRouting();
 app.UseRateLimiter();
 
