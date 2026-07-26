@@ -8,7 +8,7 @@ public interface IIdentityNotificationSender
         string encodedToken,
         CancellationToken cancellationToken);
 
-    Task SendPasswordResetAsync(
+    Task EnqueuePasswordResetAsync(
         string email,
         Guid userId,
         string encodedToken,
