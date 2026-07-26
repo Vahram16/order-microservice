@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.AspNetCore.Mvc;
 using Notifications.Api.Security;
 
 namespace Notifications.Api.Features.IdentityNotifications.Receive.V1;
