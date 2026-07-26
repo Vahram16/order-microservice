@@ -42,7 +42,8 @@ internal static class NotificationServiceExtensions
             configuration.LicenseKey = builder.Configuration["Licensing:MediatR"];
         });
 
-        builder.Services.AddScoped<InternalApiKeyEndpointFilter>();
+        builder.Services.AddExceptionHandler<NotificationExceptionHandler>();
+        builder.Services.AddSingleton<InternalApiKeyValidator>();
         builder.Services.AddScoped<NotificationDeliveryDispatcher>();
         builder.Services.AddHostedService<NotificationDeliveryWorker>();
 
