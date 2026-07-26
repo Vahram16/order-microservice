@@ -1,6 +1,5 @@
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
-using Notifications.Api.Security;
 
 namespace Notifications.Api.Features.IdentityNotifications.Receive.V1;
 
@@ -13,7 +12,6 @@ internal static class ReceiveIdentityNotificationEndpoint
                 "/internal/v1/notifications/identity",
                 HandleAsync)
             .AllowAnonymous()
-            .AddEndpointFilter<InternalApiKeyEndpointFilter>()
             .RequireRateLimiting("notification-ingress")
             .Produces(StatusCodes.Status202Accepted)
             .Produces(StatusCodes.Status400BadRequest)
