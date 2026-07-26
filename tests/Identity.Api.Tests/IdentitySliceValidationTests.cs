@@ -1,4 +1,5 @@
-using Identity.Api.Features.Accounts.ConfirmingEmail.V1;
+using Identity.Api.Features.Accounts.EmailConfirmation.Confirm.V1;
+using Identity.Api.Features.Accounts.EmailConfirmation.Resend.V1;
 
 namespace Identity.Api.Tests;
 
@@ -13,8 +14,12 @@ public sealed class IdentitySliceValidationTests
             new ConfirmEmailCommand(Guid.Empty, string.Empty));
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, error => error.PropertyName == nameof(ConfirmEmailCommand.UserId));
-        Assert.Contains(result.Errors, error => error.PropertyName == nameof(ConfirmEmailCommand.Code));
+        Assert.Contains(
+            result.Errors,
+            error => error.PropertyName == nameof(ConfirmEmailCommand.UserId));
+        Assert.Contains(
+            result.Errors,
+            error => error.PropertyName == nameof(ConfirmEmailCommand.Code));
     }
 
     [Fact]
