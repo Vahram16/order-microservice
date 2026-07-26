@@ -1,12 +1,12 @@
 using System.Reflection;
 using System.Text.Json;
 using Identity.Api.Configuration;
-using Identity.Api.Infrastructure;
 using Identity.Api.Notifications;
 using Identity.Api.Persistence;
 using Identity.Api.Provisioning;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace Identity.Api.Tests;
 
@@ -62,27 +62,66 @@ public sealed class IdentityHardeningTests
             parameter => parameter.ParameterType == typeof(IdentityServiceDbContext));
     }
 
-    [Theory]
-    [InlineData(nameof(IdentityNotificationProvider.DevelopmentLog), false)]
-    [InlineData(nameof(IdentityNotificationProvider.Webhook), true)]
-    public void NotificationDispatcherRegistrationFollowsConfiguredProvider(
-        string provider,
-        bool expectedRegistration)
+    [Fact]
+    public void DevelopmentNotificationProviderRegistersOnlyDevelopmentDelivery()
     {
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                [$"{IdentityNotificationOptions.SectionName}:Provider"] = provider
-            })
-            .Build();
         var services = new ServiceCollection();
+        var configuration = CreateNotificationConfiguration(
+            IdentityNotificationProvider.DevelopmentLog);
+        var options = CreateNotificationOptions(
+            IdentityNotificationProvider.DevelopmentLog);
 
-        services.AddIdentityApplication(configuration);
+        IdentityNotificationRegistration.Add(services, configuration, options);
 
-        Assert.Equal(
-            expectedRegistration,
-            services.Any(descriptor =>
-                descriptor.ServiceType == typeof(IdentityNotificationOutboxDispatcher)));
+        var sender = Assert.Single(
+            services,
+            descriptor => descriptor.ServiceType == typeof(IIdentityNotificationSender));
+        Assert.Equal(typeof(DevelopmentIdentityNotificationSender), sender.ImplementationType);
+        Assert.Equal(ServiceLifetime.Scoped, sender.Lifetime);
+        Assert.DoesNotContain(services, descriptor =>
+            descriptor.ServiceType == typeof(IIdentityNotificationTransport));
+        Assert.DoesNotContain(services, descriptor =>
+            descriptor.ServiceType == typeof(IdentityNotificationOutboxDispatcher));
+        Assert.DoesNotContain(services, descriptor =>
+            descriptor.ServiceType == typeof(IHostedService) &&
+            descriptor.ImplementationType == typeof(IdentityNotificationOutboxWorker));
+    }
+
+    [Fact]
+    public void WebhookNotificationProviderRegistersCompleteOutboxPipeline()
+    {
+        var services = new ServiceCollection();
+        var configuration = CreateNotificationConfiguration(
+            IdentityNotificationProvider.Webhook);
+        var options = CreateNotificationOptions(
+            IdentityNotificationProvider.Webhook);
+
+        IdentityNotificationRegistration.Add(services, configuration, options);
+
+        var sender = Assert.Single(
+            services,
+            descriptor => descriptor.ServiceType == typeof(IIdentityNotificationSender));
+        Assert.Equal(typeof(OutboxIdentityNotificationSender), sender.ImplementationType);
+        Assert.Equal(ServiceLifetime.Scoped, sender.Lifetime);
+
+        var transport = Assert.Single(
+            services,
+            descriptor => descriptor.ServiceType == typeof(IIdentityNotificationTransport));
+        Assert.Equal(ServiceLifetime.Scoped, transport.Lifetime);
+
+        var dispatcher = Assert.Single(
+            services,
+            descriptor =>
+                descriptor.ServiceType == typeof(IdentityNotificationOutboxDispatcher));
+        Assert.Equal(typeof(IdentityNotificationOutboxDispatcher), dispatcher.ImplementationType);
+        Assert.Equal(ServiceLifetime.Scoped, dispatcher.Lifetime);
+
+        var worker = Assert.Single(
+            services,
+            descriptor =>
+                descriptor.ServiceType == typeof(IHostedService) &&
+                descriptor.ImplementationType == typeof(IdentityNotificationOutboxWorker));
+        Assert.Equal(ServiceLifetime.Singleton, worker.Lifetime);
     }
 
     [Fact]
@@ -126,6 +165,27 @@ public sealed class IdentityHardeningTests
 
         Assert.Null(nextAttempt);
     }
+
+    private static IConfiguration CreateNotificationConfiguration(
+        IdentityNotificationProvider provider) =>
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [$"{IdentityNotificationOptions.SectionName}:Provider"] = provider.ToString(),
+                [$"{IdentityNotificationOptions.SectionName}:PublicOrigin"] =
+                    "https://identity.example.com/"
+            })
+            .Build();
+
+    private static IdentityNotificationOptions CreateNotificationOptions(
+        IdentityNotificationProvider provider) =>
+        new()
+        {
+            Provider = provider,
+            PublicOrigin = "https://identity.example.com/",
+            WebhookEndpoint = "https://notifications.example.com/identity",
+            WebhookApiKey = "test-api-key"
+        };
 
     private static ParameterInfo[] GetConstructorParameters(Type type) =>
         type.GetConstructors(

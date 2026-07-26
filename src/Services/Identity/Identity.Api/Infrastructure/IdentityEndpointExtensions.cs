@@ -3,8 +3,8 @@ using Identity.Api.Configuration;
 using Identity.Api.Features.Accounts;
 using Identity.Api.Features.Authorization;
 using Identity.Api.Features.Profile;
+using Identity.Api.Features.Sessions;
 using Identity.Api.Model;
-using Identity.Api.Notifications;
 using Identity.Api.Security;
 using MediatR;
 using Microservices.Application;
@@ -48,14 +48,6 @@ internal static class IdentityEndpointExtensions
         services.AddScoped<IPasswordValidator<ApplicationUser>,
             BlockedPasswordValidator>();
 
-        var notificationProvider = applicationConfiguration
-            .GetValue<IdentityNotificationProvider>(
-                $"{IdentityNotificationOptions.SectionName}:Provider");
-        if (notificationProvider == IdentityNotificationProvider.Webhook)
-        {
-            services.AddScoped<IdentityNotificationOutboxDispatcher>();
-        }
-
         services.AddOpenIddict()
             .AddServer(options =>
             {
@@ -64,7 +56,6 @@ internal static class IdentityEndpointExtensions
             });
 
         ConfigureApplicationCookie(services);
-        ConfigureBrowserCors(services, applicationConfiguration);
 
         return services;
     }
@@ -74,6 +65,7 @@ internal static class IdentityEndpointExtensions
     {
         endpoints.MapAuthorizationEndpoints();
         endpoints.MapAccountEndpoints();
+        endpoints.MapSessionEndpoints();
         endpoints.MapProfileEndpoints();
         return endpoints;
     }
@@ -114,33 +106,5 @@ internal static class IdentityEndpointExtensions
                     return Task.CompletedTask;
                 };
             });
-    }
-
-    private static void ConfigureBrowserCors(
-        IServiceCollection services,
-        IConfiguration configuration)
-    {
-        var origins = configuration
-            .GetSection($"{AuthorizationServerOptions.SectionName}:CorsOrigins")
-            .Get<string[]>() ?? [];
-
-        services.AddCors(options => options.AddPolicy(
-            IdentityServiceExtensions.BrowserCorsPolicy,
-            policy =>
-            {
-                if (origins.Length == 0)
-                {
-                    policy.SetIsOriginAllowed(_ => false);
-                }
-                else
-                {
-                    policy.WithOrigins(origins);
-                }
-
-                policy.AllowCredentials()
-                    .WithHeaders("Authorization", "Content-Type")
-                    .WithMethods("GET", "POST", "OPTIONS")
-                    .SetPreflightMaxAge(TimeSpan.FromHours(1));
-            }));
     }
 }

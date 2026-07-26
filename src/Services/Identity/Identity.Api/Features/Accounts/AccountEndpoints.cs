@@ -1,7 +1,6 @@
-using Identity.Api.Features.Accounts.ConfirmingEmail.V1;
-using Identity.Api.Features.Accounts.RecoveringPassword.V1;
+using Identity.Api.Features.Accounts.EmailConfirmation;
+using Identity.Api.Features.Accounts.PasswordRecovery;
 using Identity.Api.Features.Accounts.Registering.V1;
-using Identity.Api.Features.Sessions.LoggingIn.V1;
 
 namespace Identity.Api.Features.Accounts;
 
@@ -11,9 +10,8 @@ internal static class AccountEndpoints
         this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapRegisterAccount();
-        endpoints.MapConfirmEmail();
+        endpoints.MapEmailConfirmation();
         endpoints.MapPasswordRecovery();
-        endpoints.MapLogin();
         return endpoints;
     }
 }
