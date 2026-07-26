@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
-using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Notifications.Api.Persistence;
