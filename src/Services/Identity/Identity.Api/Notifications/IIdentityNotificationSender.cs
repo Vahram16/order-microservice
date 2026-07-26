@@ -2,7 +2,7 @@ namespace Identity.Api.Notifications;
 
 public interface IIdentityNotificationSender
 {
-    Task SendEmailConfirmationAsync(
+    Task EnqueueEmailConfirmationAsync(
         string email,
         Guid userId,
         string encodedToken,

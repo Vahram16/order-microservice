@@ -31,7 +31,7 @@ internal sealed class ResendEmailConfirmationCommandHandler(
 
         var token = await userManager.GenerateEmailConfirmationTokenAsync(user);
         var encodedToken = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(token));
-        await notificationSender.SendEmailConfirmationAsync(
+        await notificationSender.EnqueueEmailConfirmationAsync(
             user.Email,
             user.Id,
             encodedToken,

@@ -12,6 +12,7 @@ public static class ApiDocumentationExtensions
 {
     private const string DocumentName = "v1";
     private const string BearerScheme = "Bearer";
+    private const string OAuthScheme = "OAuth2";
     private const string DeveloperDocumentationContentSecurityPolicy =
         "default-src 'self'; script-src 'self' 'unsafe-inline' https:; " +
         "style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; " +
@@ -34,6 +35,7 @@ public static class ApiDocumentationExtensions
                 return Task.CompletedTask;
             });
             options.AddDocumentTransformer(new BearerSecuritySchemeTransformer());
+            options.AddDocumentTransformer(new OAuthSecuritySchemeTransformer());
             options.AddOperationTransformer(new BearerSecurityRequirementTransformer());
         });
 
@@ -51,12 +53,78 @@ public static class ApiDocumentationExtensions
             .AddEndpointFilter(AddDeveloperDocumentationHeadersAsync)
             .AllowAnonymous()
             .ExcludeFromDescription();
-        app.MapScalarApiReference()
+        app.MapScalarApiReference(options => options
+            .AddPreferredSecuritySchemes(OAuthScheme)
+            .AddAuthorizationCodeFlow(OAuthScheme, flow =>
+            {
+                flow.ClientId = "scalar-dev";
+                flow.RedirectUri = "https://localhost:7100/scalar/v1";
+                flow.Pkce = Pkce.Sha256;
+                flow.SelectedScopes =
+                [
+                    "openid",
+                    "profile",
+                    "email",
+                    "offline_access",
+                    "flight.read",
+                    "booking.read",
+                    "booking.create",
+                    "booking.cancel",
+                    "passenger.self.read",
+                    "passenger.self.update",
+                    "identity.profile.read"
+                ];
+            }))
             .AddEndpointFilter(AddDeveloperDocumentationHeadersAsync)
             .AllowAnonymous()
             .ExcludeFromDescription();
 
         return app;
+    }
+
+    private sealed class OAuthSecuritySchemeTransformer : IOpenApiDocumentTransformer
+    {
+        public Task TransformAsync(
+            OpenApiDocument document,
+            OpenApiDocumentTransformerContext context,
+            CancellationToken cancellationToken)
+        {
+            document.Components ??= new OpenApiComponents();
+            document.Components.SecuritySchemes ??=
+                new Dictionary<string, IOpenApiSecurityScheme>();
+            document.Components.SecuritySchemes[OAuthScheme] =
+                new OpenApiSecurityScheme
+                {
+                    Type = SecuritySchemeType.OAuth2,
+                    Description = "Sign in through the Identity service.",
+                    Flows = new OpenApiOAuthFlows
+                    {
+                        AuthorizationCode = new OpenApiOAuthFlow
+                        {
+                            AuthorizationUrl = new Uri(
+                                "https://localhost:7100/connect/authorize"),
+                            TokenUrl = new Uri(
+                                "https://localhost:7100/connect/token"),
+                            Scopes = new Dictionary<string, string>
+                            {
+                                ["openid"] = "Authenticate the user.",
+                                ["profile"] = "Read the user's basic profile.",
+                                ["email"] = "Read the user's email address.",
+                                ["offline_access"] = "Request a refresh token.",
+                                ["flight.read"] = "Search and view flights.",
+                                ["booking.read"] = "View the user's bookings.",
+                                ["booking.create"] = "Create bookings.",
+                                ["booking.cancel"] = "Cancel bookings.",
+                                ["passenger.self.read"] = "Read the user's passenger profile.",
+                                ["passenger.self.update"] = "Update the user's passenger profile.",
+                                ["identity.profile.read"] = "Read the user's identity profile."
+                            }
+                        }
+                    }
+                };
+
+            return Task.CompletedTask;
+        }
     }
 
     private static async ValueTask<object?> AddDeveloperDocumentationHeadersAsync(
@@ -109,6 +177,10 @@ public static class ApiDocumentationExtensions
             }
 
             operation.Security ??= [];
+            operation.Security.Add(new OpenApiSecurityRequirement
+            {
+                [new OpenApiSecuritySchemeReference(OAuthScheme, context.Document)] = []
+            });
             operation.Security.Add(new OpenApiSecurityRequirement
             {
                 [new OpenApiSecuritySchemeReference(BearerScheme, context.Document)] = []

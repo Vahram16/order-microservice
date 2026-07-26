@@ -17,7 +17,7 @@ internal sealed partial class DevelopmentIdentityNotificationSender(
 {
     private readonly IdentityNotificationOptions _options = options.Value;
 
-    public Task SendEmailConfirmationAsync(
+    public Task EnqueueEmailConfirmationAsync(
         string email,
         Guid userId,
         string encodedToken,
@@ -82,7 +82,7 @@ internal sealed class OutboxIdentityNotificationSender(
     private readonly IDataProtector _protector = dataProtectionProvider.CreateProtector(
         "Identity.Api.NotificationOutbox.v1");
 
-    public Task SendEmailConfirmationAsync(
+    public Task EnqueueEmailConfirmationAsync(
         string email,
         Guid userId,
         string encodedToken,

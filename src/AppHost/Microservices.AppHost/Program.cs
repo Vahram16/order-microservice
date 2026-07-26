@@ -2,7 +2,19 @@ var builder = DistributedApplication.CreateBuilder(args);
 
 const string identityIssuer = "https://localhost:7100/";
 
-var postgres = builder.AddPostgres("postgres").WithDataVolume();
+var postgresUser = builder.AddParameter("postgres-user", "postgres", publishValueAsDefault: true);
+var postgresPassword = builder.AddParameter("postgres-password", "postgres", secret: true);
+
+var postgres = builder
+    .AddAzurePostgresFlexibleServer("postgres")
+    .WithPasswordAuthentication(postgresUser, postgresPassword)
+    .RunAsContainer(container =>
+        container
+            .WithImageTag("18")
+            .WithHostPort(5432)
+            .WithDataVolume("microservices-postgres-data")
+            .WithLifetime(ContainerLifetime.Persistent));
+
 var serviceDatabase = postgres.AddDatabase("service-template-db");
 var identityDatabase = postgres.AddDatabase("identity-db");
 var rabbitMq = builder.AddRabbitMQ("rabbitmq")
@@ -19,7 +31,12 @@ var identityApi = builder.AddProject<Projects.Identity_Api>("identity-api")
     .WithEnvironment("AuthorizationServer__Issuer", identityIssuer)
     .WithHttpHealthCheck("/health", endpointName: "https")
     .WaitFor(identityDatabase)
-    .WaitForCompletion(identityMigrations);
+    .WaitForCompletion(identityMigrations)
+    .WithUrlForEndpoint("https", url =>
+    {
+        url.DisplayText = "Scalar";
+        url.Url = "/scalar/v1";
+    });;
 
 var migrations = builder.AddProject<Projects.ServiceTemplate_Migrator>("service-template-migrator")
     .WithReference(serviceDatabase)

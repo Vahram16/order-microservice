@@ -13,7 +13,7 @@ public sealed class RegisterAccountCommandValidator
             .EmailAddress();
         RuleFor(command => command.Password)
             .NotEmpty()
-            .MinimumLength(15)
+            .MinimumLength(6)
             .MaximumLength(128);
         RuleFor(command => command.DisplayName)
             .NotEmpty()

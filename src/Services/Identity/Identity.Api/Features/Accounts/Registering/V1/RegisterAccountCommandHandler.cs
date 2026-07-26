@@ -75,7 +75,7 @@ internal sealed class RegisterAccountCommandHandler(
 
             var token = await userManager.GenerateEmailConfirmationTokenAsync(user);
             var encodedToken = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(token));
-            await notificationSender.SendEmailConfirmationAsync(
+            await notificationSender.EnqueueEmailConfirmationAsync(
                 email,
                 user.Id,
                 encodedToken,
