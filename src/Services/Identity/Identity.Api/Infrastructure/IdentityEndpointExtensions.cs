@@ -3,6 +3,7 @@ using Identity.Api.Configuration;
 using Identity.Api.Features.Accounts;
 using Identity.Api.Features.Authorization;
 using Identity.Api.Features.Profile;
+using Identity.Api.Features.Sessions;
 using Identity.Api.Model;
 using Identity.Api.Security;
 using MediatR;
@@ -64,6 +65,7 @@ internal static class IdentityEndpointExtensions
     {
         endpoints.MapAuthorizationEndpoints();
         endpoints.MapAccountEndpoints();
+        endpoints.MapSessionEndpoints();
         endpoints.MapProfileEndpoints();
         return endpoints;
     }
