@@ -4,6 +4,7 @@ using MediatR;
 using Microservices.Application;
 using Microservices.Persistence.Postgres;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using Notifications.Api.Configuration;
@@ -25,6 +26,7 @@ internal static class NotificationServiceExtensions
         builder.Services.AddPostgresDbContext<NotificationDbContext>(
             builder.Configuration,
             "notifications-db",
+            _ => { },
             postgres => postgres.MigrationsHistoryTable(
                 "__ef_migrations_history",
                 "notifications"));
