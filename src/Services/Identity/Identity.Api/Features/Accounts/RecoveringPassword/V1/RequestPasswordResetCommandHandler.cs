@@ -31,7 +31,7 @@ internal sealed class RequestPasswordResetCommandHandler(
 
         var token = await userManager.GeneratePasswordResetTokenAsync(user);
         var encodedToken = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(token));
-        await notificationSender.SendPasswordResetAsync(
+        await notificationSender.EnqueuePasswordResetAsync(
             user.Email,
             user.Id,
             encodedToken,
