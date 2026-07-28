@@ -51,7 +51,9 @@ Keycloak. It sends only the access token to the API.
 
 The realm defines `order-user`, `order-manager`, and `order-admin` as `order-api` client roles. The
 mobile client's explicit role scope mapping contains only `order-user`, so privileged manager/admin
-roles are not emitted through the public mobile client.
+roles are not emitted through the public mobile client. A dedicated `order-api-roles` client scope
+uses Keycloak's client-specific role mapper and writes only resolved `order-api` roles to
+`resource_access.order-api.roles` in access tokens.
 
 ## API validation
 
@@ -163,12 +165,14 @@ The CI pipeline builds the optimized Keycloak Containerfile and runs
 the realm, checks OIDC discovery, and queries the Admin API to verify:
 
 - PKCE `S256` support;
+- password, refresh-token, brute-force, and audit settings;
 - public-client and bearer-only boundaries;
 - Direct Access Grants, Implicit Flow, and Service Accounts disabled;
 - Full Scope Allowed disabled;
 - the exact development redirect URI;
-- expected default and optional client scopes;
-- only `order-user` in the mobile client's `order-api` role scope mapping.
+- explicit profile, email, audience, role, offline, and application scopes;
+- only `order-user` in the mobile client's `order-api` role scope mapping;
+- the client-specific `order-api-roles` protocol mapper and its access-token-only claim target.
 
 Unit tests separately verify JWT option hardening, exact scopes, role mapping, required claims, and the
 `azp` allow list.
