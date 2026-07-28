@@ -14,6 +14,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
+assert_json() {
+  local description="$1"
+  local filter="$2"
+  local json="$3"
+
+  if ! jq --exit-status "${filter}" <<<"${json}" >/dev/null; then
+    echo "Keycloak verification failed: ${description}" >&2
+    jq . <<<"${json}" >&2
+    exit 1
+  fi
+
+  echo "Verified: ${description}"
+}
+
 cleanup
 
 docker run --detach --rm \
@@ -31,7 +45,7 @@ docker run --detach --rm \
   start-dev --import-realm >/dev/null
 
 for attempt in $(seq 1 60); do
-  if curl --fail --silent --show-error "${management_url}/health/ready" >/dev/null; then
+  if curl --fail --silent "${management_url}/health/ready" >/dev/null 2>&1; then
     break
   fi
 
@@ -46,10 +60,15 @@ done
 
 discovery="$(curl --fail --silent --show-error \
   "${keycloak_url}/realms/order/.well-known/openid-configuration")"
-jq --exit-status \
+if ! jq --exit-status \
   --arg issuer "${keycloak_url}/realms/order" \
   '(.issuer == $issuer) and ((.code_challenge_methods_supported | index("S256")) != null)' \
-  <<<"${discovery}" >/dev/null
+  <<<"${discovery}" >/dev/null; then
+  echo "Keycloak verification failed: OIDC discovery issuer or PKCE support" >&2
+  jq . <<<"${discovery}" >&2
+  exit 1
+fi
+echo "Verified: OIDC discovery issuer and PKCE S256 support"
 
 admin_token="$(curl --fail --silent --show-error \
   --request POST \
@@ -68,58 +87,63 @@ admin_get() {
 }
 
 realm_configuration="$(admin_get '/admin/realms/order')"
-jq --exit-status '
-  .defaultSignatureAlgorithm == "RS256" and
-  .passwordPolicy == "length(12) and notUsername and notEmail and passwordHistory(5)" and
-  .bruteForceProtected == true and
-  .revokeRefreshToken == true and
-  .refreshTokenMaxReuse == 0 and
-  .eventsEnabled == true and
-  .adminEventsEnabled == true and
-  .adminEventsDetailsEnabled == true
-' <<<"${realm_configuration}" >/dev/null
+assert_json \
+  "realm hardening" \
+  '.defaultSignatureAlgorithm == "RS256" and
+   .passwordPolicy == "length(12) and notUsername and notEmail and passwordHistory(5)" and
+   .bruteForceProtected == true and
+   .revokeRefreshToken == true and
+   .refreshTokenMaxReuse == 0 and
+   .eventsEnabled == true and
+   .adminEventsEnabled == true and
+   .adminEventsDetailsEnabled == true' \
+  "${realm_configuration}"
 
 mobile_client="$(admin_get '/admin/realms/order/clients?clientId=order-mobile')"
 api_client="$(admin_get '/admin/realms/order/clients?clientId=order-api')"
 
-jq --exit-status '
-  length == 1 and
-  .[0].publicClient == true and
-  .[0].standardFlowEnabled == true and
-  .[0].implicitFlowEnabled == false and
-  .[0].directAccessGrantsEnabled == false and
-  .[0].serviceAccountsEnabled == false and
-  .[0].fullScopeAllowed == false and
-  .[0].attributes["pkce.code.challenge.method"] == "S256" and
-  .[0].redirectUris == ["com.example.order:/oauth2redirect"]
-' <<<"${mobile_client}" >/dev/null
+assert_json \
+  "mobile public-client security" \
+  'length == 1 and
+   .[0].publicClient == true and
+   .[0].standardFlowEnabled == true and
+   .[0].implicitFlowEnabled == false and
+   .[0].directAccessGrantsEnabled == false and
+   .[0].serviceAccountsEnabled == false and
+   .[0].fullScopeAllowed == false and
+   .[0].attributes["pkce.code.challenge.method"] == "S256" and
+   .[0].redirectUris == ["com.example.order:/oauth2redirect"]' \
+  "${mobile_client}"
 
-jq --exit-status '
-  length == 1 and
-  .[0].bearerOnly == true and
-  .[0].standardFlowEnabled == false and
-  .[0].implicitFlowEnabled == false and
-  .[0].directAccessGrantsEnabled == false and
-  .[0].serviceAccountsEnabled == false and
-  .[0].fullScopeAllowed == false
-' <<<"${api_client}" >/dev/null
+assert_json \
+  "API bearer-only client security" \
+  'length == 1 and
+   .[0].bearerOnly == true and
+   .[0].standardFlowEnabled == false and
+   .[0].implicitFlowEnabled == false and
+   .[0].directAccessGrantsEnabled == false and
+   .[0].serviceAccountsEnabled == false and
+   .[0].fullScopeAllowed == false' \
+  "${api_client}"
 
 mobile_id="$(jq --raw-output --exit-status '.[0].id' <<<"${mobile_client}")"
 api_id="$(jq --raw-output --exit-status '.[0].id' <<<"${api_client}")"
 role_scope_mappings="$(admin_get "/admin/realms/order/clients/${mobile_id}/scope-mappings/clients/${api_id}")"
-
-jq --exit-status '
-  map(.name) | sort == ["order-user"]
-' <<<"${role_scope_mappings}" >/dev/null
+assert_json \
+  "mobile API role scope mapping" \
+  'map(.name) | sort == ["order-user"]' \
+  "${role_scope_mappings}"
 
 client_scopes="$(admin_get "/admin/realms/order/clients/${mobile_id}/default-client-scopes")"
-jq --exit-status '
-  map(.name) | contains(["order-api-audience", "profile", "email", "roles"])
-' <<<"${client_scopes}" >/dev/null
+assert_json \
+  "mobile default client scopes" \
+  'map(.name) | contains(["order-api-audience", "profile", "email", "roles"])' \
+  "${client_scopes}"
 
 optional_scopes="$(admin_get "/admin/realms/order/clients/${mobile_id}/optional-client-scopes")"
-jq --exit-status '
-  map(.name) | contains(["offline_access", "orders.read", "orders.create", "orders.cancel"])
-' <<<"${optional_scopes}" >/dev/null
+assert_json \
+  "mobile optional client scopes" \
+  'map(.name) | contains(["offline_access", "orders.read", "orders.create", "orders.cancel"])' \
+  "${optional_scopes}"
 
 echo "Keycloak development realm verification passed."
