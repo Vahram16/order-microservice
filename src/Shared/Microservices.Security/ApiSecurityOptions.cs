@@ -12,6 +12,10 @@ public sealed class ApiSecurityOptions
 
     public string? RoleClientId { get; set; }
 
+    public string[] ValidAuthorizedParties { get; set; } = [];
+
+    public string[] RequiredClaims { get; set; } = ["sub", "iat", "jti"];
+
     public bool MapRealmRoles { get; set; }
 
     public string NameClaimType { get; set; } = "preferred_username";
