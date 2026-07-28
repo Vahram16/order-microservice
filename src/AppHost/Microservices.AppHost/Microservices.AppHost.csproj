@@ -11,9 +11,10 @@
     <PackageReference Include="Aspire.Hosting.RabbitMQ" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../Services/Identity/Identity.Api/Identity.Api.csproj" />
-    <ProjectReference Include="../../Services/Identity/Identity.Migrator/Identity.Migrator.csproj" />
     <ProjectReference Include="../../Services/ServiceTemplate/ServiceTemplate.Api/ServiceTemplate.Api.csproj" />
     <ProjectReference Include="../../Services/ServiceTemplate/ServiceTemplate.Migrator/ServiceTemplate.Migrator.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="Keycloak/*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -82,8 +82,19 @@ public static class ApiSecurityExtensions
             ValidAudience = security.Audience,
             ValidTypes = security.ValidTokenTypes,
             ClockSkew = security.ClockSkew,
-            NameClaimType = SecurityClaimTypes.Name,
+            NameClaimType = security.NameClaimType,
             RoleClaimType = SecurityClaimTypes.Role
+        };
+
+        jwt.Events ??= new JwtBearerEvents();
+        var existingOnTokenValidated = jwt.Events.OnTokenValidated;
+        jwt.Events.OnTokenValidated = async context =>
+        {
+            await existingOnTokenValidated(context);
+            if (context.Principal is not null)
+            {
+                KeycloakRoleClaimsMapper.MapRoles(context.Principal, security);
+            }
         };
     }
 }

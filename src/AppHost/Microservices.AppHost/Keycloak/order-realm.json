@@ -1,0 +1,140 @@
+{
+  "realm": "order",
+  "enabled": true,
+  "displayName": "Order Platform",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": true,
+  "verifyEmail": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "bruteForceProtected": true,
+  "sslRequired": "none",
+  "accessTokenLifespan": 600,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "roles": {
+    "client": {
+      "order-api": [
+        {
+          "name": "order-user",
+          "description": "Can use customer order operations"
+        },
+        {
+          "name": "order-manager",
+          "description": "Can manage operational order workflows"
+        },
+        {
+          "name": "order-admin",
+          "description": "Can perform privileged order administration"
+        }
+      ]
+    }
+  },
+  "clientScopes": [
+    {
+      "name": "orders.read",
+      "description": "Read orders allowed by application ownership rules",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true",
+        "consent.screen.text": "Read your orders"
+      }
+    },
+    {
+      "name": "orders.create",
+      "description": "Create orders",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true",
+        "consent.screen.text": "Create orders"
+      }
+    },
+    {
+      "name": "orders.cancel",
+      "description": "Cancel orders allowed by application rules",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true",
+        "consent.screen.text": "Cancel your orders"
+      }
+    },
+    {
+      "name": "order-api-audience",
+      "description": "Adds the Order API audience to access tokens",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "order-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "order-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "order-api",
+      "name": "Order API",
+      "description": "Resource-server client used for audience and client-role definitions",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    },
+    {
+      "clientId": "order-mobile",
+      "name": "Order Mobile",
+      "description": "Public native client using Authorization Code with PKCE",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "redirectUris": [
+        "com.example.order:/oauth2redirect"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "com.example.order:/oauth2redirect"
+      },
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles",
+        "order-api-audience"
+      ],
+      "optionalClientScopes": [
+        "offline_access",
+        "orders.read",
+        "orders.create",
+        "orders.cancel"
+      ]
+    }
+  ]
+}

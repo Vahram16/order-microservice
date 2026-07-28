@@ -15,6 +15,29 @@ public static class ScopePolicy
     }
 }
 
+public static class RolePolicy
+{
+    public const string Prefix = "role:";
+
+    public static string For(string role)
+    {
+        ValidateRole(role);
+        return Prefix + role;
+    }
+
+    internal static void ValidateRole(string role)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(role);
+
+        if (role.Any(char.IsWhiteSpace))
+        {
+            throw new ArgumentException(
+                "The role must not contain whitespace.",
+                nameof(role));
+        }
+    }
+}
+
 public sealed class ScopeRequirement : IAuthorizationRequirement
 {
     public ScopeRequirement(string scope)
@@ -51,10 +74,10 @@ internal sealed class ScopeAuthorizationHandler
         if (context.User.Identities
             .Where(identity => identity.IsAuthenticated)
             .SelectMany(identity => identity.FindAll(SecurityClaimTypes.Scope))
-                .SelectMany(claim => claim.Value.Split(
-                    ' ',
-                    StringSplitOptions.RemoveEmptyEntries))
-                .Contains(requirement.Scope, StringComparer.Ordinal))
+            .SelectMany(claim => claim.Value.Split(
+                ' ',
+                StringSplitOptions.RemoveEmptyEntries))
+            .Contains(requirement.Scope, StringComparer.Ordinal))
         {
             context.Succeed(requirement);
         }
@@ -69,13 +92,21 @@ internal sealed class ScopeAuthorizationPolicyProvider(
 {
     public override Task<AuthorizationPolicy?> GetPolicyAsync(string policyName)
     {
-        if (!policyName.StartsWith(ScopePolicy.Prefix, StringComparison.Ordinal))
+        if (policyName.StartsWith(ScopePolicy.Prefix, StringComparison.Ordinal))
         {
-            return base.GetPolicyAsync(policyName);
+            return CreateScopePolicy(policyName[ScopePolicy.Prefix.Length..]);
         }
 
-        var scope = policyName[ScopePolicy.Prefix.Length..];
+        if (policyName.StartsWith(RolePolicy.Prefix, StringComparison.Ordinal))
+        {
+            return CreateRolePolicy(policyName[RolePolicy.Prefix.Length..]);
+        }
 
+        return base.GetPolicyAsync(policyName);
+    }
+
+    private static Task<AuthorizationPolicy?> CreateScopePolicy(string scope)
+    {
         try
         {
             var requirement = new ScopeRequirement(scope);
@@ -83,6 +114,25 @@ internal sealed class ScopeAuthorizationPolicyProvider(
                     JwtBearerDefaults.AuthenticationScheme)
                 .RequireAuthenticatedUser()
                 .AddRequirements(requirement)
+                .Build();
+
+            return Task.FromResult<AuthorizationPolicy?>(policy);
+        }
+        catch (ArgumentException)
+        {
+            return Task.FromResult<AuthorizationPolicy?>(null);
+        }
+    }
+
+    private static Task<AuthorizationPolicy?> CreateRolePolicy(string role)
+    {
+        try
+        {
+            RolePolicy.ValidateRole(role);
+            var policy = new AuthorizationPolicyBuilder(
+                    JwtBearerDefaults.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireRole(role)
                 .Build();
 
             return Task.FromResult<AuthorizationPolicy?>(policy);
