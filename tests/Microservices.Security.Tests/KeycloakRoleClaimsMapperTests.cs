@@ -93,6 +93,27 @@ public sealed class KeycloakRoleClaimsMapperTests
     }
 
     [Fact]
+    public void IgnoresRoleClaimsFromUnauthenticatedSecondaryIdentity()
+    {
+        var principal = new ClaimsPrincipal(
+        [
+            new ClaimsIdentity(authenticationType: "test"),
+            new ClaimsIdentity(
+            [
+                new Claim(
+                    "resource_access",
+                    """{"order-api":{"roles":["order-admin"]}}""")
+            ])
+        ]);
+
+        KeycloakRoleClaimsMapper.MapRoles(
+            principal,
+            new ApiSecurityOptions { Audience = "order-api" });
+
+        Assert.Empty(Roles(principal));
+    }
+
+    [Fact]
     public void DoesNotModifyUnauthenticatedPrincipal()
     {
         var principal = new ClaimsPrincipal(new ClaimsIdentity(
@@ -110,7 +131,11 @@ public sealed class KeycloakRoleClaimsMapperTests
     }
 
     private static ClaimsPrincipal AuthenticatedPrincipal(params Claim[] claims) =>
-        new(new ClaimsIdentity(claims, authenticationType: "test"));
+        new(new ClaimsIdentity(
+            claims,
+            authenticationType: "test",
+            nameType: SecurityClaimTypes.Name,
+            roleType: SecurityClaimTypes.Role));
 
     private static string[] Roles(ClaimsPrincipal principal) =>
         principal.FindAll(SecurityClaimTypes.Role)
