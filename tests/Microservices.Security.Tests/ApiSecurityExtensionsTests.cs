@@ -22,6 +22,7 @@ public sealed class ApiSecurityExtensionsTests
             {
                 ["Security:Authority"] = "http://identity.example",
                 ["Security:Audience"] = "order-api",
+                ["Security:ValidAuthorizedParties:0"] = "order-mobile",
                 ["Security:RequireHttpsMetadata"] = "false"
             });
 
@@ -45,7 +46,8 @@ public sealed class ApiSecurityExtensionsTests
                 ["Security:Authority"] = "https://identity.example/realms/order",
                 ["Security:MetadataAddress"] =
                     "http://identity.internal/realms/order/.well-known/openid-configuration",
-                ["Security:Audience"] = "order-api"
+                ["Security:Audience"] = "order-api",
+                ["Security:ValidAuthorizedParties:0"] = "order-mobile"
             });
 
         var exception = Assert.Throws<OptionsValidationException>(() =>
@@ -65,6 +67,7 @@ public sealed class ApiSecurityExtensionsTests
             {
                 ["Security:Authority"] = "http://localhost:8080/realms/order",
                 ["Security:Audience"] = "order-api",
+                ["Security:ValidAuthorizedParties:0"] = "order-mobile",
                 ["Security:RequireHttpsMetadata"] = "false"
             });
 
@@ -83,6 +86,7 @@ public sealed class ApiSecurityExtensionsTests
             Environments.Production,
             ValidConfiguration());
 
+        var configured = provider.GetRequiredService<IOptions<ApiSecurityOptions>>().Value;
         var jwt = provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
             .Get(JwtBearerDefaults.AuthenticationScheme);
 
@@ -113,6 +117,8 @@ public sealed class ApiSecurityExtensionsTests
         Assert.Equal(
             SecurityClaimTypes.Role,
             jwt.TokenValidationParameters.RoleClaimType);
+        Assert.Equal(["order-mobile"], configured.ValidAuthorizedParties);
+        Assert.Equal(["sub", "iat", "jti"], configured.RequiredClaims);
     }
 
     [Fact]
@@ -131,6 +137,21 @@ public sealed class ApiSecurityExtensionsTests
             failure.Contains("RoleClientId", StringComparison.Ordinal));
         Assert.Contains(exception.Failures, failure =>
             failure.Contains("NameClaimType", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ConfigurationRequiresAnExplicitAuthorizedParty()
+    {
+        var configuration = ValidConfiguration();
+        configuration.Remove("Security:ValidAuthorizedParties:0");
+
+        using var provider = CreateProvider(Environments.Production, configuration);
+
+        var exception = Assert.Throws<OptionsValidationException>(() =>
+            provider.GetRequiredService<IOptions<ApiSecurityOptions>>().Value);
+
+        Assert.Contains(exception.Failures, failure =>
+            failure.Contains("ValidAuthorizedParties", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -284,7 +305,8 @@ public sealed class ApiSecurityExtensionsTests
     {
         ["Security:Authority"] = "https://identity.example/realms/order",
         ["Security:Audience"] = "order-api",
-        ["Security:RoleClientId"] = "order-api"
+        ["Security:RoleClientId"] = "order-api",
+        ["Security:ValidAuthorizedParties:0"] = "order-mobile"
     };
 
     private static ClaimsPrincipal AuthenticatedPrincipal(params Claim[] claims) =>
