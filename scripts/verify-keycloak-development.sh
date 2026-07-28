@@ -150,8 +150,8 @@ all_client_scopes="$(admin_get '/admin/realms/order/client-scopes')"
 order_role_scope="$(jq --compact-output '[.[] | select(.name == "order-api-roles")]' <<<"${all_client_scopes}")"
 assert_json \
   "Order API role protocol mapper" \
-  'length == 1 and
-   .[0].protocolMappers | length == 1 and
+  '(length == 1) and
+   ((.[0].protocolMappers | length) == 1) and
    .[0].protocolMappers[0].protocolMapper == "oidc-usermodel-client-role-mapper" and
    .[0].protocolMappers[0].config["usermodel.clientRoleMapping.clientId"] == "order-api" and
    .[0].protocolMappers[0].config["claim.name"] == "resource_access.${client_id}.roles" and
