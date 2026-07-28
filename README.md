@@ -3,13 +3,13 @@
 A .NET 10 foundation for independently deployable services with PostgreSQL, RabbitMQ, transactional
 outbox/inbox support, OpenTelemetry, health checks, OpenAPI, and Keycloak-backed authentication.
 
-The repository contains infrastructure plumbing only. It intentionally does not include fake order
-aggregates or placeholder sagas.
+The repository contains infrastructure plumbing and a service template. It intentionally does not
+invent an Order domain, aggregates, endpoints, or authorization rules that do not yet exist.
 
 ## Architecture
 
 ```text
-Mobile application
+Native mobile application
     |
     | OpenID Connect Authorization Code + PKCE (S256)
     v
@@ -19,7 +19,7 @@ Keycloak
     v
 Resource API
     |
-    | JWT validation, scopes, roles, tenant/ownership/domain rules
+    | JWT validation, scopes, roles, and future domain authorization
     v
 Application and domain
 ```
@@ -30,7 +30,7 @@ src/
     Microservices.AppHost/          local Aspire orchestration and development realm import
   Services/
     ServiceTemplate/
-      ServiceTemplate.Api/          resource API composition root and vertical slices
+      ServiceTemplate.Api/          resource API composition root and vertical-slice template
       ServiceTemplate.Migrator/     run-once schema migration
   Shared/
     Microservices.Application/      CQRS contracts and validation pipeline
@@ -38,7 +38,7 @@ src/
     Microservices.Messaging/        MassTransit/RabbitMQ and EF inbox/outbox
     Microservices.Persistence.Postgres/
     Microservices.Security/         JWT validation and authorization policies
-    Microservices.ServiceDefaults/  observability, resilience, health, OpenAPI
+    Microservices.ServiceDefaults/  observability, resilience, health, and OpenAPI
 tests/
   Microservices.ArchitectureTests/
   Microservices.Messaging.Tests/
@@ -50,41 +50,45 @@ infrastructure/
 The former in-repository Identity/OpenIddict service, migrator, database, tests, and packages have
 been removed. Keycloak is the identity provider. Application services are OAuth resource servers.
 
-## Authentication boundary
+## Responsibility boundary
 
 Keycloak owns:
 
 - users, credentials, password policy, recovery, MFA/passkeys, and federation;
 - browser login/logout sessions;
 - OAuth 2.0/OpenID Connect endpoints;
-- access/refresh/ID token issuance;
+- access, refresh, and ID token issuance;
 - signing keys and identity administration.
 
-The API owns:
+Each resource API owns:
 
-- issuer, audience, signature, lifetime, and token-type validation;
-- scope and role enforcement;
-- tenant and resource-ownership checks;
-- state-transition and other domain authorization.
+- issuer, audience, signature, lifetime, token-type, and authorized-party validation;
+- scope and application-role enforcement;
+- tenant, resource-ownership, state-transition, and other domain authorization once a domain exists.
 
-The API never receives a user's Keycloak password.
+An API never receives a user's Keycloak password and never exchanges a mobile user's authorization
+code.
 
 ## Mobile client
 
 The development realm defines `order-mobile` as a public native client:
 
-- Standard Authorization Code Flow enabled;
+- Authorization Code Flow enabled;
 - PKCE `S256` required;
 - Direct Access Grants/password grant disabled;
 - Implicit Flow disabled;
 - Service Accounts disabled;
 - no client secret;
-- exact redirect URI: `com.example.order:/oauth2redirect`.
+- Full Scope Allowed disabled;
+- exact development redirect URI `com.example.order:/oauth2redirect`.
 
-Replace that redirect URI with the exact Android App Link, iOS Universal Link, or application-owned
-custom scheme before release. The mobile application must open the system browser, complete the
-authorization flow, exchange the code with its PKCE verifier, and attach the access token as a bearer
-token to API calls.
+Only the `order-user` API client role is in the mobile client's role scope mapping. The
+`order-manager` and `order-admin` roles are not exposed through that public client.
+
+Replace the development redirect URI with an exact Android App Link, iOS Universal Link, or an
+application-owned custom scheme before release. The mobile application must open the system browser,
+complete the authorization flow, exchange the code with its PKCE verifier, and attach only the
+access token as a bearer token to API calls.
 
 ## API token validation
 
@@ -94,7 +98,7 @@ Every resource API calls:
 builder.Services.AddApiSecurity(builder.Configuration, builder.Environment);
 ```
 
-Production configuration:
+Example production configuration:
 
 ```json
 {
@@ -102,6 +106,8 @@ Production configuration:
     "Authority": "https://identity.example.com/realms/order",
     "Audience": "order-api",
     "RoleClientId": "order-api",
+    "ValidAuthorizedParties": [ "order-mobile" ],
+    "RequiredClaims": [ "sub", "iat", "jti" ],
     "MapRealmRoles": false,
     "NameClaimType": "preferred_username",
     "RequireHttpsMetadata": true,
@@ -111,57 +117,42 @@ Production configuration:
 }
 ```
 
-Validation is performed from Keycloak's OIDC discovery document and JWKS. Inbound Microsoft claim
-mapping is disabled. The API validates issuer, audience, signature, expiration, signing key, and
-token type. Authentication is the fallback authorization policy, so an endpoint is public only when
-it explicitly calls `AllowAnonymous()`.
+Validation uses Keycloak's OIDC discovery document and JWKS. Inbound Microsoft claim mapping is
+disabled. The bearer handler validates issuer, audience, signature, expiration, signing key, and JWT
+type. Post-validation checks require the configured claims and an exact `azp` match against
+`ValidAuthorizedParties`. This prevents a token issued to an unapproved client from being accepted
+merely because it also contains the API audience.
 
-Keycloak client roles are flattened from `resource_access.order-api.roles` into the application's
-role claim. Roles for other clients are ignored. Realm roles are disabled by default and must be
-explicitly enabled.
+Authentication is the fallback authorization policy, so an endpoint is public only when it
+explicitly calls `AllowAnonymous()`.
+
+Keycloak client roles are flattened only from
+`resource_access.<RoleClientId>.roles` into the application's role claim. Roles for other clients are
+ignored. Realm roles are disabled by default and must be explicitly enabled.
 
 ## Scope and role policies
 
-Capability scopes are checked at the HTTP boundary:
+The shared library provides dynamic policies for future domain endpoints:
 
 ```csharp
-orders.MapGet("/{id:guid}", GetOrder)
-    .RequireAuthorization(ScopePolicy.For("orders.read"));
-
-orders.MapPost("/", CreateOrder)
-    .RequireAuthorization(ScopePolicy.For("orders.create"));
-
-orders.MapPost("/{id:guid}/cancel", CancelOrder)
-    .RequireAuthorization(ScopePolicy.For("orders.cancel"));
+endpoint.RequireAuthorization(ScopePolicy.For("orders.read"));
+adminGroup.RequireAuthorization(RolePolicy.For("order-admin"));
 ```
 
-Privileged groups can require a Keycloak client role:
+These are infrastructure examples, not existing Order endpoints. The repository currently contains
+`ServiceTemplate.Api`, not an Order service. When a real domain is added, its handlers must implement
+its actual subject, tenant, resource-ownership, and state-transition rules. Scopes and roles never
+replace those checks.
 
-```csharp
-adminOrders.RequireAuthorization(RolePolicy.For("order-admin"));
-```
+## Run locally with Aspire
 
-Scopes and roles are not resource authorization. Handlers must still check the authenticated
-subject, tenant, order ownership, order state, and any other invariant owned by the application.
+Requirements:
 
-## Development realm
+- .NET 10 SDK;
+- Docker Desktop, Podman, or another Aspire-supported container runtime;
+- ports `5432` and `8080` available on the host.
 
-The Aspire AppHost runs Keycloak `26.7.0` with a local development realm:
-
-- issuer: `http://localhost:8080/realms/order`
-- admin console: `http://localhost:8080/admin/master/console/`
-- management readiness: `http://localhost:9000/health/ready`
-
-The admin username and password are Aspire parameters; the password has no committed default. The
-realm import contains clients, scopes, audience mapping, and API client roles, but no users or
-passwords.
-
-Keycloak's startup import skips a realm that already exists. Delete the local
-`order-keycloak-data` volume when intentionally reapplying a changed development realm.
-
-## Run locally
-
-Requirements: .NET 10 SDK and an Aspire-supported container runtime.
+Start the complete development environment:
 
 ```bash
 dotnet tool restore
@@ -169,7 +160,71 @@ dotnet restore
 dotnet run --project src/AppHost/Microservices.AppHost
 ```
 
-Provide the Keycloak admin password through AppHost user secrets or the Aspire parameter prompt.
+Aspire starts:
+
+- PostgreSQL on host port `5432`;
+- RabbitMQ;
+- Keycloak 26.7.0 on host port `8080`;
+- `ServiceTemplate.Migrator`;
+- `ServiceTemplate.Api` after its dependencies are ready.
+
+Open the Aspire dashboard URL printed by `dotnet run`. The Keycloak resource exposes its endpoint and
+admin-console link there.
+
+Development Keycloak endpoints:
+
+```text
+Issuer:       http://localhost:8080/realms/order
+Admin console: http://localhost:8080/admin/master/console/
+```
+
+The official Aspire Keycloak hosting integration generates a random admin password on the first run
+and stores it in the AppHost user-secrets store. The default admin username is `admin`. To inspect the
+stored development credentials:
+
+```bash
+dotnet user-secrets list --project src/AppHost/Microservices.AppHost
+```
+
+Do not commit the generated password. The management endpoint is intentionally an internal Aspire
+resource endpoint; use the Aspire dashboard to inspect its assigned URL and health status.
+
+The realm import comes from:
+
+```text
+src/AppHost/Microservices.AppHost/Keycloak/order-realm.json
+```
+
+Startup import creates a missing realm but does not reconcile an already existing realm in the
+persistent `order-keycloak-data` volume. After intentionally changing the development realm, remove
+that volume and restart Aspire:
+
+```bash
+docker volume rm order-keycloak-data
+```
+
+The actual volume name may be prefixed by the container runtime or Aspire project name. Locate it
+with `docker volume ls` when the exact name differs.
+
+The Aspire Keycloak package is used only by the local AppHost. Production does not deploy the
+AppHost or depend on the Aspire integration package.
+
+## Verification
+
+The CI pipeline now:
+
+- restores, builds, and tests every .NET project;
+- builds `infrastructure/keycloak/Containerfile`;
+- starts the pinned Keycloak image with the development realm import;
+- checks OIDC discovery and PKCE support;
+- verifies the mobile and API client security flags through the Keycloak Admin API;
+- verifies that only `order-user` is in the mobile client's API-role scope mapping.
+
+Run the Keycloak realm smoke test locally when Docker, `curl`, and `jq` are available:
+
+```bash
+bash scripts/verify-keycloak-development.sh
+```
 
 ## Database migrations
 
@@ -186,15 +241,21 @@ dotnet ef migrations add <Name> \
 Deploy `ServiceTemplate.Migrator` as a run-once task before API replicas. API processes must not
 apply schema migrations during startup.
 
-## Production Keycloak
+## Production Keycloak boundary
 
-`infrastructure/keycloak/Containerfile` creates an optimized image pinned to Keycloak `26.7.0`.
-Production must use PostgreSQL, HTTPS or a correctly configured trusted reverse proxy, secret-managed
-database/admin credentials, restricted management endpoints, backups, monitoring, and tested
-signing-key rotation.
+`infrastructure/keycloak/Containerfile` creates an optimized image pinned to Keycloak 26.7.0.
+Production still requires environment-specific deployment and identity configuration, including:
+
+- external PostgreSQL and tested backup/restore;
+- HTTPS, stable public hostname, and trusted reverse-proxy configuration;
+- secret-managed database and bootstrap credentials;
+- restricted admin and management access;
+- monitoring, alerting, capacity limits, and upgrade procedures;
+- controlled realm/client reconciliation;
+- production redirect URIs, SMTP, onboarding, MFA/step-up, and recovery policies.
 
 Do not run `start-dev`, H2, wildcard redirect URIs, committed bootstrap credentials, or development
-startup realm imports in production. Reconcile realms and clients through the Keycloak Operator or a
-controlled Admin API/GitOps process.
+startup imports as the production configuration-management strategy. Reconcile realms and clients
+through the Keycloak Operator or a controlled Admin API/GitOps process.
 
-See [docs/keycloak-integration.md](docs/keycloak-integration.md) for the detailed security contract.
+See `docs/keycloak-integration.md` for the detailed security contract.
