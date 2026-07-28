@@ -1,16 +1,10 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-const string keycloakIssuer = "http://localhost:8080/realms/order";
+const string keycloakBaseUrl = "http://localhost:8080";
+const string keycloakIssuer = $"{keycloakBaseUrl}/realms/order";
 
 var postgresUser = builder.AddParameter("postgres-user", "postgres", publishValueAsDefault: true);
 var postgresPassword = builder.AddParameter("postgres-password", "postgres", secret: true);
-var keycloakAdminUser = builder.AddParameter(
-    "keycloak-admin-user",
-    "admin",
-    publishValueAsDefault: true);
-var keycloakAdminPassword = builder.AddParameter(
-    "keycloak-admin-password",
-    secret: true);
 
 var postgres = builder
     .AddAzurePostgresFlexibleServer("postgres")
@@ -27,30 +21,15 @@ var rabbitMq = builder.AddRabbitMQ("rabbitmq")
     .WithManagementPlugin()
     .WithDataVolume();
 
-var keycloakImportDirectory = Path.Combine(AppContext.BaseDirectory, "Keycloak");
 var keycloak = builder
-    .AddContainer("keycloak", "quay.io/keycloak/keycloak", "26.7.0")
-    .WithArgs("start-dev", "--import-realm")
-    .WithEnvironment("KC_BOOTSTRAP_ADMIN_USERNAME", keycloakAdminUser)
-    .WithEnvironment("KC_BOOTSTRAP_ADMIN_PASSWORD", keycloakAdminPassword)
-    .WithEnvironment("KC_HEALTH_ENABLED", "true")
-    .WithEnvironment("KC_METRICS_ENABLED", "true")
-    .WithEnvironment("KC_HOSTNAME", "http://localhost:8080")
+    .AddKeycloak("keycloak", port: 8080)
+    .WithImageTag("26.7.0")
+    .WithDataVolume("order-keycloak-data")
+    .WithRealmImport("Keycloak")
+    .WithEnvironment("KC_HOSTNAME", keycloakBaseUrl)
     .WithEnvironment("KC_HOSTNAME_STRICT", "true")
-    .WithHttpEndpoint(port: 8080, targetPort: 8080, name: "http")
-    .WithHttpEndpoint(port: 9000, targetPort: 9000, name: "management")
-    .WithBindMount(
-        keycloakImportDirectory,
-        "/opt/keycloak/data/import",
-        isReadOnly: true)
-    .WithVolume("order-keycloak-data", "/opt/keycloak/data")
-    .WithHttpHealthCheck("/health/ready", endpointName: "management")
-    .WithLifetime(ContainerLifetime.Persistent)
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.DisplayText = "Keycloak";
-        url.Url = "/admin/master/console/";
-    });
+    .WithEnvironment("KC_METRICS_ENABLED", "true")
+    .WithLifetime(ContainerLifetime.Persistent);
 
 var migrations = builder.AddProject<Projects.ServiceTemplate_Migrator>("service-template-migrator")
     .WithReference(serviceDatabase)
@@ -59,9 +38,11 @@ var migrations = builder.AddProject<Projects.ServiceTemplate_Migrator>("service-
 builder.AddProject<Projects.ServiceTemplate_Api>("service-template-api")
     .WithReference(serviceDatabase)
     .WithReference(rabbitMq)
+    .WithReference(keycloak)
     .WithEnvironment("Security__Authority", keycloakIssuer)
     .WithEnvironment("Security__Audience", "order-api")
     .WithEnvironment("Security__RoleClientId", "order-api")
+    .WithEnvironment("Security__ValidAuthorizedParties__0", "order-mobile")
     .WithEnvironment("Security__RequireHttpsMetadata", "false")
     .WaitFor(serviceDatabase)
     .WaitForCompletion(migrations)
