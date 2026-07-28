@@ -51,7 +51,7 @@ internal static class KeycloakRoleClaimsMapper
         string clientId,
         HashSet<string> roles)
     {
-        foreach (var claim in principal.FindAll(ResourceAccessClaim))
+        foreach (var claim in FindAuthenticatedClaims(principal, ResourceAccessClaim))
         {
             if (!TryParseObject(claim.Value, out var document))
             {
@@ -77,7 +77,7 @@ internal static class KeycloakRoleClaimsMapper
         ClaimsPrincipal principal,
         HashSet<string> roles)
     {
-        foreach (var claim in principal.FindAll(RealmAccessClaim))
+        foreach (var claim in FindAuthenticatedClaims(principal, RealmAccessClaim))
         {
             if (!TryParseObject(claim.Value, out var document))
             {
@@ -95,6 +95,13 @@ internal static class KeycloakRoleClaimsMapper
             }
         }
     }
+
+    private static IEnumerable<Claim> FindAuthenticatedClaims(
+        ClaimsPrincipal principal,
+        string claimType) =>
+        principal.Identities
+            .Where(identity => identity.IsAuthenticated)
+            .SelectMany(identity => identity.FindAll(claimType));
 
     private static void AddRoles(
         JsonElement roleValues,
