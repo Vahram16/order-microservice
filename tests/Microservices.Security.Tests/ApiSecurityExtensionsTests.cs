@@ -288,7 +288,11 @@ public sealed class ApiSecurityExtensionsTests
     };
 
     private static ClaimsPrincipal AuthenticatedPrincipal(params Claim[] claims) =>
-        new(new ClaimsIdentity(claims, authenticationType: "test"));
+        new(new ClaimsIdentity(
+            claims,
+            authenticationType: "test",
+            nameType: SecurityClaimTypes.Name,
+            roleType: SecurityClaimTypes.Role));
 
     private sealed class TestHostEnvironment(string environmentName) : IHostEnvironment
     {
