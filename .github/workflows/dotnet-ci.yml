@@ -16,7 +16,7 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
 
     steps:
       - name: Check out repository
@@ -37,18 +37,6 @@ jobs:
           while IFS= read -r project; do
             dotnet restore "$project" 2>&1 | tee -a Logs/restore.log
           done < <(find src tests -name '*.csproj' -type f | sort)
-
-      - name: Verify API-only identity boundary
-        shell: bash
-        run: |
-          set -euo pipefail
-          identity_api="src/Services/Identity/Identity.Api"
-          if grep -RInE --include='*.cs' \
-            '(text/html|<!doctype[[:space:]]+html|<html([[:space:]>]))' \
-            "$identity_api"; then
-            echo "Identity.Api must not render application HTML."
-            exit 1
-          fi
 
       - name: Build source projects
         shell: bash
@@ -75,6 +63,22 @@ jobs:
               --results-directory TestResults 2>&1 \
               | tee -a Logs/test.log
           done < <(find tests -name '*.csproj' -type f | sort)
+
+      - name: Build production Keycloak image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            --file infrastructure/keycloak/Containerfile \
+            --tag order-keycloak:ci \
+            . 2>&1 | tee Logs/keycloak-image.log
+
+      - name: Verify Keycloak development realm
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/verify-keycloak-development.sh 2>&1 \
+            | tee Logs/keycloak-development.log
 
       - name: Upload CI diagnostics
         if: always()

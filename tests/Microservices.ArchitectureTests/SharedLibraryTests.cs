@@ -6,7 +6,7 @@ public sealed class SharedLibraryTests
 {
     private static readonly string[] ForbiddenSecurityReferencePrefixes =
     [
-        "Identity.Api",
+        "Keycloak",
         "Npgsql",
         "OpenIddict"
     ];
@@ -29,7 +29,7 @@ public sealed class SharedLibraryTests
     }
 
     [Fact]
-    public void SecurityMustRemainIndependentOfIdentityServerAndPersistence()
+    public void SecurityMustRemainIndependentOfIdentityProviderAndPersistence()
     {
         var securityProject = Path.Combine(
             FindRepositoryRoot(),
@@ -45,13 +45,13 @@ public sealed class SharedLibraryTests
     }
 
     [Fact]
-    public void SharedProjectsMustNotReferenceIdentityApi()
+    public void SharedProjectsMustNotReferenceDeployableServices()
     {
         var sharedDirectory = Path.Combine(FindRepositoryRoot(), "src", "Shared");
         var violations = Directory
             .EnumerateFiles(sharedDirectory, "*.csproj", SearchOption.AllDirectories)
             .SelectMany(project => ReadProjectReferences(project)
-                .Where(IsIdentityApiProjectReference)
+                .Where(IsDeployableServiceProjectReference)
                 .Select(reference => $"{Path.GetFileName(project)} -> {reference}"))
             .ToArray();
 
@@ -60,15 +60,15 @@ public sealed class SharedLibraryTests
 
     private static bool IsForbiddenSecurityReference(string reference) =>
         reference.Contains("EntityFrameworkCore", StringComparison.OrdinalIgnoreCase) ||
-        IsIdentityApiProjectReference(reference) ||
         ForbiddenSecurityReferencePrefixes.Any(prefix =>
             reference.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
 
-    private static bool IsIdentityApiProjectReference(string reference) =>
-        string.Equals(
-            Path.GetFileName(reference.Replace('\\', Path.DirectorySeparatorChar)),
-            "Identity.Api.csproj",
-            StringComparison.OrdinalIgnoreCase);
+    private static bool IsDeployableServiceProjectReference(string reference)
+    {
+        var normalized = reference.Replace('\\', '/');
+        return normalized.Contains("/Services/", StringComparison.OrdinalIgnoreCase) ||
+               normalized.StartsWith("Services/", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static IEnumerable<string> ReadDeclaredReferences(string projectPath) =>
         XDocument.Load(projectPath)

@@ -10,9 +10,19 @@ public sealed class ApiSecurityOptions
 
     public string Audience { get; set; } = string.Empty;
 
+    public string? RoleClientId { get; set; }
+
+    public string[] ValidAuthorizedParties { get; set; } = [];
+
+    public string[] RequiredClaims { get; set; } = ["sub", "iat", "jti"];
+
+    public bool MapRealmRoles { get; set; }
+
+    public string NameClaimType { get; set; } = "preferred_username";
+
     public bool RequireHttpsMetadata { get; set; } = true;
 
-    public TimeSpan ClockSkew { get; set; } = TimeSpan.FromMinutes(1);
+    public TimeSpan ClockSkew { get; set; } = TimeSpan.FromSeconds(30);
 
-    public string[] ValidTokenTypes { get; set; } = ["at+jwt"];
+    public string[] ValidTokenTypes { get; set; } = ["JWT", "at+jwt"];
 }

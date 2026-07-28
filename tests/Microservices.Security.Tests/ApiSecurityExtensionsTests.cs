@@ -21,7 +21,8 @@ public sealed class ApiSecurityExtensionsTests
             new Dictionary<string, string?>
             {
                 ["Security:Authority"] = "http://identity.example",
-                ["Security:Audience"] = "booking-api",
+                ["Security:Audience"] = "order-api",
+                ["Security:ValidAuthorizedParties:0"] = "order-mobile",
                 ["Security:RequireHttpsMetadata"] = "false"
             });
 
@@ -42,10 +43,11 @@ public sealed class ApiSecurityExtensionsTests
             Environments.Production,
             new Dictionary<string, string?>
             {
-                ["Security:Authority"] = "https://identity.example",
+                ["Security:Authority"] = "https://identity.example/realms/order",
                 ["Security:MetadataAddress"] =
-                    "http://identity.internal/.well-known/openid-configuration",
-                ["Security:Audience"] = "booking-api"
+                    "http://identity.internal/realms/order/.well-known/openid-configuration",
+                ["Security:Audience"] = "order-api",
+                ["Security:ValidAuthorizedParties:0"] = "order-mobile"
             });
 
         var exception = Assert.Throws<OptionsValidationException>(() =>
@@ -63,15 +65,16 @@ public sealed class ApiSecurityExtensionsTests
             Environments.Development,
             new Dictionary<string, string?>
             {
-                ["Security:Authority"] = "http://localhost:5001",
-                ["Security:Audience"] = "booking-api",
+                ["Security:Authority"] = "http://localhost:8080/realms/order",
+                ["Security:Audience"] = "order-api",
+                ["Security:ValidAuthorizedParties:0"] = "order-mobile",
                 ["Security:RequireHttpsMetadata"] = "false"
             });
 
         var jwt = provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
             .Get(JwtBearerDefaults.AuthenticationScheme);
 
-        Assert.Equal("http://localhost:5001", jwt.Authority);
+        Assert.Equal("http://localhost:8080/realms/order", jwt.Authority);
         Assert.False(jwt.RequireHttpsMetadata);
         Assert.True(jwt.IncludeErrorDetails);
     }
@@ -83,11 +86,12 @@ public sealed class ApiSecurityExtensionsTests
             Environments.Production,
             ValidConfiguration());
 
+        var configured = provider.GetRequiredService<IOptions<ApiSecurityOptions>>().Value;
         var jwt = provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
             .Get(JwtBearerDefaults.AuthenticationScheme);
 
-        Assert.Equal("https://identity.example", jwt.Authority);
-        Assert.Equal("booking-api", jwt.Audience);
+        Assert.Equal("https://identity.example/realms/order", jwt.Authority);
+        Assert.Equal("order-api", jwt.Audience);
         Assert.True(jwt.RequireHttpsMetadata);
         Assert.False(jwt.MapInboundClaims);
         Assert.False(jwt.SaveToken);
@@ -100,13 +104,54 @@ public sealed class ApiSecurityExtensionsTests
         Assert.True(jwt.TokenValidationParameters.RequireAudience);
         Assert.True(jwt.TokenValidationParameters.RequireExpirationTime);
         Assert.True(jwt.TokenValidationParameters.RequireSignedTokens);
-        Assert.Equal("booking-api", jwt.TokenValidationParameters.ValidAudience);
+        Assert.Equal("order-api", jwt.TokenValidationParameters.ValidAudience);
         Assert.Equal(
-            ["at+jwt"],
+            ["JWT", "at+jwt"],
             jwt.TokenValidationParameters.ValidTypes);
         Assert.Equal(
-            TimeSpan.FromMinutes(1),
+            TimeSpan.FromSeconds(30),
             jwt.TokenValidationParameters.ClockSkew);
+        Assert.Equal(
+            "preferred_username",
+            jwt.TokenValidationParameters.NameClaimType);
+        Assert.Equal(
+            SecurityClaimTypes.Role,
+            jwt.TokenValidationParameters.RoleClaimType);
+        Assert.Equal(["order-mobile"], configured.ValidAuthorizedParties);
+        Assert.Equal(["sub", "iat", "jti"], configured.RequiredClaims);
+    }
+
+    [Fact]
+    public void ConfigurationRejectsWhitespaceInRoleClientAndNameClaimType()
+    {
+        var configuration = ValidConfiguration();
+        configuration["Security:RoleClientId"] = "order api";
+        configuration["Security:NameClaimType"] = "preferred username";
+
+        using var provider = CreateProvider(Environments.Production, configuration);
+
+        var exception = Assert.Throws<OptionsValidationException>(() =>
+            provider.GetRequiredService<IOptions<ApiSecurityOptions>>().Value);
+
+        Assert.Contains(exception.Failures, failure =>
+            failure.Contains("RoleClientId", StringComparison.Ordinal));
+        Assert.Contains(exception.Failures, failure =>
+            failure.Contains("NameClaimType", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ConfigurationRequiresAnExplicitAuthorizedParty()
+    {
+        var configuration = ValidConfiguration();
+        configuration.Remove("Security:ValidAuthorizedParties:0");
+
+        using var provider = CreateProvider(Environments.Production, configuration);
+
+        var exception = Assert.Throws<OptionsValidationException>(() =>
+            provider.GetRequiredService<IOptions<ApiSecurityOptions>>().Value);
+
+        Assert.Contains(exception.Failures, failure =>
+            failure.Contains("ValidAuthorizedParties", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -135,13 +180,13 @@ public sealed class ApiSecurityExtensionsTests
             ValidConfiguration());
         var authorization = provider.GetRequiredService<IAuthorizationService>();
         var user = AuthenticatedPrincipal(
-            new Claim("scope", "openid booking.read"),
-            new Claim("scope", "booking.create booking.cancel"));
+            new Claim("scope", "openid orders.read"),
+            new Claim("scope", "orders.create orders.cancel"));
 
         var result = await authorization.AuthorizeAsync(
             user,
             resource: null,
-            ScopePolicy.For("booking.cancel"));
+            ScopePolicy.For("orders.cancel"));
 
         Assert.True(result.Succeeded);
     }
@@ -154,14 +199,32 @@ public sealed class ApiSecurityExtensionsTests
             ValidConfiguration());
         var authorization = provider.GetRequiredService<IAuthorizationService>();
         var user = AuthenticatedPrincipal(
-            new Claim("scope", "booking.read.all BOOKING.READ"));
+            new Claim("scope", "orders.read.all ORDERS.READ"));
 
         var result = await authorization.AuthorizeAsync(
             user,
             resource: null,
-            ScopePolicy.For("booking.read"));
+            ScopePolicy.For("orders.read"));
 
         Assert.False(result.Succeeded);
+    }
+
+    [Fact]
+    public async Task RolePolicyUsesApplicationRoleClaim()
+    {
+        using var provider = CreateProvider(
+            Environments.Production,
+            ValidConfiguration());
+        var authorization = provider.GetRequiredService<IAuthorizationService>();
+        var user = AuthenticatedPrincipal(
+            new Claim(SecurityClaimTypes.Role, "order-manager"));
+
+        var result = await authorization.AuthorizeAsync(
+            user,
+            resource: null,
+            RolePolicy.For("order-manager"));
+
+        Assert.True(result.Succeeded);
     }
 
     [Fact]
@@ -172,12 +235,12 @@ public sealed class ApiSecurityExtensionsTests
             ValidConfiguration());
         var authorization = provider.GetRequiredService<IAuthorizationService>();
         var user = new ClaimsPrincipal(new ClaimsIdentity(
-            [new Claim("scope", "booking.read")]));
+            [new Claim("scope", "orders.read")]));
 
         var result = await authorization.AuthorizeAsync(
             user,
             resource: null,
-            ScopePolicy.For("booking.read"));
+            ScopePolicy.For("orders.read"));
 
         Assert.False(result.Succeeded);
     }
@@ -192,26 +255,35 @@ public sealed class ApiSecurityExtensionsTests
         var user = new ClaimsPrincipal(
         [
             new ClaimsIdentity(authenticationType: "test"),
-            new ClaimsIdentity([new Claim("scope", "booking.read")])
+            new ClaimsIdentity([new Claim("scope", "orders.read")])
         ]);
 
         var result = await authorization.AuthorizeAsync(
             user,
             resource: null,
-            ScopePolicy.For("booking.read"));
+            ScopePolicy.For("orders.read"));
 
         Assert.False(result.Succeeded);
     }
 
     [Theory]
     [InlineData("")]
-    [InlineData("booking read")]
-    [InlineData("booking\\read")]
-    [InlineData("booking\"read")]
-    [InlineData("b\u00F6oking.read")]
+    [InlineData("orders read")]
+    [InlineData("orders\\read")]
+    [InlineData("orders\"read")]
+    [InlineData("ordérs.read")]
     public void ScopePolicyRejectsInvalidOAuthScopeTokens(string scope)
     {
         Assert.Throws<ArgumentException>(() => ScopePolicy.For(scope));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("order admin")]
+    [InlineData("\t")]
+    public void RolePolicyRejectsInvalidRoles(string role)
+    {
+        Assert.Throws<ArgumentException>(() => RolePolicy.For(role));
     }
 
     private static ServiceProvider CreateProvider(
@@ -231,12 +303,18 @@ public sealed class ApiSecurityExtensionsTests
 
     private static Dictionary<string, string?> ValidConfiguration() => new()
     {
-        ["Security:Authority"] = "https://identity.example",
-        ["Security:Audience"] = "booking-api"
+        ["Security:Authority"] = "https://identity.example/realms/order",
+        ["Security:Audience"] = "order-api",
+        ["Security:RoleClientId"] = "order-api",
+        ["Security:ValidAuthorizedParties:0"] = "order-mobile"
     };
 
     private static ClaimsPrincipal AuthenticatedPrincipal(params Claim[] claims) =>
-        new(new ClaimsIdentity(claims, authenticationType: "test"));
+        new(new ClaimsIdentity(
+            claims,
+            authenticationType: "test",
+            nameType: SecurityClaimTypes.Name,
+            roleType: SecurityClaimTypes.Role));
 
     private sealed class TestHostEnvironment(string environmentName) : IHostEnvironment
     {
