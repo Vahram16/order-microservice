@@ -59,29 +59,29 @@ public sealed class AccessTokenClaimsValidatorTests
     }
 
     [Fact]
-    public void RejectsMissingOrAmbiguousAuthorizedParty()
+    public void RejectsMissingOrDuplicateAuthorizedParty()
     {
         var missing = AuthenticatedPrincipal(
             new Claim("sub", "user-123"),
             new Claim("iat", "1774692000"),
             new Claim("jti", "token-123"));
-        var ambiguous = AuthenticatedPrincipal(
+        var duplicate = AuthenticatedPrincipal(
             new Claim("sub", "user-123"),
             new Claim("iat", "1774692000"),
             new Claim("jti", "token-123"),
             new Claim("azp", "order-mobile"),
-            new Claim("azp", "another-client"));
+            new Claim("azp", "order-mobile"));
 
         Assert.False(AccessTokenClaimsValidator.TryValidate(
             missing,
             Options(),
             out var missingFailure));
         Assert.False(AccessTokenClaimsValidator.TryValidate(
-            ambiguous,
+            duplicate,
             Options(),
-            out var ambiguousFailure));
+            out var duplicateFailure));
         Assert.Contains("exactly one", missingFailure, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("exactly one", ambiguousFailure, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("exactly one", duplicateFailure, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
