@@ -24,6 +24,8 @@ docker run --detach --rm \
   --env KC_BOOTSTRAP_ADMIN_PASSWORD="${admin_password}" \
   --env KC_HEALTH_ENABLED=true \
   --env KC_METRICS_ENABLED=true \
+  --env KC_HOSTNAME="${keycloak_url}" \
+  --env KC_HOSTNAME_STRICT=true \
   --volume "${realm_import}:/opt/keycloak/data/import:ro" \
   "${keycloak_image}" \
   start-dev --import-realm >/dev/null
@@ -46,7 +48,7 @@ discovery="$(curl --fail --silent --show-error \
   "${keycloak_url}/realms/order/.well-known/openid-configuration")"
 jq --exit-status \
   --arg issuer "${keycloak_url}/realms/order" \
-  '.issuer == $issuer and .code_challenge_methods_supported | index("S256") != null' \
+  '(.issuer == $issuer) and ((.code_challenge_methods_supported | index("S256")) != null)' \
   <<<"${discovery}" >/dev/null
 
 admin_token="$(curl --fail --silent --show-error \
