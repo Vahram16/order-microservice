@@ -67,6 +67,18 @@ admin_get() {
     "${keycloak_url}$1"
 }
 
+realm_configuration="$(admin_get '/admin/realms/order')"
+jq --exit-status '
+  .defaultSignatureAlgorithm == "RS256" and
+  .passwordPolicy == "length(12) and notUsername and notEmail and passwordHistory(5)" and
+  .bruteForceProtected == true and
+  .revokeRefreshToken == true and
+  .refreshTokenMaxReuse == 0 and
+  .eventsEnabled == true and
+  .adminEventsEnabled == true and
+  .adminEventsDetailsEnabled == true
+' <<<"${realm_configuration}" >/dev/null
+
 mobile_client="$(admin_get '/admin/realms/order/clients?clientId=order-mobile')"
 api_client="$(admin_get '/admin/realms/order/clients?clientId=order-api')"
 
