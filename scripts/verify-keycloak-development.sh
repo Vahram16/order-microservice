@@ -137,7 +137,7 @@ assert_json \
 client_scopes="$(admin_get "/admin/realms/order/clients/${mobile_id}/default-client-scopes")"
 assert_json \
   "mobile default client scopes" \
-  'map(.name) | contains(["order-api-audience", "profile", "email", "roles"])' \
+  'map(.name) | contains(["order-api-audience", "order-api-roles", "profile", "email"])' \
   "${client_scopes}"
 
 optional_scopes="$(admin_get "/admin/realms/order/clients/${mobile_id}/optional-client-scopes")"
@@ -145,5 +145,18 @@ assert_json \
   "mobile optional client scopes" \
   'map(.name) | contains(["offline_access", "orders.read", "orders.create", "orders.cancel"])' \
   "${optional_scopes}"
+
+all_client_scopes="$(admin_get '/admin/realms/order/client-scopes')"
+order_role_scope="$(jq --compact-output '[.[] | select(.name == "order-api-roles")]' <<<"${all_client_scopes}")"
+assert_json \
+  "Order API role protocol mapper" \
+  'length == 1 and
+   .[0].protocolMappers | length == 1 and
+   .[0].protocolMappers[0].protocolMapper == "oidc-usermodel-client-role-mapper" and
+   .[0].protocolMappers[0].config["usermodel.clientRoleMapping.clientId"] == "order-api" and
+   .[0].protocolMappers[0].config["claim.name"] == "resource_access.${client_id}.roles" and
+   .[0].protocolMappers[0].config["access.token.claim"] == "true" and
+   .[0].protocolMappers[0].config["id.token.claim"] == "false"' \
+  "${order_role_scope}"
 
 echo "Keycloak development realm verification passed."
