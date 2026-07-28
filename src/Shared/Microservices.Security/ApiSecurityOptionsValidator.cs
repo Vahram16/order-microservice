@@ -43,6 +43,24 @@ internal sealed class ApiSecurityOptionsValidator(IHostEnvironment environment)
             required: false,
             failures: failures);
         ValidateClaimType(options.NameClaimType, nameof(options.NameClaimType), failures);
+        ValidateValues(
+            options.ValidAuthorizedParties,
+            nameof(options.ValidAuthorizedParties),
+            required: true,
+            rejectWhitespace: true,
+            failures: failures);
+        ValidateValues(
+            options.RequiredClaims,
+            nameof(options.RequiredClaims),
+            required: true,
+            rejectWhitespace: true,
+            failures: failures);
+        ValidateValues(
+            options.ValidTokenTypes,
+            nameof(options.ValidTokenTypes),
+            required: true,
+            rejectWhitespace: false,
+            failures: failures);
 
         if (options.ClockSkew < TimeSpan.Zero || options.ClockSkew > MaximumClockSkew)
         {
@@ -51,29 +69,51 @@ internal sealed class ApiSecurityOptionsValidator(IHostEnvironment environment)
                 $"must be between zero and {MaximumClockSkew}.");
         }
 
-        if (options.ValidTokenTypes is null || options.ValidTokenTypes.Length == 0)
-        {
-            failures.Add(
-                $"{ApiSecurityOptions.SectionName}:{nameof(options.ValidTokenTypes)} " +
-                "must contain at least one access-token type.");
-        }
-        else if (options.ValidTokenTypes.Any(string.IsNullOrWhiteSpace))
-        {
-            failures.Add(
-                $"{ApiSecurityOptions.SectionName}:{nameof(options.ValidTokenTypes)} " +
-                "must not contain empty values.");
-        }
-        else if (options.ValidTokenTypes.Distinct(StringComparer.Ordinal).Count() !=
-                 options.ValidTokenTypes.Length)
-        {
-            failures.Add(
-                $"{ApiSecurityOptions.SectionName}:{nameof(options.ValidTokenTypes)} " +
-                "must not contain duplicate values.");
-        }
-
         return failures.Count == 0
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(failures);
+    }
+
+    private static void ValidateValues(
+        string[]? values,
+        string propertyName,
+        bool required,
+        bool rejectWhitespace,
+        List<string> failures)
+    {
+        if (values is null || values.Length == 0)
+        {
+            if (required)
+            {
+                failures.Add(
+                    $"{ApiSecurityOptions.SectionName}:{propertyName} " +
+                    "must contain at least one value.");
+            }
+
+            return;
+        }
+
+        if (values.Any(string.IsNullOrWhiteSpace))
+        {
+            failures.Add(
+                $"{ApiSecurityOptions.SectionName}:{propertyName} " +
+                "must not contain empty values.");
+            return;
+        }
+
+        if (rejectWhitespace && values.Any(value => value.Any(char.IsWhiteSpace)))
+        {
+            failures.Add(
+                $"{ApiSecurityOptions.SectionName}:{propertyName} " +
+                "must not contain values with whitespace.");
+        }
+
+        if (values.Distinct(StringComparer.Ordinal).Count() != values.Length)
+        {
+            failures.Add(
+                $"{ApiSecurityOptions.SectionName}:{propertyName} " +
+                "must not contain duplicate values.");
+        }
     }
 
     private static void ValidateIdentifier(
