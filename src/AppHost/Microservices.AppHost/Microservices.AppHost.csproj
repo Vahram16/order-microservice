@@ -8,13 +8,11 @@
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.AppHost" />
     <PackageReference Include="Aspire.Hosting.Azure.PostgreSQL" />
+    <PackageReference Include="Aspire.Hosting.Keycloak" />
     <PackageReference Include="Aspire.Hosting.RabbitMQ" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Services/ServiceTemplate/ServiceTemplate.Api/ServiceTemplate.Api.csproj" />
     <ProjectReference Include="../../Services/ServiceTemplate/ServiceTemplate.Migrator/ServiceTemplate.Migrator.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Update="Keycloak/*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
