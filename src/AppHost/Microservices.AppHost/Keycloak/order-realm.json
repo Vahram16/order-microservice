@@ -2,6 +2,7 @@
   "realm": "order",
   "enabled": true,
   "displayName": "Order Platform",
+  "defaultSignatureAlgorithm": "RS256",
   "registrationAllowed": false,
   "resetPasswordAllowed": true,
   "rememberMe": true,
@@ -10,12 +11,24 @@
   "duplicateEmailsAllowed": false,
   "bruteForceProtected": true,
   "sslRequired": "none",
+  "passwordPolicy": "length(12) and notUsername and notEmail and passwordHistory(5)",
   "accessTokenLifespan": 600,
+  "accessCodeLifespan": 60,
+  "accessCodeLifespanUserAction": 300,
+  "accessCodeLifespanLogin": 1800,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
+  "clientSessionIdleTimeout": 1800,
+  "clientSessionMaxLifespan": 36000,
   "offlineSessionIdleTimeout": 2592000,
+  "offlineSessionMaxLifespanEnabled": true,
+  "offlineSessionMaxLifespan": 7776000,
   "revokeRefreshToken": true,
   "refreshTokenMaxReuse": 0,
+  "eventsEnabled": true,
+  "eventsExpiration": 604800,
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": true,
   "roles": {
     "client": {
       "order-api": [
@@ -98,6 +111,7 @@
       "protocol": "openid-connect",
       "bearerOnly": true,
       "publicClient": false,
+      "fullScopeAllowed": false,
       "standardFlowEnabled": false,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
@@ -110,6 +124,8 @@
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": true,
+      "fullScopeAllowed": false,
+      "consentRequired": false,
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
@@ -136,5 +152,15 @@
         "orders.cancel"
       ]
     }
-  ]
+  ],
+  "clientScopeMappings": {
+    "order-api": [
+      {
+        "client": "order-mobile",
+        "roles": [
+          "order-user"
+        ]
+      }
+    ]
+  }
 }
