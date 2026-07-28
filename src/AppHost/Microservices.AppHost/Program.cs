@@ -43,7 +43,7 @@ var keycloak = builder
         keycloakImportDirectory,
         "/opt/keycloak/data/import",
         isReadOnly: true)
-    .WithDataVolume("order-keycloak-data")
+    .WithVolume("order-keycloak-data", "/opt/keycloak/data")
     .WithHttpHealthCheck("/health/ready", endpointName: "management")
     .WithLifetime(ContainerLifetime.Persistent)
     .WithUrlForEndpoint("http", url =>
