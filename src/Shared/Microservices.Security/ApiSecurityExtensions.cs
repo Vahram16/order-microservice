@@ -91,10 +91,22 @@ public static class ApiSecurityExtensions
         jwt.Events.OnTokenValidated = async context =>
         {
             await existingOnTokenValidated(context);
-            if (context.Principal is not null)
+
+            if (context.Principal is null)
             {
-                KeycloakRoleClaimsMapper.MapRoles(context.Principal, security);
+                return;
             }
+
+            if (!AccessTokenClaimsValidator.TryValidate(
+                    context.Principal,
+                    security,
+                    out var failure))
+            {
+                context.Fail(failure!);
+                return;
+            }
+
+            KeycloakRoleClaimsMapper.MapRoles(context.Principal, security);
         };
     }
 }
