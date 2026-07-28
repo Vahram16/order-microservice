@@ -59,7 +59,6 @@ var migrations = builder.AddProject<Projects.ServiceTemplate_Migrator>("service-
 builder.AddProject<Projects.ServiceTemplate_Api>("service-template-api")
     .WithReference(serviceDatabase)
     .WithReference(rabbitMq)
-    .WithReference(keycloak)
     .WithEnvironment("Security__Authority", keycloakIssuer)
     .WithEnvironment("Security__Audience", "order-api")
     .WithEnvironment("Security__RoleClientId", "order-api")
