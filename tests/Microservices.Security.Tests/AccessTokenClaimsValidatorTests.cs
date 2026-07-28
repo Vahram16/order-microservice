@@ -37,7 +37,7 @@ public sealed class AccessTokenClaimsValidatorTests
             out var failure);
 
         Assert.False(result);
-        Assert.Contains("jti", failure, StringComparison.Ordinal);
+        Assert.Contains("jti", failure!, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -55,7 +55,7 @@ public sealed class AccessTokenClaimsValidatorTests
             out var failure);
 
         Assert.False(result);
-        Assert.Contains("unauthorized client", failure, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("unauthorized client", failure!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -80,8 +80,8 @@ public sealed class AccessTokenClaimsValidatorTests
             duplicate,
             Options(),
             out var duplicateFailure));
-        Assert.Contains("exactly one", missingFailure, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("exactly one", duplicateFailure, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("exactly one", missingFailure!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("exactly one", duplicateFailure!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -108,7 +108,7 @@ public sealed class AccessTokenClaimsValidatorTests
             out var failure);
 
         Assert.False(result);
-        Assert.Contains("azp", failure, StringComparison.Ordinal);
+        Assert.Contains("azp", failure!, StringComparison.Ordinal);
     }
 
     private static ApiSecurityOptions Options() => new()
