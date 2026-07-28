@@ -34,21 +34,19 @@ internal static class AccessTokenClaimsValidator
             }
         }
 
-        var authorizedParties = authenticatedIdentities
+        var authorizedPartyClaims = authenticatedIdentities
             .SelectMany(identity => identity.FindAll(AuthorizedPartyClaim))
-            .Select(claim => claim.Value)
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Distinct(StringComparer.Ordinal)
             .ToArray();
 
-        if (authorizedParties.Length != 1)
+        if (authorizedPartyClaims.Length != 1 ||
+            string.IsNullOrWhiteSpace(authorizedPartyClaims[0].Value))
         {
             failure = "The access token must contain exactly one non-empty 'azp' claim.";
             return false;
         }
 
         if (!options.ValidAuthorizedParties.Contains(
-                authorizedParties[0],
+                authorizedPartyClaims[0].Value,
                 StringComparer.Ordinal))
         {
             failure = "The access token was issued to an unauthorized client.";
