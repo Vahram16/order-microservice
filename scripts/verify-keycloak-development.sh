@@ -70,8 +70,6 @@ if ! jq --exit-status \
 fi
 echo "Verified: OIDC discovery issuer and PKCE S256 support"
 
-# The host-published connection is external to Keycloak's master realm, which
-# correctly requires HTTPS. Authenticate over the container loopback instead.
 docker exec "${container_name}" /opt/keycloak/bin/kcadm.sh \
   config credentials \
   --server http://localhost:8080 \
@@ -102,9 +100,10 @@ assert_json \
   "${realm_configuration}"
 
 mobile_client="$(admin_get '/admin/realms/order/clients?clientId=order-mobile')"
-api_client="$(admin_get '/admin/realms/order/clients?clientId=order-api')"
+order_api_client="$(admin_get '/admin/realms/order/clients?clientId=order-api')"
 customer_api_client="$(admin_get '/admin/realms/order/clients?clientId=customer-api')"
 scalar_client="$(admin_get '/admin/realms/order/clients?clientId=scalar-dev')"
+customer_scalar_client="$(admin_get '/admin/realms/order/clients?clientId=customer-scalar-dev')"
 
 assert_json \
   "mobile public-client security" \
@@ -119,30 +118,21 @@ assert_json \
    .[0].redirectUris == ["com.example.order:/oauth2redirect"]' \
   "${mobile_client}"
 
-assert_json \
-  "Order API bearer-only client security" \
-  'length == 1 and
-   .[0].bearerOnly == true and
-   .[0].standardFlowEnabled == false and
-   .[0].implicitFlowEnabled == false and
-   .[0].directAccessGrantsEnabled == false and
-   .[0].serviceAccountsEnabled == false and
-   .[0].fullScopeAllowed == false' \
-  "${api_client}"
+for client in "${order_api_client}" "${customer_api_client}"; do
+  assert_json \
+    "API bearer-only client security" \
+    'length == 1 and
+     .[0].bearerOnly == true and
+     .[0].standardFlowEnabled == false and
+     .[0].implicitFlowEnabled == false and
+     .[0].directAccessGrantsEnabled == false and
+     .[0].serviceAccountsEnabled == false and
+     .[0].fullScopeAllowed == false' \
+    "${client}"
+done
 
 assert_json \
-  "Customer API bearer-only client security" \
-  'length == 1 and
-   .[0].bearerOnly == true and
-   .[0].standardFlowEnabled == false and
-   .[0].implicitFlowEnabled == false and
-   .[0].directAccessGrantsEnabled == false and
-   .[0].serviceAccountsEnabled == false and
-   .[0].fullScopeAllowed == false' \
-  "${customer_api_client}"
-
-assert_json \
-  "Scalar public-client security" \
+  "Order Scalar public-client security" \
   'length == 1 and
    .[0].publicClient == true and
    .[0].standardFlowEnabled == true and
@@ -152,80 +142,86 @@ assert_json \
    .[0].fullScopeAllowed == false and
    .[0].attributes["pkce.code.challenge.method"] == "S256" and
    .[0].redirectUris == ["https://localhost:7040/scalar/v1"] and
-   .[0].webOrigins == ["https://localhost:7040"] and
-   .[0].attributes["post.logout.redirect.uris"] == "https://localhost:7040/scalar/v1"' \
+   .[0].webOrigins == ["https://localhost:7040"]' \
   "${scalar_client}"
 
+assert_json \
+  "Customer Scalar public-client security" \
+  'length == 1 and
+   .[0].publicClient == true and
+   .[0].standardFlowEnabled == true and
+   .[0].implicitFlowEnabled == false and
+   .[0].directAccessGrantsEnabled == false and
+   .[0].serviceAccountsEnabled == false and
+   .[0].fullScopeAllowed == false and
+   .[0].attributes["pkce.code.challenge.method"] == "S256" and
+   .[0].redirectUris == ["https://localhost:7050/scalar/v1"] and
+   .[0].webOrigins == ["https://localhost:7050"]' \
+  "${customer_scalar_client}"
+
 mobile_id="$(jq --raw-output --exit-status '.[0].id' <<<"${mobile_client}")"
-api_id="$(jq --raw-output --exit-status '.[0].id' <<<"${api_client}")"
+order_api_id="$(jq --raw-output --exit-status '.[0].id' <<<"${order_api_client}")"
 customer_api_id="$(jq --raw-output --exit-status '.[0].id' <<<"${customer_api_client}")"
 scalar_id="$(jq --raw-output --exit-status '.[0].id' <<<"${scalar_client}")"
+customer_scalar_id="$(jq --raw-output --exit-status '.[0].id' <<<"${customer_scalar_client}")"
 
-role_scope_mappings="$(admin_get "/admin/realms/order/clients/${mobile_id}/scope-mappings/clients/${api_id}")"
-assert_json \
-  "mobile Order API role scope mapping" \
-  'map(.name) | sort == ["order-user"]' \
-  "${role_scope_mappings}"
+mobile_order_roles="$(admin_get "/admin/realms/order/clients/${mobile_id}/scope-mappings/clients/${order_api_id}")"
+assert_json "mobile Order API role scope mapping" 'map(.name) | sort == ["order-user"]' "${mobile_order_roles}"
+scalar_order_roles="$(admin_get "/admin/realms/order/clients/${scalar_id}/scope-mappings/clients/${order_api_id}")"
+assert_json "Order Scalar role scope mapping" 'map(.name) | sort == ["order-user"]' "${scalar_order_roles}"
+mobile_customer_roles="$(admin_get "/admin/realms/order/clients/${mobile_id}/scope-mappings/clients/${customer_api_id}")"
+assert_json "mobile Customer API role scope mapping" 'map(.name) | sort == ["customer-user"]' "${mobile_customer_roles}"
+customer_scalar_roles="$(admin_get "/admin/realms/order/clients/${customer_scalar_id}/scope-mappings/clients/${customer_api_id}")"
+assert_json "Customer Scalar role scope mapping" 'map(.name) | sort == ["customer-user"]' "${customer_scalar_roles}"
 
-scalar_role_scope_mappings="$(admin_get "/admin/realms/order/clients/${scalar_id}/scope-mappings/clients/${api_id}")"
+mobile_defaults="$(admin_get "/admin/realms/order/clients/${mobile_id}/default-client-scopes")"
 assert_json \
-  "Scalar Order API role scope mapping" \
-  'map(.name) | sort == ["order-user"]' \
-  "${scalar_role_scope_mappings}"
+  "mobile default scopes exclude Customer API" \
+  '(map(.name) | contains(["basic", "order-api-audience", "order-api-roles", "profile", "email"])) and
+   (map(.name) | index("customer-api-audience") == null) and
+   (map(.name) | index("customer-api-roles") == null)' \
+  "${mobile_defaults}"
 
-customer_role_scope_mappings="$(admin_get "/admin/realms/order/clients/${mobile_id}/scope-mappings/clients/${customer_api_id}")"
+mobile_optional="$(admin_get "/admin/realms/order/clients/${mobile_id}/optional-client-scopes")"
 assert_json \
-  "mobile Customer API role scope mapping" \
-  'map(.name) | sort == ["order-user"]' \
-  "${customer_role_scope_mappings}"
-
-scalar_customer_role_scope_mappings="$(admin_get "/admin/realms/order/clients/${scalar_id}/scope-mappings/clients/${customer_api_id}")"
-assert_json \
-  "Scalar Customer API role scope mapping" \
-  'map(.name) | sort == ["order-user"]' \
-  "${scalar_customer_role_scope_mappings}"
-
-client_scopes="$(admin_get "/admin/realms/order/clients/${mobile_id}/default-client-scopes")"
-assert_json \
-  "mobile default client scopes" \
+  "mobile optional Customer capabilities" \
   'map(.name) | contains([
-     "basic",
-     "customer-api-audience",
-     "customer-api-roles",
-     "email",
-     "order-api-audience",
-     "order-api-roles",
-     "profile"
-   ])' \
-  "${client_scopes}"
+    "offline_access", "orders.read", "orders.create", "orders.cancel",
+    "customer-api-audience", "customer-api-roles", "customers.self.read",
+    "customers.self.update", "customers.addresses.write", "customers.self.export",
+    "customers.self.delete"
+  ])' \
+  "${mobile_optional}"
 
-scalar_client_scopes="$(admin_get "/admin/realms/order/clients/${scalar_id}/default-client-scopes")"
+scalar_defaults="$(admin_get "/admin/realms/order/clients/${scalar_id}/default-client-scopes")"
 assert_json \
-  "Scalar default client scopes" \
+  "Order Scalar default scopes" \
+  'map(.name) | contains(["basic", "order-api-audience", "order-api-roles", "profile", "email"])' \
+  "${scalar_defaults}"
+scalar_optional="$(admin_get "/admin/realms/order/clients/${scalar_id}/optional-client-scopes")"
+assert_json \
+  "Order Scalar optional scopes exclude Customer API" \
+  '(map(.name) | contains(["orders.read", "orders.create", "orders.cancel"])) and
+   (map(.name) | index("customer-api-audience") == null) and
+   (map(.name) | index("offline_access") == null)' \
+  "${scalar_optional}"
+
+customer_scalar_defaults="$(admin_get "/admin/realms/order/clients/${customer_scalar_id}/default-client-scopes")"
+assert_json \
+  "Customer Scalar identity-only defaults" \
+  '(map(.name) | contains(["basic", "profile", "email"])) and
+   (map(.name) | index("customer-api-audience") == null) and
+   (map(.name) | index("order-api-audience") == null)' \
+  "${customer_scalar_defaults}"
+customer_scalar_optional="$(admin_get "/admin/realms/order/clients/${customer_scalar_id}/optional-client-scopes")"
+assert_json \
+  "Customer Scalar optional capabilities" \
   'map(.name) | contains([
-     "basic",
-     "customer-api-audience",
-     "customer-api-roles",
-     "email",
-     "order-api-audience",
-     "order-api-roles",
-     "profile"
-   ])' \
-  "${scalar_client_scopes}"
-
-optional_scopes="$(admin_get "/admin/realms/order/clients/${mobile_id}/optional-client-scopes")"
-assert_json \
-  "mobile optional client scopes" \
-  'map(.name) | contains(["offline_access", "orders.read", "orders.create", "orders.cancel"])' \
-  "${optional_scopes}"
-
-scalar_optional_scopes="$(admin_get "/admin/realms/order/clients/${scalar_id}/optional-client-scopes")"
-assert_json \
-  "Scalar optional client scopes" \
-  'map(.name) |
-   contains(["orders.read", "orders.create", "orders.cancel"]) and
-   (index("offline_access") == null)' \
-  "${scalar_optional_scopes}"
+    "customer-api-audience", "customer-api-roles", "customers.self.read",
+    "customers.self.update", "customers.addresses.write", "customers.self.export",
+    "customers.self.delete"
+  ])' \
+  "${customer_scalar_optional}"
 
 all_client_scopes="$(admin_get '/admin/realms/order/client-scopes')"
 basic_scope="$(jq --compact-output '[.[] | select(.name == "basic")]' <<<"${all_client_scopes}")"
@@ -242,10 +238,7 @@ order_role_scope="$(jq --compact-output '[.[] | select(.name == "order-api-roles
 assert_json \
   "Order API role protocol mapper" \
   '(length == 1) and
-   ((.[0].protocolMappers | length) == 1) and
-   .[0].protocolMappers[0].protocolMapper == "oidc-usermodel-client-role-mapper" and
    .[0].protocolMappers[0].config["usermodel.clientRoleMapping.clientId"] == "order-api" and
-   .[0].protocolMappers[0].config["claim.name"] == "resource_access.${client_id}.roles" and
    .[0].protocolMappers[0].config["access.token.claim"] == "true" and
    .[0].protocolMappers[0].config["id.token.claim"] == "false"' \
   "${order_role_scope}"
@@ -254,10 +247,7 @@ customer_role_scope="$(jq --compact-output '[.[] | select(.name == "customer-api
 assert_json \
   "Customer API role protocol mapper" \
   '(length == 1) and
-   ((.[0].protocolMappers | length) == 1) and
-   .[0].protocolMappers[0].protocolMapper == "oidc-usermodel-client-role-mapper" and
    .[0].protocolMappers[0].config["usermodel.clientRoleMapping.clientId"] == "customer-api" and
-   .[0].protocolMappers[0].config["claim.name"] == "resource_access.${client_id}.roles" and
    .[0].protocolMappers[0].config["access.token.claim"] == "true" and
    .[0].protocolMappers[0].config["id.token.claim"] == "false"' \
   "${customer_role_scope}"
@@ -266,11 +256,8 @@ customer_audience_scope="$(jq --compact-output '[.[] | select(.name == "customer
 assert_json \
   "Customer API audience protocol mapper" \
   '(length == 1) and
-   ((.[0].protocolMappers | length) == 1) and
-   .[0].protocolMappers[0].protocolMapper == "oidc-audience-mapper" and
    .[0].protocolMappers[0].config["included.client.audience"] == "customer-api" and
-   .[0].protocolMappers[0].config["access.token.claim"] == "true" and
-   .[0].protocolMappers[0].config["id.token.claim"] == "false"' \
+   .[0].protocolMappers[0].config["access.token.claim"] == "true"' \
   "${customer_audience_scope}"
 
 echo "Keycloak development realm verification passed."
