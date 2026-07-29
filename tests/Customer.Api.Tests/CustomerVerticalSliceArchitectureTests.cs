@@ -107,18 +107,17 @@ public sealed class CustomerVerticalSliceArchitectureTests
                 file => File.ReadAllText(Path.Combine(sliceDirectory, file)),
                 StringComparer.Ordinal);
 
-            foreach (var (fileName, source) in sources)
+            foreach (var source in sources.Values)
             {
                 Assert.Contains(
                     $"namespace Customer.Api.Features.Customers.{sliceName}.V1;",
                     source,
                     StringComparison.Ordinal);
-                Assert.Equal(
-                    1,
+                Assert.Single(
                     Regex.Matches(
-                        source,
-                        @"\b(?:public|internal)\s+(?:sealed\s+)?(?:static\s+)?(?:class|record|interface)\s+\w+")
-                        .Count);
+                            source,
+                            @"\b(?:public|internal)\s+(?:sealed\s+)?(?:static\s+)?(?:class|record|interface)\s+\w+")
+                        .Cast<Match>());
 
                 foreach (var otherSlice in ExpectedFiles.Keys.Where(name => name != sliceName))
                 {
@@ -147,8 +146,9 @@ public sealed class CustomerVerticalSliceArchitectureTests
                 handlerSource.Contains(": IQueryHandler<", StringComparison.Ordinal));
             Assert.DoesNotContain("IRequestHandler<", handlerSource, StringComparison.Ordinal);
 
-            Assert.NotEmpty(
-                sources.Where(pair => pair.Key.EndsWith("Validator.cs", StringComparison.Ordinal)));
+            Assert.Contains(
+                sources.Keys,
+                file => file.EndsWith("Validator.cs", StringComparison.Ordinal));
         }
     }
 
