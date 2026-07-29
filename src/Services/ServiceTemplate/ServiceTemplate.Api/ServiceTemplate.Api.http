@@ -1,6 +1,8 @@
 @ServiceTemplate.Api_HostAddress = http://localhost:5205
 
-GET {{ServiceTemplate.Api_HostAddress}}/weatherforecast/
+GET {{ServiceTemplate.Api_HostAddress}}/auth-test
+Authorization: Bearer {{access_token}}
+Accept: application/json
 Accept: application/json
 
 ###

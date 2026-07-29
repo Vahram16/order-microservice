@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
@@ -11,6 +12,18 @@ namespace Microservices.Security;
 
 public static class ApiSecurityExtensions
 {
+    private static readonly Action<ILogger, string, Exception?> LogAuthenticationFailure =
+        LoggerMessage.Define<string>(
+            LogLevel.Warning,
+            new EventId(1, nameof(LogAuthenticationFailure)),
+            "JWT bearer authentication failed: {Reason}");
+
+    private static readonly Action<ILogger, string, Exception?> LogClaimsValidationFailure =
+        LoggerMessage.Define<string>(
+            LogLevel.Warning,
+            new EventId(2, nameof(LogClaimsValidationFailure)),
+            "The validated access token was rejected: {Reason}");
+
     public static IServiceCollection AddApiSecurity(
         this IServiceCollection services,
         IConfiguration configuration,
@@ -35,8 +48,14 @@ public static class ApiSecurityExtensions
             .AddJwtBearer();
 
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
-            .Configure<IOptions<ApiSecurityOptions>>((jwt, configured) =>
-                ConfigureJwtBearer(jwt, configured.Value, environment));
+            .Configure<IOptions<ApiSecurityOptions>, ILoggerFactory>(
+                (jwt, configured, loggerFactory) =>
+                    ConfigureJwtBearer(
+                        jwt,
+                        configured.Value,
+                        environment,
+                        loggerFactory.CreateLogger(
+                            "Microservices.Security.JwtBearer")));
 
         var fallbackPolicy = new AuthorizationPolicyBuilder(
                 JwtBearerDefaults.AuthenticationScheme)
@@ -56,7 +75,8 @@ public static class ApiSecurityExtensions
     private static void ConfigureJwtBearer(
         JwtBearerOptions jwt,
         ApiSecurityOptions security,
-        IHostEnvironment environment)
+        IHostEnvironment environment,
+        ILogger logger)
     {
         jwt.Authority = security.Authority;
         jwt.Audience = security.Audience;
@@ -87,6 +107,20 @@ public static class ApiSecurityExtensions
         };
 
         jwt.Events ??= new JwtBearerEvents();
+        var existingOnAuthenticationFailed = jwt.Events.OnAuthenticationFailed;
+        jwt.Events.OnAuthenticationFailed = async context =>
+        {
+            await existingOnAuthenticationFailed(context);
+
+            if (environment.IsDevelopment())
+            {
+                LogAuthenticationFailure(
+                    logger,
+                    context.Exception.Message,
+                    context.Exception);
+            }
+        };
+
         var existingOnTokenValidated = jwt.Events.OnTokenValidated;
         jwt.Events.OnTokenValidated = async context =>
         {
@@ -102,6 +136,11 @@ public static class ApiSecurityExtensions
                     security,
                     out var failure))
             {
+                if (environment.IsDevelopment())
+                {
+                    LogClaimsValidationFailure(logger, failure!, null);
+                }
+
                 context.Fail(failure!);
                 return;
             }

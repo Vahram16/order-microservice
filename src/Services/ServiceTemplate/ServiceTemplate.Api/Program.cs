@@ -5,6 +5,7 @@ using Microservices.Messaging;
 using Microservices.Persistence.Postgres;
 using Microservices.Security;
 using ServiceTemplate.Api.Persistence;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -37,7 +38,37 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapDefaultEndpoints();
 app.MapApiDocumentation();
+app.MapGet("/", () => Results.Redirect("/scalar/v1"))
+    .ExcludeFromDescription()
+    .AllowAnonymous();
+app.MapGet("/auth-test", (ClaimsPrincipal user, ILogger<Program> logger) =>
+    {
+        var userId = user.FindFirstValue("sub");
+        var username = user.FindFirstValue("preferred_username") ?? user.Identity?.Name;
+
+        Program.LogAuthTestRequest(logger, username, userId);
+
+        return Results.Ok(new
+        {
+            message = "Authentication works.",
+            userId,
+            username
+        });
+    })
+    .WithName("AuthTest")
+    .WithSummary("Tests Keycloak access-token authentication")
+    .RequireAuthorization( RolePolicy.For("order.read"));
 
 await app.RunAsync();
 
-public partial class Program;
+public partial class Program
+{
+    [LoggerMessage(
+        EventId = 1,
+        Level = LogLevel.Information,
+        Message = "Auth test request received from user {Username} ({UserId})")]
+    public static partial void LogAuthTestRequest(
+        ILogger logger,
+        string? username,
+        string? userId);
+}

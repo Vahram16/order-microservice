@@ -16,6 +16,12 @@ Development routes use the framework defaults:
 - `/openapi/v1.json`
 - `/scalar/v1`
 
+Scalar's development OAuth flow uses the `scalar-dev` public Keycloak client, Authorization Code
+with PKCE `S256`, and the realm configured by `Security:Authority`. The local realm permits only
+the exact HTTPS callback `https://localhost:7040/scalar/v1`; use the API's HTTPS launch profile for
+interactive sign-in. Scalar requests only interactive identity and Order API scopes; it does not
+request `offline_access` or an offline refresh token.
+
 The documentation endpoints are never mapped outside `Development`. They are excluded from their
 own OpenAPI document, send `no-store` headers, and use a documentation-specific Content Security
 Policy.

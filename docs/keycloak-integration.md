@@ -49,6 +49,20 @@ The mobile application opens the system browser, sends an authorization request,
 through the registered redirect URI, and exchanges the code plus PKCE verifier directly with
 Keycloak. It sends only the access token to the API.
 
+## Local Scalar client
+
+The development realm includes a separate `scalar-dev` public client for the HTTPS API-documentation
+endpoint at `https://localhost:7040/scalar/v1`. It uses Authorization Code with PKCE `S256`, exact
+redirect URI and web-origin allow-lists, and the same minimal Order API audience, application
+scopes, and `order-user` role scope mapping as the mobile client. It does not request
+`offline_access`; interactive API documentation does not need an offline refresh token. It is a
+development-only client; do not add it to a production API's authorized-party allow-list.
+
+Both token-issuing clients receive the realm's `basic` default client scope. Its Keycloak
+`oidc-sub-mapper` adds the stable OIDC `sub` claim required by API token validation. This scope is
+declared explicitly because imported realms do not inherit client scopes from Keycloak's realm
+defaults.
+
 The realm defines `order-user`, `order-manager`, and `order-admin` as `order-api` client roles. The
 mobile client's explicit role scope mapping contains only `order-user`, so privileged manager/admin
 roles are not emitted through the public mobile client. A dedicated `order-api-roles` client scope
@@ -151,9 +165,11 @@ dotnet user-secrets list --project src/AppHost/Microservices.AppHost
 The management endpoint is not assigned a fixed public host port. Inspect its URL and readiness state
 through the Aspire dashboard.
 
-The `order-keycloak-data` volume persists local realm state. Keycloak startup import creates a realm
-only when it does not already exist; it is not a reconciliation mechanism. Remove the development
-volume when intentionally reapplying a changed import, then restart Aspire.
+Keycloak stores local realm state in the dedicated `keycloak` database on the Aspire-managed
+PostgreSQL server; application data uses a separate database. Keycloak startup import creates a
+realm only when it does not already exist, so it is not a reconciliation mechanism. When
+intentionally reapplying a changed import, delete the `order` realm through the admin console and
+restart Aspire.
 
 The `Aspire.Hosting.Keycloak` package is AppHost-only and development-only. The production Keycloak
 image and deployment do not depend on Aspire.
@@ -172,6 +188,7 @@ the realm, checks OIDC discovery, and queries the Admin API to verify:
 - the exact development redirect URI;
 - explicit profile, email, audience, role, offline, and application scopes;
 - only `order-user` in the mobile client's `order-api` role scope mapping;
+- the `scalar-dev` public-client, redirect, origin, scopes, and `order-user` role boundary;
 - the client-specific `order-api-roles` protocol mapper and its access-token-only claim target.
 
 Unit tests separately verify JWT option hardening, exact scopes, role mapping, required claims, and the

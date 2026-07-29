@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ServiceTemplate.Api.Persistence;
@@ -11,9 +12,11 @@ using ServiceTemplate.Api.Persistence;
 namespace ServiceTemplate.Api.Persistence.Migrations
 {
     [DbContext(typeof(ServiceTemplateDbContext))]
-    partial class ServiceTemplateDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260728164408_MassTransitV8Compatibility")]
+    partial class MassTransitV8Compatibility
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

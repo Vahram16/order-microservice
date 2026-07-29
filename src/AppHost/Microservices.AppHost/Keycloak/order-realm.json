@@ -49,6 +49,41 @@
   },
   "clientScopes": [
     {
+      "name": "basic",
+      "description": "OpenID Connect core claims required by access tokens",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "sub",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "consentRequired": false,
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "auth_time",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usersessionmodel-note-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.session.note": "AUTH_TIME",
+            "claim.name": "auth_time",
+            "jsonType.label": "long",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
       "name": "profile",
       "description": "OpenID Connect profile claims required by the native client",
       "protocol": "openid-connect",
@@ -284,6 +319,7 @@
         "post.logout.redirect.uris": "com.example.order:/oauth2redirect"
       },
       "defaultClientScopes": [
+        "basic",
         "profile",
         "email",
         "order-api-roles",
@@ -295,12 +331,55 @@
         "orders.create",
         "orders.cancel"
       ]
+    },
+    {
+      "clientId": "scalar-dev",
+      "name": "Scalar Development",
+      "description": "Local API documentation client using Authorization Code with PKCE",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "fullScopeAllowed": false,
+      "consentRequired": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "redirectUris": [
+        "https://localhost:7040/scalar/v1"
+      ],
+      "webOrigins": [
+        "https://localhost:7040"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "https://localhost:7040/scalar/v1"
+      },
+      "defaultClientScopes": [
+        "basic",
+        "profile",
+        "email",
+        "order-api-roles",
+        "order-api-audience"
+      ],
+      "optionalClientScopes": [
+        "orders.read",
+        "orders.create",
+        "orders.cancel"
+      ]
     }
   ],
   "clientScopeMappings": {
     "order-api": [
       {
         "client": "order-mobile",
+        "roles": [
+          "order-user"
+        ]
+      },
+      {
+        "client": "scalar-dev",
         "roles": [
           "order-user"
         ]

@@ -13,18 +13,34 @@ public static class ApiDocumentationExtensions
     private const string DocumentName = "v1";
     private const string BearerScheme = "Bearer";
     private const string OAuthScheme = "OAuth2";
+    private const string SecurityAuthorityConfigurationKey = "Security:Authority";
+    private const string DeveloperOAuthClientId = "scalar-dev";
+    private const string DeveloperOAuthRedirectUri = "https://localhost:7040/scalar/v1";
     private const string DeveloperDocumentationContentSecurityPolicy =
         "default-src 'self'; script-src 'self' 'unsafe-inline' https:; " +
         "style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; " +
         "font-src 'self' data:; connect-src 'self' http: https:; " +
         "worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; " +
         "form-action 'self'";
+    private static readonly string[] DeveloperOAuthScopes =
+    [
+        "openid",
+        "profile",
+        "email",
+        "orders.read",
+        "orders.create",
+        "orders.cancel"
+    ];
 
     public static WebApplicationBuilder AddApiDocumentation(
         this WebApplicationBuilder builder,
         string title)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
+
+        var authority = builder.Configuration[SecurityAuthorityConfigurationKey];
+        var authorizationUrl = GetKeycloakEndpoint(authority, "auth");
+        var tokenUrl = GetKeycloakEndpoint(authority, "token");
 
         builder.Services.AddOpenApi(DocumentName, options =>
         {
@@ -35,7 +51,8 @@ public static class ApiDocumentationExtensions
                 return Task.CompletedTask;
             });
             options.AddDocumentTransformer(new BearerSecuritySchemeTransformer());
-            options.AddDocumentTransformer(new OAuthSecuritySchemeTransformer());
+            options.AddDocumentTransformer(
+                new OAuthSecuritySchemeTransformer(authorizationUrl, tokenUrl));
             options.AddOperationTransformer(new BearerSecurityRequirementTransformer());
         });
 
@@ -57,23 +74,10 @@ public static class ApiDocumentationExtensions
             .AddPreferredSecuritySchemes(OAuthScheme)
             .AddAuthorizationCodeFlow(OAuthScheme, flow =>
             {
-                flow.ClientId = "scalar-dev";
-                flow.RedirectUri = "https://localhost:7100/scalar/v1";
+                flow.ClientId = DeveloperOAuthClientId;
+                flow.RedirectUri = DeveloperOAuthRedirectUri;
                 flow.Pkce = Pkce.Sha256;
-                flow.SelectedScopes =
-                [
-                    "openid",
-                    "profile",
-                    "email",
-                    "offline_access",
-                    "flight.read",
-                    "booking.read",
-                    "booking.create",
-                    "booking.cancel",
-                    "passenger.self.read",
-                    "passenger.self.update",
-                    "identity.profile.read"
-                ];
+                flow.SelectedScopes = DeveloperOAuthScopes;
             }))
             .AddEndpointFilter(AddDeveloperDocumentationHeadersAsync)
             .AllowAnonymous()
@@ -82,7 +86,24 @@ public static class ApiDocumentationExtensions
         return app;
     }
 
-    private sealed class OAuthSecuritySchemeTransformer : IOpenApiDocumentTransformer
+    private static Uri GetKeycloakEndpoint(string? authority, string endpoint)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(authority);
+
+        if (!Uri.TryCreate(authority, UriKind.Absolute, out var issuer))
+        {
+            throw new InvalidOperationException(
+                $"{SecurityAuthorityConfigurationKey} must be an absolute URI.");
+        }
+
+        return new Uri(
+            $"{issuer.AbsoluteUri.TrimEnd('/')}/protocol/openid-connect/{endpoint}",
+            UriKind.Absolute);
+    }
+
+    private sealed class OAuthSecuritySchemeTransformer(
+        Uri authorizationUrl,
+        Uri tokenUrl) : IOpenApiDocumentTransformer
     {
         public Task TransformAsync(
             OpenApiDocument document,
@@ -96,28 +117,21 @@ public static class ApiDocumentationExtensions
                 new OpenApiSecurityScheme
                 {
                     Type = SecuritySchemeType.OAuth2,
-                    Description = "Sign in through the Identity service.",
+                    Description = "Sign in through Keycloak.",
                     Flows = new OpenApiOAuthFlows
                     {
                         AuthorizationCode = new OpenApiOAuthFlow
                         {
-                            AuthorizationUrl = new Uri(
-                                "https://localhost:7100/connect/authorize"),
-                            TokenUrl = new Uri(
-                                "https://localhost:7100/connect/token"),
+                            AuthorizationUrl = authorizationUrl,
+                            TokenUrl = tokenUrl,
                             Scopes = new Dictionary<string, string>
                             {
                                 ["openid"] = "Authenticate the user.",
                                 ["profile"] = "Read the user's basic profile.",
                                 ["email"] = "Read the user's email address.",
-                                ["offline_access"] = "Request a refresh token.",
-                                ["flight.read"] = "Search and view flights.",
-                                ["booking.read"] = "View the user's bookings.",
-                                ["booking.create"] = "Create bookings.",
-                                ["booking.cancel"] = "Cancel bookings.",
-                                ["passenger.self.read"] = "Read the user's passenger profile.",
-                                ["passenger.self.update"] = "Update the user's passenger profile.",
-                                ["identity.profile.read"] = "Read the user's identity profile."
+                                ["orders.read"] = "Read orders allowed by application ownership rules.",
+                                ["orders.create"] = "Create orders.",
+                                ["orders.cancel"] = "Cancel orders allowed by application rules."
                             }
                         }
                     }

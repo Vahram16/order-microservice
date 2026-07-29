@@ -90,6 +90,21 @@ application-owned custom scheme before release. The mobile application must open
 complete the authorization flow, exchange the code with its PKCE verifier, and attach only the
 access token as a bearer token to API calls.
 
+## Local API documentation client
+
+The development realm also defines `scalar-dev`, a public PKCE client for Scalar at
+`https://localhost:7040/scalar/v1`. It has the same explicitly granted API audience, application
+scopes, and `order-user` role boundary as the mobile client, but it does not request
+`offline_access` because interactive API documentation does not need an offline refresh token. It
+is accepted only by the development API configuration; production continues to allow only
+explicitly configured production clients.
+
+The imported realm explicitly assigns Keycloak's `basic` client scope to both public clients so
+their access tokens contain the stable OIDC `sub` identifier required by the API.
+
+Run the API with its HTTPS launch profile when using Scalar OAuth. The exact redirect URI and web
+origin are intentionally not wildcards.
+
 ## API token validation
 
 Every resource API calls:
@@ -162,7 +177,7 @@ dotnet run --project src/AppHost/Microservices.AppHost
 
 Aspire starts:
 
-- PostgreSQL on host port `5432`;
+- PostgreSQL on host port `5432`, with separate application and Keycloak databases;
 - RabbitMQ;
 - Keycloak 26.7.0 on host port `8080`;
 - `ServiceTemplate.Migrator`;
@@ -195,16 +210,11 @@ The realm import comes from:
 src/AppHost/Microservices.AppHost/Keycloak/order-realm.json
 ```
 
-Startup import creates a missing realm but does not reconcile an already existing realm in the
-persistent `order-keycloak-data` volume. After intentionally changing the development realm, remove
-that volume and restart Aspire:
-
-```bash
-docker volume rm order-keycloak-data
-```
-
-The actual volume name may be prefixed by the container runtime or Aspire project name. Locate it
-with `docker volume ls` when the exact name differs.
+Keycloak stores its local state in the dedicated `keycloak` database on the Aspire-managed
+PostgreSQL server; application data remains in a separate database. Startup import creates a missing
+realm but does not reconcile an already existing realm. After intentionally changing the
+development realm, delete the `order` realm through the Keycloak admin console and restart Aspire
+so the startup import can recreate it.
 
 The Aspire Keycloak package is used only by the local AppHost. Production does not deploy the
 AppHost or depend on the Aspire integration package.
@@ -218,7 +228,7 @@ The CI pipeline now:
 - starts the pinned Keycloak image with the development realm import;
 - checks OIDC discovery and PKCE support;
 - verifies the mobile and API client security flags through the Keycloak Admin API;
-- verifies that only `order-user` is in the mobile client's API-role scope mapping.
+- verifies the mobile and Scalar client security flags and API-role scope mappings.
 
 Run the Keycloak realm smoke test locally when Docker, `curl`, and `jq` are available:
 
