@@ -18,6 +18,8 @@ public sealed class CustomerApiFactory : WebApplicationFactory<Program>
 {
     private const string Issuer = "https://customer-tests.example/realms/order";
     private const string Audience = "customer-api";
+    private const string ConnectionStringEnvironmentVariable =
+        "ConnectionStrings__customer-db";
     private static readonly SymmetricSecurityKey SigningKey = new(
         RandomNumberGenerator.GetBytes(64));
     private readonly string _connectionString =
@@ -25,13 +27,21 @@ public sealed class CustomerApiFactory : WebApplicationFactory<Program>
         ?? throw new InvalidOperationException(
             "CUSTOMER_TEST_CONNECTION_STRING is required for Customer API integration tests.");
 
+    public CustomerApiFactory()
+    {
+        // Minimal-hosting Program reads connection strings while it composes services,
+        // before WebApplicationFactory's ConfigureAppConfiguration callback executes.
+        Environment.SetEnvironmentVariable(
+            ConnectionStringEnvironmentVariable,
+            _connectionString);
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
         builder.ConfigureAppConfiguration((_, configuration) =>
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:customer-db"] = _connectionString,
                 ["Security:Authority"] = Issuer,
                 ["Security:Audience"] = Audience,
                 ["Security:RoleClientId"] = Audience,
