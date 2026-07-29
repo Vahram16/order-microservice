@@ -71,7 +71,8 @@ partial class CustomerDbContextModelSnapshot : ModelSnapshot
                 .IsRequired()
                 .HasMaxLength(100)
                 .HasColumnType("character varying(100)");
-            b.Property<string>("CountryCode")
+            b.Property<CountryCode>("CountryCode")
+                .HasConversion<string>()
                 .IsRequired()
                 .IsFixedLength()
                 .HasMaxLength(2)
@@ -123,12 +124,45 @@ partial class CustomerDbContextModelSnapshot : ModelSnapshot
             b.ToTable("customer_addresses");
         });
 
+        modelBuilder.Entity("Customer.Api.Domain.CustomerAuditEntry", b =>
+        {
+            b.Property<Guid>("Id")
+                .ValueGeneratedNever()
+                .HasColumnType("uuid");
+            b.Property<string>("Action")
+                .IsRequired()
+                .HasMaxLength(64)
+                .HasColumnType("character varying(64)");
+            b.Property<string>("ActorSubject")
+                .IsRequired()
+                .HasMaxLength(255)
+                .HasColumnType("character varying(255)");
+            b.Property<Guid>("CustomerId")
+                .HasColumnType("uuid");
+            b.Property<long>("CustomerVersion")
+                .HasColumnType("bigint");
+            b.Property<DateTimeOffset>("OccurredAt")
+                .HasColumnType("timestamp with time zone");
+            b.HasKey("Id");
+            b.HasIndex("CustomerId", "OccurredAt");
+            b.ToTable("customer_audit_entries");
+        });
+
         modelBuilder.Entity("Customer.Api.Domain.CustomerAddress", b =>
         {
             b.HasOne("Customer.Api.Domain.Customer", null)
                 .WithMany("Addresses")
                 .HasForeignKey("CustomerId")
                 .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity("Customer.Api.Domain.CustomerAuditEntry", b =>
+        {
+            b.HasOne("Customer.Api.Domain.Customer", null)
+                .WithMany()
+                .HasForeignKey("CustomerId")
+                .OnDelete(DeleteBehavior.Restrict)
                 .IsRequired();
         });
 
