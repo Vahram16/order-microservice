@@ -12,6 +12,8 @@
     <PackageReference Include="Aspire.Hosting.RabbitMQ" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../../Services/Customer/Customer.Api/Customer.Api.csproj" />
+    <ProjectReference Include="../../Services/Customer/Customer.Migrator/Customer.Migrator.csproj" />
     <ProjectReference Include="../../Services/ServiceTemplate/ServiceTemplate.Api/ServiceTemplate.Api.csproj" />
     <ProjectReference Include="../../Services/ServiceTemplate/ServiceTemplate.Migrator/ServiceTemplate.Migrator.csproj" />
   </ItemGroup>
