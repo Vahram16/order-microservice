@@ -4,12 +4,12 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Customer.Api.Infrastructure;
 
 internal sealed class CustomerExceptionHandler(
-    IProblemDetailsService problemDetailsService,
-    ILogger<CustomerExceptionHandler> logger) : IExceptionHandler
+    IProblemDetailsService problemDetailsService) : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(
         HttpContext httpContext,
@@ -25,9 +25,9 @@ internal sealed class CustomerExceptionHandler(
             CustomerAddressNotFoundException => CreateProblem(
                 StatusCodes.Status404NotFound,
                 "Customer address not found"),
-            DbUpdateConcurrencyException => CreateProblem(
-                StatusCodes.Status409Conflict,
-                "The customer was modified by another request. Reload and retry."),
+            DbUpdateConcurrencyException => CreateConflictProblem(),
+            DbUpdateException update when IsUniqueConstraintViolation(update) =>
+                CreateConflictProblem(),
             CustomerDomainException domain => CreateProblem(
                 StatusCodes.Status400BadRequest,
                 domain.Message),
@@ -42,11 +42,6 @@ internal sealed class CustomerExceptionHandler(
             return false;
         }
 
-        if (problem.Status >= StatusCodes.Status500InternalServerError)
-        {
-            logger.LogError(exception, "Customer API request failed.");
-        }
-
         httpContext.Response.StatusCode = problem.Status ?? StatusCodes.Status500InternalServerError;
         return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
         {
@@ -55,6 +50,16 @@ internal sealed class CustomerExceptionHandler(
             Exception = exception
         });
     }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException exception) =>
+        exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation
+        };
+
+    private static ProblemDetails CreateConflictProblem() => CreateProblem(
+        StatusCodes.Status409Conflict,
+        "The customer was modified by another request. Reload and retry.");
 
     private static ProblemDetails CreateProblem(int status, string detail) => new()
     {
