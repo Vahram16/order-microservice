@@ -1,5 +1,5 @@
 using Customer.Api.Domain;
-using CustomerAggregate = Customer.Api.Domain.Customer;
+using CustomerAggregate = global::Customer.Api.Domain.Customer;
 
 namespace Customer.Api.Tests;
 
@@ -42,6 +42,25 @@ public sealed class CustomerDomainTests
     }
 
     [Fact]
+    public void InvalidAddressUpdateDoesNotPartiallyMutateAggregate()
+    {
+        var customer = CreateCustomer();
+        var address = customer.AddAddress(CreateAddress("Home", defaultShipping: true), Now);
+        var invalid = CreateAddress("Office", defaultShipping: false) with
+        {
+            CountryCode = "INVALID"
+        };
+
+        Assert.Throws<CustomerDomainException>(() =>
+            customer.UpdateAddress(address.Id, invalid, Now.AddMinutes(1)));
+
+        Assert.Equal("Home", address.Label);
+        Assert.Equal("GB", address.CountryCode);
+        Assert.True(address.IsDefaultShipping);
+        Assert.Equal(2, customer.Version);
+    }
+
+    [Fact]
     public void UpdatingAddressCannotTargetAnotherAggregateAddress()
     {
         var customer = CreateCustomer();
@@ -49,7 +68,7 @@ public sealed class CustomerDomainTests
         var exception = Assert.Throws<CustomerAddressNotFoundException>(() =>
             customer.UpdateAddress(Guid.NewGuid(), CreateAddress("Unknown"), Now.AddMinutes(1)));
 
-        Assert.Contains("was not found", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("was not found", exception.Message);
     }
 
     [Fact]
@@ -63,6 +82,22 @@ public sealed class CustomerDomainTests
 
         Assert.Throws<CustomerDomainException>(() =>
             customer.AddAddress(CreateAddress("Too many"), Now.AddHours(1)));
+    }
+
+    [Fact]
+    public void AuditTimestampDoesNotMoveBackwards()
+    {
+        var customer = CreateCustomer();
+
+        customer.UpdateDetails(
+            "Grace",
+            "Hopper",
+            "grace@example.com",
+            null,
+            Now.AddMinutes(-1));
+
+        Assert.Equal(Now, customer.UpdatedAt);
+        Assert.Equal(2, customer.Version);
     }
 
     private static CustomerAggregate CreateCustomer() =>
