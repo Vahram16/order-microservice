@@ -11,7 +11,7 @@ public sealed class CustomerDomainTests
     public void RegisterNormalizesIdentityAndClaimBackedDetails()
     {
         var customer = CustomerAggregate.Register(
-            " keycloak ",
+            " Keycloak ",
             " subject-123 ",
             " Ada ",
             " Lovelace ",
@@ -31,8 +31,9 @@ public sealed class CustomerDomainTests
     public void AddingNewDefaultShippingAddressClearsPreviousDefault()
     {
         var customer = CreateCustomer();
-        var first = customer.AddAddress(CreateAddress("Home", defaultShipping: true), Now);
+        var first = customer.AddAddress(Guid.NewGuid(), CreateAddress("Home", defaultShipping: true), Now);
         var second = customer.AddAddress(
+            Guid.NewGuid(),
             CreateAddress("Office", defaultShipping: true),
             Now.AddMinutes(1));
 
@@ -45,7 +46,10 @@ public sealed class CustomerDomainTests
     public void InvalidAddressUpdateDoesNotPartiallyMutateAggregate()
     {
         var customer = CreateCustomer();
-        var address = customer.AddAddress(CreateAddress("Home", defaultShipping: true), Now);
+        var address = customer.AddAddress(
+            Guid.NewGuid(),
+            CreateAddress("Home", defaultShipping: true),
+            Now);
         var invalid = CreateAddress("Office", defaultShipping: false) with
         {
             CountryCode = "INVALID"
@@ -55,9 +59,44 @@ public sealed class CustomerDomainTests
             customer.UpdateAddress(address.Id, invalid, Now.AddMinutes(1)));
 
         Assert.Equal("Home", address.Label);
-        Assert.Equal("GB", address.CountryCode);
+        Assert.Equal("GB", address.CountryCode.Value);
         Assert.True(address.IsDefaultShipping);
         Assert.Equal(2, customer.Version);
+    }
+
+    [Theory]
+    [InlineData("G")]
+    [InlineData("1B")]
+    [InlineData("GBR")]
+    public void CountryCodeInvariantIsOwnedByDomain(string value)
+    {
+        var customer = CreateCustomer();
+        var invalid = CreateAddress("Invalid") with { CountryCode = value };
+
+        var exception = Assert.Throws<CustomerDomainException>(() =>
+            customer.AddAddress(Guid.NewGuid(), invalid, Now));
+
+        Assert.Equal("customer.invalid_country_code", exception.Code);
+    }
+
+    [Fact]
+    public void AddressCollectionCannotBeCastToMutableList()
+    {
+        var customer = CreateCustomer();
+        customer.AddAddress(Guid.NewGuid(), CreateAddress("Home"), Now);
+
+        Assert.False(customer.Addresses is List<CustomerAddress>);
+    }
+
+    [Fact]
+    public void ReusingAddressIdWithDifferentPayloadIsRejected()
+    {
+        var customer = CreateCustomer();
+        var addressId = Guid.NewGuid();
+        customer.AddAddress(addressId, CreateAddress("Home"), Now);
+
+        Assert.Throws<CustomerIdempotencyConflictException>(() =>
+            customer.AddAddress(addressId, CreateAddress("Office"), Now.AddMinutes(1)));
     }
 
     [Fact]
@@ -77,11 +116,14 @@ public sealed class CustomerDomainTests
         var customer = CreateCustomer();
         for (var index = 0; index < CustomerAggregate.MaximumSavedAddresses; index++)
         {
-            customer.AddAddress(CreateAddress($"Address {index}"), Now.AddMinutes(index));
+            customer.AddAddress(
+                Guid.NewGuid(),
+                CreateAddress($"Address {index}"),
+                Now.AddMinutes(index));
         }
 
         Assert.Throws<CustomerDomainException>(() =>
-            customer.AddAddress(CreateAddress("Too many"), Now.AddHours(1)));
+            customer.AddAddress(Guid.NewGuid(), CreateAddress("Too many"), Now.AddHours(1)));
     }
 
     [Fact]
@@ -98,6 +140,22 @@ public sealed class CustomerDomainTests
 
         Assert.Equal(Now, customer.UpdatedAt);
         Assert.Equal(2, customer.Version);
+    }
+
+    [Fact]
+    public void ClosingAccountAnonymizesCustomerOwnedPii()
+    {
+        var customer = CreateCustomer();
+        customer.AddAddress(Guid.NewGuid(), CreateAddress("Home"), Now);
+
+        customer.CloseAccount(Now.AddMinutes(1));
+
+        Assert.Equal(CustomerStatus.Deactivated, customer.Status);
+        Assert.Null(customer.FirstName);
+        Assert.Null(customer.LastName);
+        Assert.Null(customer.Email);
+        Assert.Null(customer.PhoneNumber);
+        Assert.Empty(customer.Addresses);
     }
 
     private static CustomerAggregate CreateCustomer() =>
