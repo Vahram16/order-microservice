@@ -20,7 +20,21 @@ builder.Services.AddPostgresDbContext<CustomerDbContext>(
 builder.Services.AddHealthChecks().AddDbContextCheck<CustomerDbContext>();
 builder.Services.AddSingleton(TimeProvider.System);
 
-builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+// FluentValidation's assembly scanner intentionally discovers public validators only.
+// Feature commands and validators remain internal to avoid expanding the service API surface.
+builder.Services.AddScoped<
+    IValidator<UpdateCustomerDetailsCommand>,
+    UpdateCustomerDetailsCommandValidator>();
+builder.Services.AddScoped<
+    IValidator<AddCustomerAddressCommand>,
+    AddCustomerAddressCommandValidator>();
+builder.Services.AddScoped<
+    IValidator<UpdateCustomerAddressCommand>,
+    UpdateCustomerAddressCommandValidator>();
+builder.Services.AddScoped<
+    IValidator<RemoveCustomerAddressCommand>,
+    RemoveCustomerAddressCommandValidator>();
+
 builder.Services.AddMediatR(configuration =>
 {
     configuration.RegisterServicesFromAssemblyContaining<Program>();
