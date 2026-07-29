@@ -115,6 +115,16 @@ internal sealed class AddCustomerAddressCommandHandler(
         AddCustomerAddressCommand request,
         CancellationToken cancellationToken)
     {
+        var strategy = dbContext.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(() => ExecuteOnceAsync(request, cancellationToken));
+    }
+
+    private async Task<AddCustomerAddressResult> ExecuteOnceAsync(
+        AddCustomerAddressCommand request,
+        CancellationToken cancellationToken)
+    {
+        // A transient retry must start from a clean aggregate and change tracker.
+        dbContext.ChangeTracker.Clear();
         var customer = await CustomerPersistence.LoadRequiredAsync(
             dbContext,
             request.Provider,
