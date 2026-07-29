@@ -1,13 +1,9 @@
-using Customer.Api.Persistence;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace Customer.Api.Persistence.Migrations;
 
-[DbContext(typeof(CustomerDbContext))]
-[Migration("20260729113000_InitialCustomer")]
 public partial class InitialCustomer : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
