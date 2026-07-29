@@ -10,7 +10,7 @@ using Microservices.Security;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-builder.AddApiDocumentation("Customer API");
+builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<CustomerExceptionHandler>();
 builder.Services.AddApiSecurity(builder.Configuration, builder.Environment);
@@ -36,9 +36,15 @@ app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapDefaultEndpoints();
-app.MapApiDocumentation();
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi()
+        .AllowAnonymous()
+        .ExcludeFromDescription();
+}
+
 app.MapCustomerEndpoints();
-app.MapGet("/", () => Results.Redirect("/scalar/v1"))
+app.MapGet("/", () => Results.Redirect("/openapi/v1.json"))
     .ExcludeFromDescription()
     .AllowAnonymous();
 
