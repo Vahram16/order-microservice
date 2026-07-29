@@ -105,6 +105,15 @@ internal sealed class UpdateCustomerAddressCommandHandler(
         UpdateCustomerAddressCommand request,
         CancellationToken cancellationToken)
     {
+        var strategy = dbContext.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(() => ExecuteOnceAsync(request, cancellationToken));
+    }
+
+    private async Task<CustomerResponse> ExecuteOnceAsync(
+        UpdateCustomerAddressCommand request,
+        CancellationToken cancellationToken)
+    {
+        dbContext.ChangeTracker.Clear();
         var customer = await CustomerPersistence.LoadRequiredAsync(
             dbContext,
             request.Provider,
