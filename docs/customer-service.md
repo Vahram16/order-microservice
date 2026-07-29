@@ -20,6 +20,11 @@ Each use case owns its HTTP endpoint, request contract, command or query, valida
 ```text
 Features/Customers/
   Provisioning/V1/
+    ProvisionCustomerEndpoint.cs
+    ProvisionCustomerCommand.cs
+    ProvisionCustomerValidator.cs
+    ProvisionCustomerHandler.cs
+    ProvisionCustomerResult.cs
   GettingCurrent/V1/
   UpdatingDetails/V1/
   AddingAddress/V1/
@@ -29,7 +34,11 @@ Features/Customers/
   ClosingAccount/V1/
 ```
 
-Only stable cross-slice primitives are shared: response mapping, ETag parsing, authorization constants, and persistence helpers. There is no shared application-service layer that couples the slices.
+Every `V1` directory uses one top-level responsibility per source file. Operation-specific request, response, and result contracts remain in that versioned slice. Customer representations reused by multiple slices remain under `Features/Customers/Common`, with one top-level DTO or mapper per file.
+
+Commands implement the shared `ICommand<TResponse>` contract and handlers implement `ICommandHandler<TCommand, TResponse>`. Read-only requests implement `IQuery<TResponse>` and use `IQueryHandler<TQuery, TResponse>`. MediatR remains the dispatcher, while the shared CQRS interfaces make command/query intent enforceable.
+
+Only stable cross-slice primitives are shared: response mapping, ETag parsing, authorization constants, and persistence helpers. There is no shared application-service layer that couples the slices. Architecture tests enforce the file manifest, prevent raw `IRequest`/`IRequestHandler` usage inside Customer slices, reject sibling-slice dependencies, and prevent reintroducing monolithic `*Slice.cs` files.
 
 ## Authorization and least privilege
 

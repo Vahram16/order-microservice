@@ -18,14 +18,14 @@ internal static class CustomerEndpointRouteBuilderExtensions
             .WithTags("Customers")
             .AddEndpointFilter(CustomerHttp.AddSensitiveResponseHeadersAsync);
 
-        ProvisionCustomerSlice.Map(group);
-        GetCurrentCustomerSlice.Map(group);
-        UpdateCustomerDetailsSlice.Map(group);
-        AddCustomerAddressSlice.Map(group);
-        UpdateCustomerAddressSlice.Map(group);
-        RemoveCustomerAddressSlice.Map(group);
-        ExportCustomerSlice.Map(group);
-        CloseCustomerAccountSlice.Map(group);
+        ProvisionCustomerEndpoint.Map(group);
+        GetCurrentCustomerEndpoint.Map(group);
+        UpdateCustomerDetailsEndpoint.Map(group);
+        AddCustomerAddressEndpoint.Map(group);
+        UpdateCustomerAddressEndpoint.Map(group);
+        RemoveCustomerAddressEndpoint.Map(group);
+        ExportCustomerEndpoint.Map(group);
+        CloseCustomerAccountEndpoint.Map(group);
 
         return endpoints;
     }
