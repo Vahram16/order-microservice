@@ -79,12 +79,12 @@ builder.AddProject<Projects.Customer_Api>(
     .WithEnvironment("Security__Audience", "customer-api")
     .WithEnvironment("Security__RoleClientId", "customer-api")
     .WithEnvironment("Security__ValidAuthorizedParties__0", "order-mobile")
-    .WithEnvironment("Security__ValidAuthorizedParties__1", "scalar-dev")
+    .WithEnvironment("Security__ValidAuthorizedParties__1", "customer-scalar-dev")
     .WithEnvironment("Security__RequireHttpsMetadata", "true")
     .WithUrlForEndpoint("https", url =>
     {
-        url.Url = "/openapi/v1.json";
-        url.DisplayText = "OpenAPI";
+        url.Url = "/scalar/v1";
+        url.DisplayText = "Customer Scalar API";
     })
     .WaitFor(customerDatabase)
     .WaitForCompletion(customerMigrations)
