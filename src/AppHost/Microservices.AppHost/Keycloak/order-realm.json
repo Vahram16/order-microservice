@@ -44,6 +44,12 @@
           "name": "order-admin",
           "description": "Can perform privileged order administration"
         }
+      ],
+      "customer-api": [
+        {
+          "name": "order-user",
+          "description": "Can manage the authenticated customer's profile and saved addresses"
+        }
       ]
     }
   },
@@ -218,6 +224,35 @@
       ]
     },
     {
+      "name": "customer-api-roles",
+      "description": "Adds only resolved Customer API client roles to access tokens",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "customer-api-client-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "usermodel.clientRoleMapping.clientId": "customer-api",
+            "usermodel.clientRoleMapping.rolePrefix": "",
+            "user.attribute": "foo",
+            "claim.name": "resource_access.${client_id}.roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "userinfo.token.claim": "false",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
       "name": "offline_access",
       "description": "OpenID Connect offline access scope",
       "protocol": "openid-connect",
@@ -279,6 +314,29 @@
           }
         }
       ]
+    },
+    {
+      "name": "customer-api-audience",
+      "description": "Adds the Customer API audience to access tokens",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "customer-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "customer-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
     }
   ],
   "clients": [
@@ -286,6 +344,20 @@
       "clientId": "order-api",
       "name": "Order API",
       "description": "Resource-server client used for audience and client-role definitions",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "bearerOnly": true,
+      "publicClient": false,
+      "fullScopeAllowed": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    },
+    {
+      "clientId": "customer-api",
+      "name": "Customer API",
+      "description": "Customer bounded-context resource server",
       "enabled": true,
       "protocol": "openid-connect",
       "bearerOnly": true,
@@ -323,7 +395,9 @@
         "profile",
         "email",
         "order-api-roles",
-        "order-api-audience"
+        "order-api-audience",
+        "customer-api-roles",
+        "customer-api-audience"
       ],
       "optionalClientScopes": [
         "offline_access",
@@ -361,7 +435,9 @@
         "profile",
         "email",
         "order-api-roles",
-        "order-api-audience"
+        "order-api-audience",
+        "customer-api-roles",
+        "customer-api-audience"
       ],
       "optionalClientScopes": [
         "orders.read",
@@ -372,6 +448,20 @@
   ],
   "clientScopeMappings": {
     "order-api": [
+      {
+        "client": "order-mobile",
+        "roles": [
+          "order-user"
+        ]
+      },
+      {
+        "client": "scalar-dev",
+        "roles": [
+          "order-user"
+        ]
+      }
+    ],
+    "customer-api": [
       {
         "client": "order-mobile",
         "roles": [
