@@ -1,0 +1,147 @@
+# Customer service
+
+`Customer.Api` is the business-owned Customer bounded context. Keycloak owns authentication, credentials, MFA, sessions, federation, and token issuance. Customer service owns the commerce relationship: customer lifecycle, business contact data, saved addresses, and non-PII change audit records.
+
+## Identity boundary
+
+A Customer has an application-generated `Customer.Id` and a unique external identity link:
+
+```text
+IdentityProvider = keycloak
+IdentitySubject  = validated access-token sub claim
+```
+
+The API never accepts identity-provider or subject values from a route or request body. `given_name`, `family_name`, and verified `email` claims initialize a newly provisioned Customer only. Subsequent business data is owned by Customer service. The current deployment accepts one Keycloak realm; before accepting multiple issuers, replace the logical provider discriminator with the validated OIDC issuer.
+
+## Pure vertical slices
+
+Each use case owns its HTTP endpoint, request contract, command or query, validation, handler, authorization policy, and response behavior:
+
+```text
+Features/Customers/
+  Provisioning/V1/
+  GettingCurrent/V1/
+  UpdatingDetails/V1/
+  AddingAddress/V1/
+  UpdatingAddress/V1/
+  RemovingAddress/V1/
+  Exporting/V1/
+  ClosingAccount/V1/
+```
+
+Only stable cross-slice primitives are shared: response mapping, ETag parsing, authorization constants, and persistence helpers. There is no shared application-service layer that couples the slices.
+
+## Authorization and least privilege
+
+Customer API validates the `customer-api` audience, exact authorized party, required token claims, and `customer-api` client roles. The required client role is `customer-user`.
+
+Customer capabilities are optional Keycloak client scopes rather than default mobile-client grants:
+
+- `customers.self.read`
+- `customers.self.update`
+- `customers.addresses.write`
+- `customers.self.export`
+- `customers.self.delete`
+
+The mobile client requests only the Customer audience, role mapper, and capability scopes needed for the current operation. Order Scalar and Customer Scalar use separate public PKCE clients and separate exact redirect URIs.
+
+## Provisioning
+
+```http
+PUT /api/v1/customers/me
+Authorization: Bearer <access-token>
+```
+
+Provisioning is idempotent. A database unique constraint on `(IdentityProvider, IdentitySubject)` is the final concurrency guard. Concurrent first requests produce one Customer; the losing request reloads and returns it.
+
+- `201 Created` when created.
+- `200 OK` when already provisioned.
+- Every successful response includes a strong `ETag` such as `"customer-4"`.
+
+## Optimistic concurrency
+
+Every state-changing operation except initial provisioning requires the latest strong ETag:
+
+```http
+If-Match: "customer-4"
+```
+
+- Missing ETag: `428 Precondition Required`.
+- Invalid ETag: `400 Bad Request`.
+- Stale ETag or concurrent database update: `412 Precondition Failed`.
+
+Handlers compare the client version before mutation, and EF Core uses `Customer.Version` as the database concurrency token. This protects both overlapping transactions and delayed stale clients.
+
+## Address idempotency and defaults
+
+Address creation requires a stable GUID idempotency key:
+
+```http
+Idempotency-Key: 018f50a0-8f3c-7cf4-b4ef-8c09f8f02a1f
+```
+
+The key becomes the address identifier. Repeating the same request returns the existing result; reusing the key with different data returns `409 Conflict`. This remains idempotent even when the retry carries the ETag used by the original request.
+
+The aggregate enforces at most 20 saved addresses and one shipping/billing default. PostgreSQL filtered unique indexes duplicate the default invariants. When a default changes, handlers clear competing rows inside the same transaction before saving the aggregate, avoiding unique-index command-ordering races.
+
+Country codes are a domain value object and must be exactly two ASCII letters. API validation is defense in depth; the domain remains authoritative.
+
+## API
+
+| Method | Route | Capability | Purpose |
+| --- | --- | --- | --- |
+| `PUT` | `/api/v1/customers/me` | `customers.self.update` | Idempotently provision current Customer |
+| `GET` | `/api/v1/customers/me` | `customers.self.read` | Read current Customer and addresses |
+| `PUT` | `/api/v1/customers/me/details` | `customers.self.update` | Replace business contact data |
+| `POST` | `/api/v1/customers/me/addresses` | `customers.addresses.write` | Idempotently add an address |
+| `PUT` | `/api/v1/customers/me/addresses/{addressId}` | `customers.addresses.write` | Replace an owned address |
+| `DELETE` | `/api/v1/customers/me/addresses/{addressId}` | `customers.addresses.write` | Remove an owned address |
+| `GET` | `/api/v1/customers/me/export` | `customers.self.export` | Export Customer-owned personal data |
+| `DELETE` | `/api/v1/customers/me` | `customers.self.delete` | Anonymize PII, remove addresses, deactivate Customer |
+
+Customer responses set `Cache-Control: no-store` and `Pragma: no-cache`.
+
+## Lifecycle and PII
+
+`Active` Customers may mutate data. `Suspended` is reserved for a future administrative slice. Account closure is permanent business deactivation:
+
+- first name, last name, email, and phone are removed;
+- saved addresses are deleted;
+- status becomes `Deactivated`;
+- the non-PII Customer ID and identity link remain to prevent accidental reprovisioning;
+- Order records retain their own immutable historical address/contact snapshots.
+
+Mutation audit entries are written in the same database transaction and contain action, actor subject, timestamp, and Customer version—never old or new PII values. Access logs and export-access auditing remain platform observability responsibilities.
+
+Retention periods, backup encryption, restore testing, audit-log export, and legal-hold policy must be configured by the production platform and compliance owners. Database backups must be encrypted, access-controlled, restore-tested, and retained according to the approved data-retention schedule.
+
+## Persistence and deployment
+
+Customer service owns the `customer` PostgreSQL database and `CustomerDbContext`. API replicas never run migrations. Deploy and complete `Customer.Migrator` before starting or rolling API replicas.
+
+```bash
+dotnet ef migrations add <Name> \
+  --project src/Services/Customer/Customer.Api \
+  --startup-project src/Services/Customer/Customer.Api \
+  --context CustomerDbContext \
+  --output-dir Persistence/Migrations
+```
+
+Aspire creates the local database, completes the migrator, and then starts Customer API. Production must use deployment-specific authority, connection strings, secrets, host allow-lists, TLS termination, database credentials, and authorized-party configuration. Localhost settings are development defaults only.
+
+## Verification
+
+CI runs:
+
+- restore and zero-warning Release builds;
+- domain and identity-boundary tests;
+- authenticated HTTP integration tests against PostgreSQL;
+- clean migration application;
+- concurrent provisioning and idempotent address retries;
+- ETag/precondition behavior;
+- default-address persistence behavior;
+- account anonymization and audit persistence;
+- production Keycloak image build;
+- live Keycloak realm import and least-privilege scope verification.
+
+Payment methods and preferences remain outside this bounded context. Payment credentials belong in a separate payment boundary and must be represented only by payment-provider references.

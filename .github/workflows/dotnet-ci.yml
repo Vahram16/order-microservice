@@ -17,6 +17,22 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      CUSTOMER_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=customer_ci;Username=postgres;Password=postgres
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: customer_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d customer_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
 
     steps:
       - name: Check out repository

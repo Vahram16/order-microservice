@@ -17,6 +17,7 @@ var postgres = builder
             .WithLifetime(ContainerLifetime.Persistent));
 
 var serviceDatabase = postgres.AddDatabase("service-template-db");
+var customerDatabase = postgres.AddDatabase("customer-db", "customer");
 var keycloakDatabase = postgres.AddDatabase("keycloak-db", "keycloak");
 var rabbitMq = builder.AddRabbitMQ("rabbitmq")
     .WithManagementPlugin()
@@ -37,7 +38,8 @@ var keycloak = builder
     .WithLifetime(ContainerLifetime.Persistent)
     .WaitFor(keycloakDatabase);
 
-var migrations = builder.AddProject<Projects.ServiceTemplate_Migrator>("service-template-migrator")
+var serviceMigrations = builder.AddProject<Projects.ServiceTemplate_Migrator>(
+        "service-template-migrator")
     .WithReference(serviceDatabase)
     .WaitFor(serviceDatabase);
 
@@ -59,8 +61,33 @@ builder.AddProject<Projects.ServiceTemplate_Api>(
         url.DisplayText = "Scalar API";
     })
     .WaitFor(serviceDatabase)
-    .WaitForCompletion(migrations)
+    .WaitForCompletion(serviceMigrations)
     .WaitFor(rabbitMq)
+    .WaitFor(keycloak);
+
+var customerMigrations = builder.AddProject<Projects.Customer_Migrator>(
+        "customer-migrator")
+    .WithReference(customerDatabase)
+    .WaitFor(customerDatabase);
+
+builder.AddProject<Projects.Customer_Api>(
+        "customer-api",
+        launchProfileName: "https")
+    .WithReference(customerDatabase)
+    .WithReference(keycloak)
+    .WithEnvironment("Security__Authority", keycloakIssuer)
+    .WithEnvironment("Security__Audience", "customer-api")
+    .WithEnvironment("Security__RoleClientId", "customer-api")
+    .WithEnvironment("Security__ValidAuthorizedParties__0", "order-mobile")
+    .WithEnvironment("Security__ValidAuthorizedParties__1", "customer-scalar-dev")
+    .WithEnvironment("Security__RequireHttpsMetadata", "true")
+    .WithUrlForEndpoint("https", url =>
+    {
+        url.Url = "/scalar/v1";
+        url.DisplayText = "Customer Scalar API";
+    })
+    .WaitFor(customerDatabase)
+    .WaitForCompletion(customerMigrations)
     .WaitFor(keycloak);
 
 await builder.Build().RunAsync();
