@@ -1,10 +1,11 @@
 using Customer.Api.Domain;
+using Customer.Api.Features.Customers.Common;
+using Customer.Api.Persistence;
 using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 
 namespace Customer.Api.Infrastructure;
 
@@ -19,20 +20,73 @@ internal sealed class CustomerExceptionHandler(
         var problem = exception switch
         {
             ValidationException validation => CreateValidationProblem(validation),
-            CustomerNotFoundException => CreateProblem(
+            CustomerNotFoundException notFound => CreateProblem(
                 StatusCodes.Status404NotFound,
+                notFound.Code,
                 "Customer not found"),
-            CustomerAddressNotFoundException => CreateProblem(
+            CustomerAddressNotFoundException notFound => CreateProblem(
                 StatusCodes.Status404NotFound,
+                notFound.Code,
                 "Customer address not found"),
-            DbUpdateConcurrencyException => CreateConflictProblem(),
-            DbUpdateException update when IsUniqueConstraintViolation(update) =>
-                CreateConflictProblem(),
+            CustomerPreconditionRequiredException required => CreateProblem(
+                StatusCodes.Status428PreconditionRequired,
+                "customer.precondition_required",
+                required.Message),
+            CustomerInvalidPreconditionException invalid => CreateProblem(
+                StatusCodes.Status400BadRequest,
+                "customer.invalid_precondition",
+                invalid.Message),
+            CustomerInvalidIdempotencyKeyException invalid => CreateProblem(
+                StatusCodes.Status400BadRequest,
+                "customer.invalid_idempotency_key",
+                invalid.Message),
+            CustomerVersionMismatchException mismatch => CreateProblem(
+                StatusCodes.Status412PreconditionFailed,
+                mismatch.Code,
+                "The customer changed after it was read. Reload and retry."),
+            DbUpdateConcurrencyException => CreateProblem(
+                StatusCodes.Status412PreconditionFailed,
+                "customer.version_mismatch",
+                "The customer changed after it was read. Reload and retry."),
+            CustomerIdempotencyConflictException conflict => CreateProblem(
+                StatusCodes.Status409Conflict,
+                conflict.Code,
+                conflict.Message),
+            CustomerInactiveException inactive => CreateProblem(
+                StatusCodes.Status409Conflict,
+                inactive.Code,
+                inactive.Message),
+            DbUpdateException update when CustomerPersistence.IsUniqueConstraintViolation(
+                update,
+                CustomerConstraintNames.Identity) => CreateProblem(
+                    StatusCodes.Status409Conflict,
+                    "customer.identity_conflict",
+                    "A customer already exists for this identity."),
+            DbUpdateException update when CustomerPersistence.IsUniqueConstraintViolation(
+                update,
+                CustomerConstraintNames.DefaultShipping) => CreateProblem(
+                    StatusCodes.Status409Conflict,
+                    "customer.default_shipping_conflict",
+                    "Another request changed the default shipping address. Reload and retry."),
+            DbUpdateException update when CustomerPersistence.IsUniqueConstraintViolation(
+                update,
+                CustomerConstraintNames.DefaultBilling) => CreateProblem(
+                    StatusCodes.Status409Conflict,
+                    "customer.default_billing_conflict",
+                    "Another request changed the default billing address. Reload and retry."),
+            DbUpdateException update when CustomerPersistence.IsUniqueConstraintViolation(
+                update,
+                CustomerConstraintNames.AddressPrimaryKey) => CreateProblem(
+                    StatusCodes.Status409Conflict,
+                    "customer.idempotency_conflict",
+                    "The address idempotency key has already been used."),
             CustomerDomainException domain => CreateProblem(
                 StatusCodes.Status400BadRequest,
+                domain.Code,
                 domain.Message),
             UnauthorizedAccessException => CreateProblem(
                 StatusCodes.Status401Unauthorized,
+                "customer.authentication_required",
                 "A valid user access token is required."),
             _ => null
         };
@@ -51,22 +105,17 @@ internal sealed class CustomerExceptionHandler(
         });
     }
 
-    private static bool IsUniqueConstraintViolation(DbUpdateException exception) =>
-        exception.InnerException is PostgresException
-        {
-            SqlState: PostgresErrorCodes.UniqueViolation
-        };
-
-    private static ProblemDetails CreateConflictProblem() => CreateProblem(
-        StatusCodes.Status409Conflict,
-        "The customer was modified by another request. Reload and retry.");
-
-    private static ProblemDetails CreateProblem(int status, string detail) => new()
+    private static ProblemDetails CreateProblem(int status, string code, string detail)
     {
-        Status = status,
-        Title = ReasonPhrases.GetReasonPhrase(status),
-        Detail = detail
-    };
+        var problem = new ProblemDetails
+        {
+            Status = status,
+            Title = ReasonPhrases.GetReasonPhrase(status),
+            Detail = detail
+        };
+        problem.Extensions["code"] = code;
+        return problem;
+    }
 
     private static HttpValidationProblemDetails CreateValidationProblem(
         ValidationException exception)
@@ -78,10 +127,12 @@ internal sealed class CustomerExceptionHandler(
                 group => group.Select(failure => failure.ErrorMessage).Distinct().ToArray(),
                 StringComparer.Ordinal);
 
-        return new HttpValidationProblemDetails(errors)
+        var problem = new HttpValidationProblemDetails(errors)
         {
             Status = StatusCodes.Status400BadRequest,
             Title = "Validation failed"
         };
+        problem.Extensions["code"] = "customer.validation";
+        return problem;
     }
 }
