@@ -50,7 +50,7 @@ public sealed class CustomerApiFactory : WebApplicationFactory<Program>
                     configuration.SigningKeys.Add(SigningKey);
 
                     options.Authority = null;
-                    options.MetadataAddress = null;
+                    options.MetadataAddress = string.Empty;
                     options.ConfigurationManager =
                         new StaticConfigurationManager<OpenIdConnectConfiguration>(configuration);
                     options.RequireHttpsMetadata = false;
