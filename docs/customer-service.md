@@ -38,7 +38,7 @@ Every `V1` directory uses one top-level responsibility per source file. Operatio
 
 Commands implement the shared `ICommand<TResponse>` contract and handlers implement `ICommandHandler<TCommand, TResponse>`. Read-only requests implement `IQuery<TResponse>` and use `IQueryHandler<TQuery, TResponse>`. MediatR remains the dispatcher, while the shared CQRS interfaces make command/query intent enforceable.
 
-Only stable cross-slice primitives are shared: response mapping, ETag parsing, authorization constants, and persistence helpers. There is no shared application-service layer that couples the slices. Architecture tests enforce the file manifest, prevent raw `IRequest`/`IRequestHandler` usage inside Customer slices, reject sibling-slice dependencies, and prevent reintroducing monolithic `*Slice.cs` files.
+Only stable cross-slice primitives are shared: response mapping, ETag parsing, authorization constants, composable customer queries, audit persistence, address-default persistence, and PostgreSQL error classification. There is no shared application-service layer or repository facade that couples the slices. Architecture tests enforce the file manifest, prevent raw `IRequest`/`IRequestHandler` usage inside Customer slices, reject sibling-slice dependencies, and prevent reintroducing monolithic `*Slice.cs` files.
 
 ## Authorization and least privilege
 

@@ -24,8 +24,7 @@ internal sealed class UpdateCustomerAddressHandler(
         CancellationToken cancellationToken)
     {
         dbContext.ChangeTracker.Clear();
-        var customer = await CustomerPersistence.LoadRequiredAsync(
-            dbContext,
+        var customer = await dbContext.Customers.GetRequiredByIdentityAsync(
             command.Provider,
             command.Subject,
             cancellationToken);
@@ -34,17 +33,16 @@ internal sealed class UpdateCustomerAddressHandler(
             ?? throw new CustomerAddressNotFoundException(command.AddressId);
 
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-        await CustomerPersistence.ClearCompetingDefaultsAsync(
-            dbContext,
+        await dbContext.ClearCompetingAddressDefaultsAsync(
             customer.Id,
             command.AddressId,
-            command.Address,
+            command.Address.IsDefaultShipping,
+            command.Address.IsDefaultBilling,
             cancellationToken);
 
         var now = timeProvider.GetUtcNow();
         customer.UpdateAddress(command.AddressId, command.Address, now);
-        CustomerPersistence.AddAudit(
-            dbContext,
+        dbContext.AddAuditEntry(
             customer,
             command.Subject,
             CustomerAuditActions.AddressUpdated,

@@ -56,27 +56,23 @@ internal sealed class CustomerExceptionHandler(
                 StatusCodes.Status409Conflict,
                 inactive.Code,
                 inactive.Message),
-            DbUpdateException update when CustomerPersistence.IsUniqueConstraintViolation(
-                update,
-                CustomerConstraintNames.Identity) => CreateProblem(
+            DbUpdateException update when update.IsUniqueConstraintViolation(
+                CustomerDatabaseConstraints.Identity) => CreateProblem(
                     StatusCodes.Status409Conflict,
                     "customer.identity_conflict",
                     "A customer already exists for this identity."),
-            DbUpdateException update when CustomerPersistence.IsUniqueConstraintViolation(
-                update,
-                CustomerConstraintNames.DefaultShipping) => CreateProblem(
+            DbUpdateException update when update.IsUniqueConstraintViolation(
+                CustomerDatabaseConstraints.DefaultShipping) => CreateProblem(
                     StatusCodes.Status409Conflict,
                     "customer.default_shipping_conflict",
                     "Another request changed the default shipping address. Reload and retry."),
-            DbUpdateException update when CustomerPersistence.IsUniqueConstraintViolation(
-                update,
-                CustomerConstraintNames.DefaultBilling) => CreateProblem(
+            DbUpdateException update when update.IsUniqueConstraintViolation(
+                CustomerDatabaseConstraints.DefaultBilling) => CreateProblem(
                     StatusCodes.Status409Conflict,
                     "customer.default_billing_conflict",
                     "Another request changed the default billing address. Reload and retry."),
-            DbUpdateException update when CustomerPersistence.IsUniqueConstraintViolation(
-                update,
-                CustomerConstraintNames.AddressPrimaryKey) => CreateProblem(
+            DbUpdateException update when update.IsUniqueConstraintViolation(
+                CustomerDatabaseConstraints.AddressPrimaryKey) => CreateProblem(
                     StatusCodes.Status409Conflict,
                     "customer.idempotency_conflict",
                     "The address idempotency key has already been used."),

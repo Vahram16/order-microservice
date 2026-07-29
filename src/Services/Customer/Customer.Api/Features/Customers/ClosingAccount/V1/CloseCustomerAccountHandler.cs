@@ -13,8 +13,7 @@ internal sealed class CloseCustomerAccountHandler(
         CloseCustomerAccountCommand command,
         CancellationToken cancellationToken)
     {
-        var customer = await CustomerPersistence.LoadRequiredAsync(
-            dbContext,
+        var customer = await dbContext.Customers.GetRequiredByIdentityAsync(
             command.Provider,
             command.Subject,
             cancellationToken);
@@ -27,8 +26,7 @@ internal sealed class CloseCustomerAccountHandler(
         customer.EnsureExpectedVersion(command.ExpectedVersion);
         var now = timeProvider.GetUtcNow();
         customer.CloseAccount(now);
-        CustomerPersistence.AddAudit(
-            dbContext,
+        dbContext.AddAuditEntry(
             customer,
             command.Subject,
             Domain.CustomerAuditActions.AccountClosed,

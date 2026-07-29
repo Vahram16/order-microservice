@@ -42,10 +42,11 @@ internal sealed class CustomerConfiguration : IEntityTypeConfiguration<Domain.Cu
             .IsRequired();
 
         builder.HasIndex(customer => new
-            {
-                customer.IdentityProvider,
-                customer.IdentitySubject
-            })
+        {
+            customer.IdentityProvider,
+            customer.IdentitySubject
+        })
+            .HasDatabaseName(CustomerDatabaseConstraints.Identity)
             .IsUnique();
 
         builder.HasMany(customer => customer.Addresses)
@@ -63,7 +64,8 @@ internal sealed class CustomerAddressConfiguration : IEntityTypeConfiguration<Cu
     public void Configure(EntityTypeBuilder<CustomerAddress> builder)
     {
         builder.ToTable("customer_addresses");
-        builder.HasKey(address => address.Id);
+        builder.HasKey(address => address.Id)
+            .HasName(CustomerDatabaseConstraints.AddressPrimaryKey);
         builder.Property(address => address.Id).ValueGeneratedNever();
         builder.Property(address => address.CustomerId).IsRequired();
         builder.Property(address => address.Label).HasMaxLength(50);
@@ -86,11 +88,11 @@ internal sealed class CustomerAddressConfiguration : IEntityTypeConfiguration<Cu
 
         builder.HasIndex(address => address.CustomerId);
         builder.HasIndex(address => new { address.CustomerId, address.IsDefaultShipping })
-            .HasDatabaseName(CustomerConstraintNames.DefaultShipping)
+            .HasDatabaseName(CustomerDatabaseConstraints.DefaultShipping)
             .HasFilter("\"IsDefaultShipping\"")
             .IsUnique();
         builder.HasIndex(address => new { address.CustomerId, address.IsDefaultBilling })
-            .HasDatabaseName(CustomerConstraintNames.DefaultBilling)
+            .HasDatabaseName(CustomerDatabaseConstraints.DefaultBilling)
             .HasFilter("\"IsDefaultBilling\"")
             .IsUnique();
     }

@@ -24,8 +24,7 @@ internal sealed class AddCustomerAddressHandler(
         CancellationToken cancellationToken)
     {
         dbContext.ChangeTracker.Clear();
-        var customer = await CustomerPersistence.LoadRequiredAsync(
-            dbContext,
+        var customer = await dbContext.Customers.GetRequiredByIdentityAsync(
             command.Provider,
             command.Subject,
             cancellationToken);
@@ -46,17 +45,16 @@ internal sealed class AddCustomerAddressHandler(
 
         customer.EnsureExpectedVersion(command.ExpectedVersion);
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-        await CustomerPersistence.ClearCompetingDefaultsAsync(
-            dbContext,
+        await dbContext.ClearCompetingAddressDefaultsAsync(
             customer.Id,
             command.AddressId,
-            command.Address,
+            command.Address.IsDefaultShipping,
+            command.Address.IsDefaultBilling,
             cancellationToken);
 
         var now = timeProvider.GetUtcNow();
         customer.AddAddress(command.AddressId, command.Address, now);
-        CustomerPersistence.AddAudit(
-            dbContext,
+        dbContext.AddAuditEntry(
             customer,
             command.Subject,
             CustomerAuditActions.AddressAdded,
@@ -77,9 +75,8 @@ internal sealed class AddCustomerAddressHandler(
             return await ReloadIdempotentResultAsync(command, cancellationToken);
         }
         catch (DbUpdateException exception) when (
-            CustomerPersistence.IsUniqueConstraintViolation(
-                exception,
-                CustomerConstraintNames.AddressPrimaryKey))
+            exception.IsUniqueConstraintViolation(
+                CustomerDatabaseConstraints.AddressPrimaryKey))
         {
             await transaction.RollbackAsync(cancellationToken);
             return await ReloadIdempotentResultAsync(command, cancellationToken);
@@ -91,8 +88,7 @@ internal sealed class AddCustomerAddressHandler(
         CancellationToken cancellationToken)
     {
         dbContext.ChangeTracker.Clear();
-        var customer = await CustomerPersistence.LoadRequiredAsync(
-            dbContext,
+        var customer = await dbContext.Customers.GetRequiredByIdentityAsync(
             command.Provider,
             command.Subject,
             cancellationToken);

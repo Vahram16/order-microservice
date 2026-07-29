@@ -14,8 +14,7 @@ internal sealed class ProvisionCustomerHandler(
         ProvisionCustomerCommand command,
         CancellationToken cancellationToken)
     {
-        var existing = await CustomerPersistence.FindAsync(
-            dbContext,
+        var existing = await dbContext.Customers.FindByIdentityAsync(
             command.Identity.Provider,
             command.Identity.Subject,
             cancellationToken);
@@ -34,8 +33,7 @@ internal sealed class ProvisionCustomerHandler(
             now);
 
         dbContext.Customers.Add(customer);
-        CustomerPersistence.AddAudit(
-            dbContext,
+        dbContext.AddAuditEntry(
             customer,
             command.Identity.Subject,
             Domain.CustomerAuditActions.Provisioned,
@@ -47,13 +45,11 @@ internal sealed class ProvisionCustomerHandler(
             return new ProvisionCustomerResult(CustomerMappings.ToResponse(customer), true);
         }
         catch (DbUpdateException exception) when (
-            CustomerPersistence.IsUniqueConstraintViolation(
-                exception,
-                CustomerConstraintNames.Identity))
+            exception.IsUniqueConstraintViolation(
+                CustomerDatabaseConstraints.Identity))
         {
             dbContext.ChangeTracker.Clear();
-            existing = await CustomerPersistence.FindAsync(
-                dbContext,
+            existing = await dbContext.Customers.FindByIdentityAsync(
                 command.Identity.Provider,
                 command.Identity.Subject,
                 cancellationToken);

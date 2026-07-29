@@ -16,13 +16,10 @@ internal sealed class ExportCustomerHandler(
     {
         var customer = await dbContext.Customers
             .AsNoTracking()
-            .Include(entity => entity.Addresses)
-            .SingleOrDefaultAsync(
-                entity =>
-                    entity.IdentityProvider == query.Provider &&
-                    entity.IdentitySubject == query.Subject,
-                cancellationToken)
-            ?? throw new Domain.CustomerNotFoundException();
+            .GetRequiredByIdentityAsync(
+                query.Provider,
+                query.Subject,
+                cancellationToken);
 
         return new CustomerExportResponse(
             timeProvider.GetUtcNow(),

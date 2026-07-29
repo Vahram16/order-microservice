@@ -14,11 +14,9 @@ internal sealed class GetCurrentCustomerHandler(CustomerDbContext dbContext)
     {
         var customer = await dbContext.Customers
             .AsNoTracking()
-            .Include(entity => entity.Addresses)
-            .SingleOrDefaultAsync(
-                entity =>
-                    entity.IdentityProvider == query.Provider &&
-                    entity.IdentitySubject == query.Subject,
+            .FindByIdentityAsync(
+                query.Provider,
+                query.Subject,
                 cancellationToken);
 
         return customer is null ? null : CustomerMappings.ToResponse(customer);

@@ -13,8 +13,7 @@ internal sealed class RemoveCustomerAddressHandler(
         RemoveCustomerAddressCommand command,
         CancellationToken cancellationToken)
     {
-        var customer = await CustomerPersistence.LoadRequiredAsync(
-            dbContext,
+        var customer = await dbContext.Customers.GetRequiredByIdentityAsync(
             command.Provider,
             command.Subject,
             cancellationToken);
@@ -22,8 +21,7 @@ internal sealed class RemoveCustomerAddressHandler(
 
         var now = timeProvider.GetUtcNow();
         customer.RemoveAddress(command.AddressId, now);
-        CustomerPersistence.AddAudit(
-            dbContext,
+        dbContext.AddAuditEntry(
             customer,
             command.Subject,
             Domain.CustomerAuditActions.AddressRemoved,
