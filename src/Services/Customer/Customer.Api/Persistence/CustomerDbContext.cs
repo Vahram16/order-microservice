@@ -8,7 +8,6 @@ public sealed class CustomerDbContext(DbContextOptions<CustomerDbContext> option
     : DbContext(options)
 {
     public DbSet<Domain.Customer> Customers => Set<Domain.Customer>();
-    public DbSet<CustomerAddress> CustomerAddresses => Set<CustomerAddress>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
