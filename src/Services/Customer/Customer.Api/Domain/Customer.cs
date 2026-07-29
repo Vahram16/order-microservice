@@ -1,3 +1,5 @@
+using System.Net.Mail;
+
 namespace Customer.Api.Domain;
 
 public enum CustomerStatus
@@ -27,11 +29,11 @@ public sealed class Customer
         DateTimeOffset now)
     {
         Id = id;
-        IdentityProvider = Required(identityProvider, nameof(identityProvider), 32);
+        IdentityProvider = Required(identityProvider, nameof(identityProvider), 32).ToLowerInvariant();
         IdentitySubject = Required(identitySubject, nameof(identitySubject), 255);
         FirstName = Optional(firstName, nameof(firstName), 100);
         LastName = Optional(lastName, nameof(lastName), 100);
-        Email = Optional(email, nameof(email), 320)?.ToLowerInvariant();
+        Email = NormalizeEmail(email);
         Status = CustomerStatus.Active;
         CreatedAt = now;
         UpdatedAt = now;
@@ -49,7 +51,7 @@ public sealed class Customer
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
     public long Version { get; private set; }
-    public IReadOnlyCollection<CustomerAddress> Addresses => _addresses;
+    public IReadOnlyList<CustomerAddress> Addresses => _addresses.AsReadOnly();
 
     public static Customer Register(
         string identityProvider,
@@ -67,6 +69,17 @@ public sealed class Customer
             email,
             now);
 
+    public void EnsureExpectedVersion(long expectedVersion)
+    {
+        if (expectedVersion <= 0 || Version != expectedVersion)
+        {
+            throw new CustomerVersionMismatchException(expectedVersion, Version);
+        }
+    }
+
+    public CustomerAddress? FindAddress(Guid addressId) =>
+        _addresses.SingleOrDefault(address => address.Id == addressId);
+
     public void UpdateDetails(
         string? firstName,
         string? lastName,
@@ -78,7 +91,7 @@ public sealed class Customer
 
         var normalizedFirstName = Optional(firstName, nameof(firstName), 100);
         var normalizedLastName = Optional(lastName, nameof(lastName), 100);
-        var normalizedEmail = Optional(email, nameof(email), 320)?.ToLowerInvariant();
+        var normalizedEmail = NormalizeEmail(email);
         var normalizedPhoneNumber = Optional(phoneNumber, nameof(phoneNumber), 32);
 
         FirstName = normalizedFirstName;
@@ -88,18 +101,30 @@ public sealed class Customer
         Touch(now);
     }
 
-    public CustomerAddress AddAddress(AddressData data, DateTimeOffset now)
+    public CustomerAddress AddAddress(Guid addressId, AddressData data, DateTimeOffset now)
     {
         EnsureActive();
         ArgumentNullException.ThrowIfNull(data);
 
+        var existing = FindAddress(addressId);
+        if (existing is not null)
+        {
+            if (existing.Matches(data))
+            {
+                return existing;
+            }
+
+            throw new CustomerIdempotencyConflictException(addressId);
+        }
+
         if (_addresses.Count >= MaximumSavedAddresses)
         {
             throw new CustomerDomainException(
+                "customer.address_limit_exceeded",
                 $"A customer can save at most {MaximumSavedAddresses} addresses.");
         }
 
-        var address = CustomerAddress.Create(Id, data, now);
+        var address = CustomerAddress.Create(addressId, Id, data, now);
 
         if (address.IsDefaultShipping)
         {
@@ -146,9 +171,25 @@ public sealed class Customer
         Touch(now);
     }
 
+    public bool CloseAccount(DateTimeOffset now)
+    {
+        if (Status == CustomerStatus.Deactivated)
+        {
+            return false;
+        }
+
+        FirstName = null;
+        LastName = null;
+        Email = null;
+        PhoneNumber = null;
+        _addresses.Clear();
+        Status = CustomerStatus.Deactivated;
+        Touch(now);
+        return true;
+    }
+
     private CustomerAddress GetAddress(Guid addressId) =>
-        _addresses.SingleOrDefault(address => address.Id == addressId)
-        ?? throw new CustomerAddressNotFoundException(addressId);
+        FindAddress(addressId) ?? throw new CustomerAddressNotFoundException(addressId);
 
     private void ClearDefaultShipping(DateTimeOffset now, Guid? exceptAddressId = null)
     {
@@ -172,8 +213,7 @@ public sealed class Customer
     {
         if (Status != CustomerStatus.Active)
         {
-            throw new CustomerDomainException(
-                "Only an active customer can change customer details.");
+            throw new CustomerInactiveException(Status);
         }
     }
 
@@ -193,153 +233,34 @@ public sealed class Customer
         if (normalized.Length > maximumLength)
         {
             throw new CustomerDomainException(
+                "customer.validation",
                 $"{field} cannot exceed {maximumLength} characters.");
         }
 
         return normalized;
     }
 
-    private static string? Optional(string? value, string field, int maximumLength)
+    private static string? Optional(string? value, string field, int maximumLength) =>
+        string.IsNullOrWhiteSpace(value)
+            ? null
+            : Required(value, field, maximumLength);
+
+    private static string? NormalizeEmail(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value))
+        var normalized = Optional(value, nameof(Email), 320)?.ToLowerInvariant();
+        if (normalized is null)
         {
             return null;
         }
 
-        return Required(value, field, maximumLength);
-    }
-}
-
-public sealed class CustomerAddress
-{
-    private CustomerAddress()
-    {
-    }
-
-    private CustomerAddress(Guid customerId, AddressData data, DateTimeOffset now)
-    {
-        Id = Guid.NewGuid();
-        CustomerId = customerId;
-        Apply(data);
-        CreatedAt = now;
-        UpdatedAt = now;
-    }
-
-    public Guid Id { get; private set; }
-    public Guid CustomerId { get; private set; }
-    public string? Label { get; private set; }
-    public string RecipientName { get; private set; } = null!;
-    public string Line1 { get; private set; } = null!;
-    public string? Line2 { get; private set; }
-    public string City { get; private set; } = null!;
-    public string? Region { get; private set; }
-    public string PostalCode { get; private set; } = null!;
-    public string CountryCode { get; private set; } = null!;
-    public string? PhoneNumber { get; private set; }
-    public bool IsDefaultShipping { get; private set; }
-    public bool IsDefaultBilling { get; private set; }
-    public DateTimeOffset CreatedAt { get; private set; }
-    public DateTimeOffset UpdatedAt { get; private set; }
-
-    internal static CustomerAddress Create(
-        Guid customerId,
-        AddressData data,
-        DateTimeOffset now) => new(customerId, data, now);
-
-    internal void Update(AddressData data, DateTimeOffset now)
-    {
-        Apply(data);
-        UpdatedAt = LaterOf(UpdatedAt, now);
-    }
-
-    internal void ClearDefaultShipping(DateTimeOffset now)
-    {
-        IsDefaultShipping = false;
-        UpdatedAt = LaterOf(UpdatedAt, now);
-    }
-
-    internal void ClearDefaultBilling(DateTimeOffset now)
-    {
-        IsDefaultBilling = false;
-        UpdatedAt = LaterOf(UpdatedAt, now);
-    }
-
-    private void Apply(AddressData data)
-    {
-        var normalizedLabel = NormalizeOptional(data.Label, nameof(data.Label), 50);
-        var normalizedRecipientName = NormalizeRequired(
-            data.RecipientName,
-            nameof(data.RecipientName),
-            200);
-        var normalizedLine1 = NormalizeRequired(data.Line1, nameof(data.Line1), 200);
-        var normalizedLine2 = NormalizeOptional(data.Line2, nameof(data.Line2), 200);
-        var normalizedCity = NormalizeRequired(data.City, nameof(data.City), 100);
-        var normalizedRegion = NormalizeOptional(data.Region, nameof(data.Region), 100);
-        var normalizedPostalCode = NormalizeRequired(
-            data.PostalCode,
-            nameof(data.PostalCode),
-            32);
-        var normalizedCountryCode = NormalizeRequired(
-                data.CountryCode,
-                nameof(data.CountryCode),
-                2)
-            .ToUpperInvariant();
-        var normalizedPhoneNumber = NormalizeOptional(
-            data.PhoneNumber,
-            nameof(data.PhoneNumber),
-            32);
-
-        Label = normalizedLabel;
-        RecipientName = normalizedRecipientName;
-        Line1 = normalizedLine1;
-        Line2 = normalizedLine2;
-        City = normalizedCity;
-        Region = normalizedRegion;
-        PostalCode = normalizedPostalCode;
-        CountryCode = normalizedCountryCode;
-        PhoneNumber = normalizedPhoneNumber;
-        IsDefaultShipping = data.IsDefaultShipping;
-        IsDefaultBilling = data.IsDefaultBilling;
-    }
-
-    private static DateTimeOffset LaterOf(DateTimeOffset current, DateTimeOffset candidate) =>
-        candidate > current ? candidate : current;
-
-    private static string NormalizeRequired(string value, string field, int maximumLength)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value);
-        var normalized = value.Trim();
-        if (normalized.Length > maximumLength)
+        if (!MailAddress.TryCreate(normalized, out var address) ||
+            !string.Equals(address.Address, normalized, StringComparison.OrdinalIgnoreCase))
         {
             throw new CustomerDomainException(
-                $"{field} cannot exceed {maximumLength} characters.");
+                "customer.invalid_email",
+                "Email must be a valid email address.");
         }
 
         return normalized;
     }
-
-    private static string? NormalizeOptional(string? value, string field, int maximumLength) =>
-        string.IsNullOrWhiteSpace(value)
-            ? null
-            : NormalizeRequired(value, field, maximumLength);
 }
-
-public sealed record AddressData(
-    string? Label,
-    string RecipientName,
-    string Line1,
-    string? Line2,
-    string City,
-    string? Region,
-    string PostalCode,
-    string CountryCode,
-    string? PhoneNumber,
-    bool IsDefaultShipping,
-    bool IsDefaultBilling);
-
-public class CustomerDomainException(string message) : Exception(message);
-
-public sealed class CustomerNotFoundException() : CustomerDomainException("Customer was not found.");
-
-public sealed class CustomerAddressNotFoundException(Guid addressId)
-    : CustomerDomainException($"Customer address '{addressId}' was not found.");
