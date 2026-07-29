@@ -8,39 +8,54 @@ using Scalar.AspNetCore;
 
 namespace Microsoft.Extensions.Hosting;
 
+public sealed record ApiDocumentationOAuthOptions(
+    string ClientId,
+    string RedirectUri,
+    IReadOnlyDictionary<string, string> Scopes);
+
 public static class ApiDocumentationExtensions
 {
     private const string DocumentName = "v1";
     private const string BearerScheme = "Bearer";
     private const string OAuthScheme = "OAuth2";
     private const string SecurityAuthorityConfigurationKey = "Security:Authority";
-    private const string DeveloperOAuthClientId = "scalar-dev";
-    private const string DeveloperOAuthRedirectUri = "https://localhost:7040/scalar/v1";
     private const string DeveloperDocumentationContentSecurityPolicy =
         "default-src 'self'; script-src 'self' 'unsafe-inline' https:; " +
         "style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; " +
         "font-src 'self' data:; connect-src 'self' http: https:; " +
         "worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; " +
         "form-action 'self'";
-    private static readonly string[] DeveloperOAuthScopes =
-    [
-        "openid",
-        "profile",
-        "email",
-        "orders.read",
-        "orders.create",
-        "orders.cancel"
-    ];
+
+    private static readonly ApiDocumentationOAuthOptions DefaultOAuth = new(
+        "scalar-dev",
+        "https://localhost:7040/scalar/v1",
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["openid"] = "Authenticate the user.",
+            ["profile"] = "Read the user's basic profile.",
+            ["email"] = "Read the user's email address.",
+            ["orders.read"] = "Read orders allowed by application ownership rules.",
+            ["orders.create"] = "Create orders.",
+            ["orders.cancel"] = "Cancel orders allowed by application rules."
+        });
 
     public static WebApplicationBuilder AddApiDocumentation(
         this WebApplicationBuilder builder,
-        string title)
+        string title) =>
+        builder.AddApiDocumentation(title, DefaultOAuth);
+
+    public static WebApplicationBuilder AddApiDocumentation(
+        this WebApplicationBuilder builder,
+        string title,
+        ApiDocumentationOAuthOptions oauth)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        ValidateOAuthOptions(oauth);
 
         var authority = builder.Configuration[SecurityAuthorityConfigurationKey];
         var authorizationUrl = GetKeycloakEndpoint(authority, "auth");
         var tokenUrl = GetKeycloakEndpoint(authority, "token");
+        builder.Services.AddSingleton(oauth);
 
         builder.Services.AddOpenApi(DocumentName, options =>
         {
@@ -52,7 +67,7 @@ public static class ApiDocumentationExtensions
             });
             options.AddDocumentTransformer(new BearerSecuritySchemeTransformer());
             options.AddDocumentTransformer(
-                new OAuthSecuritySchemeTransformer(authorizationUrl, tokenUrl));
+                new OAuthSecuritySchemeTransformer(authorizationUrl, tokenUrl, oauth.Scopes));
             options.AddOperationTransformer(new BearerSecurityRequirementTransformer());
         });
 
@@ -66,6 +81,7 @@ public static class ApiDocumentationExtensions
             return app;
         }
 
+        var oauth = app.Services.GetRequiredService<ApiDocumentationOAuthOptions>();
         app.MapOpenApi()
             .AddEndpointFilter(AddDeveloperDocumentationHeadersAsync)
             .AllowAnonymous()
@@ -74,16 +90,37 @@ public static class ApiDocumentationExtensions
             .AddPreferredSecuritySchemes(OAuthScheme)
             .AddAuthorizationCodeFlow(OAuthScheme, flow =>
             {
-                flow.ClientId = DeveloperOAuthClientId;
-                flow.RedirectUri = DeveloperOAuthRedirectUri;
+                flow.ClientId = oauth.ClientId;
+                flow.RedirectUri = oauth.RedirectUri;
                 flow.Pkce = Pkce.Sha256;
-                flow.SelectedScopes = DeveloperOAuthScopes;
+                flow.SelectedScopes = oauth.Scopes.Keys.ToArray();
             }))
             .AddEndpointFilter(AddDeveloperDocumentationHeadersAsync)
             .AllowAnonymous()
             .ExcludeFromDescription();
 
         return app;
+    }
+
+    private static void ValidateOAuthOptions(ApiDocumentationOAuthOptions oauth)
+    {
+        ArgumentNullException.ThrowIfNull(oauth);
+        ArgumentException.ThrowIfNullOrWhiteSpace(oauth.ClientId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(oauth.RedirectUri);
+        ArgumentNullException.ThrowIfNull(oauth.Scopes);
+
+        if (!Uri.TryCreate(oauth.RedirectUri, UriKind.Absolute, out var redirect) ||
+            redirect.Scheme != Uri.UriSchemeHttps)
+        {
+            throw new InvalidOperationException(
+                "The development API documentation redirect URI must be an absolute HTTPS URI.");
+        }
+
+        if (oauth.Scopes.Count == 0 || oauth.Scopes.Keys.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new InvalidOperationException(
+                "At least one non-empty API documentation OAuth scope is required.");
+        }
     }
 
     private static Uri GetKeycloakEndpoint(string? authority, string endpoint)
@@ -103,7 +140,8 @@ public static class ApiDocumentationExtensions
 
     private sealed class OAuthSecuritySchemeTransformer(
         Uri authorizationUrl,
-        Uri tokenUrl) : IOpenApiDocumentTransformer
+        Uri tokenUrl,
+        IReadOnlyDictionary<string, string> scopes) : IOpenApiDocumentTransformer
     {
         public Task TransformAsync(
             OpenApiDocument document,
@@ -124,15 +162,10 @@ public static class ApiDocumentationExtensions
                         {
                             AuthorizationUrl = authorizationUrl,
                             TokenUrl = tokenUrl,
-                            Scopes = new Dictionary<string, string>
-                            {
-                                ["openid"] = "Authenticate the user.",
-                                ["profile"] = "Read the user's basic profile.",
-                                ["email"] = "Read the user's email address.",
-                                ["orders.read"] = "Read orders allowed by application ownership rules.",
-                                ["orders.create"] = "Create orders.",
-                                ["orders.cancel"] = "Cancel orders allowed by application rules."
-                            }
+                            Scopes = scopes.ToDictionary(
+                                scope => scope.Key,
+                                scope => scope.Value,
+                                StringComparer.Ordinal)
                         }
                     }
                 };
