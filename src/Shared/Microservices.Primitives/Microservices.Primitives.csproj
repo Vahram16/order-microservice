@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Framework-free operation result and error primitives shared across bounded contexts.</Description>
+  </PropertyGroup>
+</Project>

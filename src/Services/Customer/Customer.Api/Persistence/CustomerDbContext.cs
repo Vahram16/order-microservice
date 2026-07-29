@@ -76,7 +76,7 @@ internal sealed class CustomerAddressConfiguration : IEntityTypeConfiguration<Cu
         builder.Property(address => address.Region).HasMaxLength(100);
         builder.Property(address => address.PostalCode).HasMaxLength(32).IsRequired();
         builder.Property(address => address.CountryCode)
-            .HasConversion(code => code.Value, value => CountryCode.Parse(value))
+            .HasConversion(code => code.Value, value => CountryCode.FromPersistence(value))
             .HasMaxLength(2)
             .IsFixedLength()
             .IsRequired();

@@ -9,4 +9,4 @@ internal sealed record AddCustomerAddressCommand(
     long ExpectedVersion,
     Guid AddressId,
     AddressData Address)
-    : ICommand<AddCustomerAddressResult>;
+    : ICommand<Result<AddCustomerAddressResult>>;

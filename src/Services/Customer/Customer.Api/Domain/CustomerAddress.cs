@@ -1,3 +1,5 @@
+using Microservices.Primitives;
+
 namespace Customer.Api.Domain;
 
 public sealed class CustomerAddress
@@ -35,42 +37,64 @@ public sealed class CustomerAddress
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
 
-    internal static CustomerAddress Create(
+    internal static Result<CustomerAddress> Create(
         Guid id,
         Guid customerId,
         AddressData data,
         DateTimeOffset now)
     {
+        ArgumentNullException.ThrowIfNull(data);
+
         if (id == Guid.Empty)
         {
-            throw new CustomerDomainException(
-                "customer.invalid_address_id",
-                "Address identifier cannot be empty.");
+            return CustomerErrors.InvalidAddressId;
         }
 
-        return new CustomerAddress(id, customerId, NormalizedAddressData.From(data), now);
+        var normalized = NormalizedAddressData.Create(data);
+        return normalized.IsSuccess
+            ? Result.Success(new CustomerAddress(id, customerId, normalized.Value, now))
+            : normalized.Error;
     }
 
-    internal void Update(AddressData data, DateTimeOffset now)
+    internal Result Update(AddressData data, DateTimeOffset now)
     {
-        Apply(NormalizedAddressData.From(data));
+        ArgumentNullException.ThrowIfNull(data);
+
+        var normalized = NormalizedAddressData.Create(data);
+        if (normalized.IsFailure)
+        {
+            return normalized.Error;
+        }
+
+        Apply(normalized.Value);
         UpdatedAt = LaterOf(UpdatedAt, now);
+        return Result.Success();
     }
 
-    internal bool Matches(AddressData data)
+    internal Result<bool> Matches(AddressData data)
     {
-        var candidate = NormalizedAddressData.From(data);
-        return Label == candidate.Label &&
-               RecipientName == candidate.RecipientName &&
-               Line1 == candidate.Line1 &&
-               Line2 == candidate.Line2 &&
-               City == candidate.City &&
-               Region == candidate.Region &&
-               PostalCode == candidate.PostalCode &&
-               CountryCode == candidate.CountryCode &&
-               PhoneNumber == candidate.PhoneNumber &&
-               IsDefaultShipping == candidate.IsDefaultShipping &&
-               IsDefaultBilling == candidate.IsDefaultBilling;
+        ArgumentNullException.ThrowIfNull(data);
+
+        var normalized = NormalizedAddressData.Create(data);
+        if (normalized.IsFailure)
+        {
+            return normalized.Error;
+        }
+
+        var candidate = normalized.Value;
+        var matches = Label == candidate.Label &&
+                      RecipientName == candidate.RecipientName &&
+                      Line1 == candidate.Line1 &&
+                      Line2 == candidate.Line2 &&
+                      City == candidate.City &&
+                      Region == candidate.Region &&
+                      PostalCode == candidate.PostalCode &&
+                      CountryCode == candidate.CountryCode &&
+                      PhoneNumber == candidate.PhoneNumber &&
+                      IsDefaultShipping == candidate.IsDefaultShipping &&
+                      IsDefaultBilling == candidate.IsDefaultBilling;
+
+        return Result.Success(matches);
     }
 
     internal void ClearDefaultShipping(DateTimeOffset now)
@@ -130,40 +154,103 @@ internal sealed record NormalizedAddressData(
     bool IsDefaultShipping,
     bool IsDefaultBilling)
 {
-    public static NormalizedAddressData From(AddressData data)
+    public static Result<NormalizedAddressData> Create(AddressData data)
     {
         ArgumentNullException.ThrowIfNull(data);
 
-        return new NormalizedAddressData(
-            Optional(data.Label, nameof(data.Label), 50),
-            Required(data.RecipientName, nameof(data.RecipientName), 200),
-            Required(data.Line1, nameof(data.Line1), 200),
-            Optional(data.Line2, nameof(data.Line2), 200),
-            Required(data.City, nameof(data.City), 100),
-            Optional(data.Region, nameof(data.Region), 100),
-            Required(data.PostalCode, nameof(data.PostalCode), 32),
-            CountryCode.Parse(data.CountryCode),
-            Optional(data.PhoneNumber, nameof(data.PhoneNumber), 32),
-            data.IsDefaultShipping,
-            data.IsDefaultBilling);
-    }
-
-    private static string Required(string value, string field, int maximumLength)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value);
-        var normalized = value.Trim();
-        if (normalized.Length > maximumLength)
+        var label = Optional(data.Label, nameof(data.Label), 50);
+        if (label.IsFailure)
         {
-            throw new CustomerDomainException(
-                "customer.validation",
-                $"{field} cannot exceed {maximumLength} characters.");
+            return label.Error;
         }
 
-        return normalized;
+        var recipientName = Required(data.RecipientName, nameof(data.RecipientName), 200);
+        if (recipientName.IsFailure)
+        {
+            return recipientName.Error;
+        }
+
+        var line1 = Required(data.Line1, nameof(data.Line1), 200);
+        if (line1.IsFailure)
+        {
+            return line1.Error;
+        }
+
+        var line2 = Optional(data.Line2, nameof(data.Line2), 200);
+        if (line2.IsFailure)
+        {
+            return line2.Error;
+        }
+
+        var city = Required(data.City, nameof(data.City), 100);
+        if (city.IsFailure)
+        {
+            return city.Error;
+        }
+
+        var region = Optional(data.Region, nameof(data.Region), 100);
+        if (region.IsFailure)
+        {
+            return region.Error;
+        }
+
+        var postalCode = Required(data.PostalCode, nameof(data.PostalCode), 32);
+        if (postalCode.IsFailure)
+        {
+            return postalCode.Error;
+        }
+
+        var countryCode = CountryCode.Create(data.CountryCode);
+        if (countryCode.IsFailure)
+        {
+            return countryCode.Error;
+        }
+
+        var phoneNumber = Optional(data.PhoneNumber, nameof(data.PhoneNumber), 32);
+        if (phoneNumber.IsFailure)
+        {
+            return phoneNumber.Error;
+        }
+
+        return Result.Success(new NormalizedAddressData(
+            label.Value.Value,
+            recipientName.Value,
+            line1.Value,
+            line2.Value.Value,
+            city.Value,
+            region.Value.Value,
+            postalCode.Value,
+            countryCode.Value,
+            phoneNumber.Value.Value,
+            data.IsDefaultShipping,
+            data.IsDefaultBilling));
     }
 
-    private static string? Optional(string? value, string field, int maximumLength) =>
-        string.IsNullOrWhiteSpace(value)
-            ? null
-            : Required(value, field, maximumLength);
+    private static Result<string> Required(string? value, string field, int maximumLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return CustomerErrors.Validation(field, "A value is required.");
+        }
+
+        var normalized = value.Trim();
+        return normalized.Length <= maximumLength
+            ? Result.Success(normalized)
+            : CustomerErrors.Validation(field, $"The value cannot exceed {maximumLength} characters.");
+    }
+
+    private static Result<OptionalText> Optional(string? value, string field, int maximumLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return Result.Success(new OptionalText(null));
+        }
+
+        var required = Required(value, field, maximumLength);
+        return required.IsSuccess
+            ? Result.Success(new OptionalText(required.Value))
+            : required.Error;
+    }
+
+    private readonly record struct OptionalText(string? Value);
 }

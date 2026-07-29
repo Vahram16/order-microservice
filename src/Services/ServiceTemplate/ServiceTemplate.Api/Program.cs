@@ -4,6 +4,7 @@ using Microservices.Application;
 using Microservices.Messaging;
 using Microservices.Persistence.Postgres;
 using Microservices.Security;
+using Microservices.ServiceDefaults.ProblemDetails;
 using ServiceTemplate.Api.Persistence;
 using System.Security.Claims;
 
@@ -11,7 +12,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.AddApiDocumentation("Service Template API");
-builder.Services.AddProblemDetails();
+builder.Services.AddMicroserviceProblemDetails();
 builder.Services.AddApiSecurity(builder.Configuration, builder.Environment);
 builder.Services.AddPostgresDbContext<ServiceTemplateDbContext>(
     builder.Configuration,
@@ -32,12 +33,13 @@ builder.Services.AddRabbitMqWithPostgresOutbox<ServiceTemplateDbContext>(
 var app = builder.Build();
 
 app.UseConfiguredForwardedHeaders();
-app.UseExceptionHandler();
+app.UseMicroserviceProblemDetails();
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapDefaultEndpoints();
 app.MapApiDocumentation();
+app.MapMicroserviceErrorCatalog();
 app.MapGet("/", () => Results.Redirect("/scalar/v1"))
     .ExcludeFromDescription()
     .AllowAnonymous();
@@ -57,7 +59,7 @@ app.MapGet("/auth-test", (ClaimsPrincipal user, ILogger<Program> logger) =>
     })
     .WithName("AuthTest")
     .WithSummary("Tests Keycloak access-token authentication")
-    .RequireAuthorization( RolePolicy.For("order.read"));
+    .RequireAuthorization(RolePolicy.For("order.read"));
 
 await app.RunAsync();
 

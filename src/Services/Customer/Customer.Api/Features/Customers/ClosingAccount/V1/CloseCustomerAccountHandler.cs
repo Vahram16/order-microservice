@@ -1,38 +1,62 @@
+using Customer.Api.Domain;
 using Customer.Api.Features.Customers.Common;
 using Customer.Api.Persistence;
 using Microservices.Application;
+using Microsoft.EntityFrameworkCore;
 
 namespace Customer.Api.Features.Customers.ClosingAccount.V1;
 
 internal sealed class CloseCustomerAccountHandler(
     CustomerDbContext dbContext,
     TimeProvider timeProvider)
-    : ICommandHandler<CloseCustomerAccountCommand, CustomerResponse>
+    : ICommandHandler<CloseCustomerAccountCommand, Result<CustomerResponse>>
 {
-    public async Task<CustomerResponse> Handle(
+    public async Task<Result<CustomerResponse>> Handle(
         CloseCustomerAccountCommand command,
         CancellationToken cancellationToken)
     {
-        var customer = await dbContext.Customers.GetRequiredByIdentityAsync(
+        var customer = await dbContext.Customers.FindByIdentityAsync(
             command.Provider,
             command.Subject,
             cancellationToken);
-
-        if (customer.Status == Domain.CustomerStatus.Deactivated)
+        if (customer is null)
         {
-            return CustomerMappings.ToResponse(customer);
+            return CustomerApplicationErrors.CustomerNotFound;
         }
 
-        customer.EnsureExpectedVersion(command.ExpectedVersion);
+        var version = customer.EnsureExpectedVersion(command.ExpectedVersion);
+        if (version.IsFailure)
+        {
+            return version.Error;
+        }
+
+        if (customer.Status == CustomerStatus.Deactivated)
+        {
+            return Result.Success(CustomerMappings.ToResponse(customer));
+        }
+
         var now = timeProvider.GetUtcNow();
-        customer.CloseAccount(now);
+        var close = customer.CloseAccount(now);
+        if (close.IsFailure)
+        {
+            return close.Error;
+        }
+
         dbContext.AddAuditEntry(
             customer,
             command.Subject,
-            Domain.CustomerAuditActions.AccountClosed,
+            CustomerAuditActions.AccountClosed,
             now);
-        await dbContext.SaveChangesAsync(cancellationToken);
 
-        return CustomerMappings.ToResponse(customer);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return CustomerErrors.VersionMismatch;
+        }
+
+        return Result.Success(CustomerMappings.ToResponse(customer));
     }
 }

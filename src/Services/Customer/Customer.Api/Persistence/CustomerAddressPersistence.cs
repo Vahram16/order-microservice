@@ -23,10 +23,6 @@ internal static class CustomerAddressPersistence
                 "Competing address defaults must be cleared inside the aggregate save transaction.");
         }
 
-        // These updates run before SaveChanges so PostgreSQL's filtered unique indexes
-        // never observe the old and new default rows at the same time. ExecuteUpdate
-        // bypasses tracking; the aggregate mutation that follows mirrors these changes
-        // on the already-loaded addresses.
         if (isDefaultShipping)
         {
             await dbContext.CustomerAddresses

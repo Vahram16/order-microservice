@@ -6,9 +6,9 @@ using Microsoft.EntityFrameworkCore;
 namespace Customer.Api.Features.Customers.GettingCurrent.V1;
 
 internal sealed class GetCurrentCustomerHandler(CustomerDbContext dbContext)
-    : IQueryHandler<GetCurrentCustomerQuery, CustomerResponse?>
+    : IQueryHandler<GetCurrentCustomerQuery, Result<CustomerResponse>>
 {
-    public async Task<CustomerResponse?> Handle(
+    public async Task<Result<CustomerResponse>> Handle(
         GetCurrentCustomerQuery query,
         CancellationToken cancellationToken)
     {
@@ -19,6 +19,8 @@ internal sealed class GetCurrentCustomerHandler(CustomerDbContext dbContext)
                 query.Subject,
                 cancellationToken);
 
-        return customer is null ? null : CustomerMappings.ToResponse(customer);
+        return customer is null
+            ? CustomerApplicationErrors.CustomerNotFound
+            : Result.Success(CustomerMappings.ToResponse(customer));
     }
 }

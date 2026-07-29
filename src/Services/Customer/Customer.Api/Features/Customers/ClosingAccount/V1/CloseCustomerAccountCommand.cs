@@ -7,4 +7,4 @@ internal sealed record CloseCustomerAccountCommand(
     string Provider,
     string Subject,
     long ExpectedVersion)
-    : ICommand<CustomerResponse>;
+    : ICommand<Result<CustomerResponse>>;

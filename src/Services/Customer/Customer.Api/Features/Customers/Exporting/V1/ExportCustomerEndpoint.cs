@@ -13,19 +13,29 @@ internal static class ExportCustomerEndpoint
                 "/export",
                 async (
                     ClaimsPrincipal principal,
-                    HttpResponse response,
+                    HttpContext httpContext,
                     ISender sender,
                     CancellationToken cancellationToken) =>
                 {
                     var identity = CurrentIdentity.From(principal);
-                    var export = await sender.Send(
-                        new ExportCustomerQuery(identity.Provider, identity.Subject),
+                    if (identity.IsFailure)
+                    {
+                        return CustomerHttpResults.Problem(identity.Error, httpContext);
+                    }
+
+                    var result = await sender.Send(
+                        new ExportCustomerQuery(identity.Value.Provider, identity.Value.Subject),
                         cancellationToken);
 
-                    CustomerHttp.WriteEtag(response, export.Customer.Version);
-                    response.Headers.ContentDisposition =
-                        "attachment; filename=customer-data.json";
-                    return Results.Ok(export);
+                    return result.Match<IResult>(
+                        export =>
+                        {
+                            CustomerHttp.WriteEtag(httpContext.Response, export.Customer.Version);
+                            httpContext.Response.Headers.ContentDisposition =
+                                "attachment; filename=customer-data.json";
+                            return Results.Ok(export);
+                        },
+                        error => CustomerHttpResults.Problem(error, httpContext));
                 })
             .WithName("ExportCurrentCustomer")
             .WithSummary("Exports all Customer-service-owned data for the authenticated customer.")
@@ -33,5 +43,7 @@ internal static class ExportCustomerEndpoint
                 RolePolicy.For(CustomerAuthorization.Role),
                 ScopePolicy.For(CustomerAuthorization.ExportScope))
             .Produces<CustomerExportResponse>()
-            .Produces(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 }

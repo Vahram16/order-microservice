@@ -9,9 +9,9 @@ namespace Customer.Api.Features.Customers.UpdatingAddress.V1;
 internal sealed class UpdateCustomerAddressHandler(
     CustomerDbContext dbContext,
     TimeProvider timeProvider)
-    : ICommandHandler<UpdateCustomerAddressCommand, CustomerResponse>
+    : ICommandHandler<UpdateCustomerAddressCommand, Result<CustomerResponse>>
 {
-    public async Task<CustomerResponse> Handle(
+    public async Task<Result<CustomerResponse>> Handle(
         UpdateCustomerAddressCommand command,
         CancellationToken cancellationToken)
     {
@@ -19,18 +19,25 @@ internal sealed class UpdateCustomerAddressHandler(
         return await strategy.ExecuteAsync(() => ExecuteOnceAsync(command, cancellationToken));
     }
 
-    private async Task<CustomerResponse> ExecuteOnceAsync(
+    private async Task<Result<CustomerResponse>> ExecuteOnceAsync(
         UpdateCustomerAddressCommand command,
         CancellationToken cancellationToken)
     {
         dbContext.ChangeTracker.Clear();
-        var customer = await dbContext.Customers.GetRequiredByIdentityAsync(
+        var customer = await dbContext.Customers.FindByIdentityAsync(
             command.Provider,
             command.Subject,
             cancellationToken);
-        customer.EnsureExpectedVersion(command.ExpectedVersion);
-        _ = customer.FindAddress(command.AddressId)
-            ?? throw new CustomerAddressNotFoundException(command.AddressId);
+        if (customer is null)
+        {
+            return CustomerApplicationErrors.CustomerNotFound;
+        }
+
+        var version = customer.EnsureExpectedVersion(command.ExpectedVersion);
+        if (version.IsFailure)
+        {
+            return version.Error;
+        }
 
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
         await dbContext.ClearCompetingAddressDefaultsAsync(
@@ -41,15 +48,41 @@ internal sealed class UpdateCustomerAddressHandler(
             cancellationToken);
 
         var now = timeProvider.GetUtcNow();
-        customer.UpdateAddress(command.AddressId, command.Address, now);
+        var update = customer.UpdateAddress(command.AddressId, command.Address, now);
+        if (update.IsFailure)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return update.Error;
+        }
+
         dbContext.AddAuditEntry(
             customer,
             command.Subject,
             CustomerAuditActions.AddressUpdated,
             now);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
 
-        return CustomerMappings.ToResponse(customer);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return Result.Success(CustomerMappings.ToResponse(customer));
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return CustomerErrors.VersionMismatch;
+        }
+        catch (DbUpdateException exception) when (
+            exception.IsUniqueConstraintViolation(CustomerDatabaseConstraints.DefaultShipping))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return CustomerApplicationErrors.DefaultShippingConflict;
+        }
+        catch (DbUpdateException exception) when (
+            exception.IsUniqueConstraintViolation(CustomerDatabaseConstraints.DefaultBilling))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return CustomerApplicationErrors.DefaultBillingConflict;
+        }
     }
 }

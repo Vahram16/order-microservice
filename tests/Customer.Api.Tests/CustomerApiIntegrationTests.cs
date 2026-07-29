@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Customer.Api.Domain;
 using Customer.Api.Features.Customers.AddingAddress.V1;
 using Customer.Api.Features.Customers.Common;
@@ -26,6 +27,50 @@ public sealed class CustomerApiIntegrationTests(CustomerApiFactory factory)
     public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
+    public async Task ErrorCatalogsAreResolvableAndAnonymous()
+    {
+        using var client = factory.CreateClient();
+
+        var customerDescriptor = await client.GetFromJsonAsync<JsonElement>(
+            "/errors/v1/customer/customer.version_mismatch");
+        var platformDescriptor = await client.GetFromJsonAsync<JsonElement>(
+            "/errors/v1/platform/request.validation_failed");
+
+        Assert.Equal("customer.version_mismatch", customerDescriptor.GetProperty("code").GetString());
+        Assert.Equal(412, customerDescriptor.GetProperty("status").GetInt32());
+        Assert.True(customerDescriptor.GetProperty("retryable").GetBoolean());
+        Assert.Equal("request.validation_failed", platformDescriptor.GetProperty("code").GetString());
+        Assert.Equal(400, platformDescriptor.GetProperty("status").GetInt32());
+    }
+
+    [Fact]
+    public async Task FrameworkFailuresUsePlatformProblemDetails()
+    {
+        using var anonymous = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+        var unauthenticated = await anonymous.GetAsync("/api/v1/customers/me");
+        await AssertPlatformProblemAsync(
+            unauthenticated,
+            HttpStatusCode.Unauthorized,
+            "http.status.401");
+
+        using var client = factory.CreateAuthenticatedClient(Subject, "customers.self.update");
+        var forbidden = await client.GetAsync("/api/v1/customers/me");
+        await AssertPlatformProblemAsync(
+            forbidden,
+            HttpStatusCode.Forbidden,
+            "http.status.403");
+
+        var missingRoute = await client.GetAsync("/api/v1/does-not-exist");
+        await AssertPlatformProblemAsync(
+            missingRoute,
+            HttpStatusCode.NotFound,
+            "http.status.404");
+    }
+
+    [Fact]
     public async Task ProvisioningIsConcurrentAndIdempotent()
     {
         await factory.ResetAsync();
@@ -45,7 +90,21 @@ public sealed class CustomerApiIntegrationTests(CustomerApiFactory factory)
     }
 
     [Fact]
-    public async Task MutationsRequireCurrentStrongEtagAndAuthorizationScope()
+    public async Task MissingCustomerUsesStableProblemContract()
+    {
+        await factory.ResetAsync();
+        using var client = factory.CreateAuthenticatedClient(Subject, "customers.self.read");
+
+        var response = await client.GetAsync("/api/v1/customers/me");
+
+        await AssertCustomerProblemAsync(
+            response,
+            HttpStatusCode.NotFound,
+            "customer.not_found");
+    }
+
+    [Fact]
+    public async Task MutationsRequireValidationCurrentStrongEtagAndAuthorizationScope()
     {
         await factory.ResetAsync();
         using var updateOnlyClient = factory.CreateAuthenticatedClient(
@@ -55,13 +114,31 @@ public sealed class CustomerApiIntegrationTests(CustomerApiFactory factory)
         Assert.Equal(HttpStatusCode.Created, provision.StatusCode);
         var initialEtag = Assert.Single(provision.Headers.GetValues("ETag"));
 
-        var forbiddenRead = await updateOnlyClient.GetAsync("/api/v1/customers/me");
-        Assert.Equal(HttpStatusCode.Forbidden, forbiddenRead.StatusCode);
-
         var missingPrecondition = await updateOnlyClient.PutAsJsonAsync(
             "/api/v1/customers/me/details",
             new UpdateCustomerDetailsRequest("Grace", "Hopper", "grace@example.com", null));
-        Assert.Equal((HttpStatusCode)428, missingPrecondition.StatusCode);
+        await AssertCustomerProblemAsync(
+            missingPrecondition,
+            (HttpStatusCode)428,
+            "customer.precondition_required");
+
+        using var invalid = new HttpRequestMessage(
+            HttpMethod.Put,
+            "/api/v1/customers/me/details")
+        {
+            Content = JsonContent.Create(
+                new UpdateCustomerDetailsRequest(
+                    "Grace",
+                    "Hopper",
+                    "not-an-email",
+                    null))
+        };
+        invalid.Headers.TryAddWithoutValidation("If-Match", initialEtag);
+        var invalidResponse = await updateOnlyClient.SendAsync(invalid);
+        await AssertPlatformProblemAsync(
+            invalidResponse,
+            HttpStatusCode.BadRequest,
+            "request.validation_failed");
 
         using var update = new HttpRequestMessage(
             HttpMethod.Put,
@@ -93,7 +170,10 @@ public sealed class CustomerApiIntegrationTests(CustomerApiFactory factory)
         };
         stale.Headers.TryAddWithoutValidation("If-Match", initialEtag);
         var staleResponse = await updateOnlyClient.SendAsync(stale);
-        Assert.Equal(HttpStatusCode.PreconditionFailed, staleResponse.StatusCode);
+        await AssertCustomerProblemAsync(
+            staleResponse,
+            HttpStatusCode.PreconditionFailed,
+            "customer.version_mismatch");
     }
 
     [Fact]
@@ -115,6 +195,16 @@ public sealed class CustomerApiIntegrationTests(CustomerApiFactory factory)
 
         var retry = await AddAddressAsync(client, versionTwo, secondKey, "Office");
         Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+
+        var conflictingRetry = await AddAddressAsync(
+            client,
+            versionTwo,
+            secondKey,
+            "Warehouse");
+        await AssertCustomerProblemAsync(
+            conflictingRetry,
+            HttpStatusCode.Conflict,
+            "customer.idempotency_key_reused");
 
         await using var dbContext = await factory.CreateDbContextAsync();
         var addresses = await dbContext.CustomerAddresses
@@ -186,5 +276,41 @@ public sealed class CustomerApiIntegrationTests(CustomerApiFactory factory)
         request.Headers.TryAddWithoutValidation("If-Match", etag);
         request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey.ToString("D"));
         return await client.SendAsync(request);
+    }
+
+    private static Task AssertCustomerProblemAsync(
+        HttpResponseMessage response,
+        HttpStatusCode expectedStatus,
+        string expectedCode) =>
+        AssertProblemAsync(response, expectedStatus, expectedCode, "/errors/v1/customer/");
+
+    private static Task AssertPlatformProblemAsync(
+        HttpResponseMessage response,
+        HttpStatusCode expectedStatus,
+        string expectedCode) =>
+        AssertProblemAsync(response, expectedStatus, expectedCode, "/errors/v1/platform/");
+
+    private static async Task AssertProblemAsync(
+        HttpResponseMessage response,
+        HttpStatusCode expectedStatus,
+        string expectedCode,
+        string typePrefix)
+    {
+        Assert.Equal(expectedStatus, response.StatusCode);
+        Assert.Equal(
+            "application/problem+json",
+            response.Content.Headers.ContentType?.MediaType);
+
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal((int)expectedStatus, problem.GetProperty("status").GetInt32());
+        Assert.Equal(expectedCode, problem.GetProperty("code").GetString());
+        Assert.Equal(
+            typePrefix + expectedCode,
+            problem.GetProperty("type").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(problem.GetProperty("traceId").GetString()));
+        Assert.StartsWith(
+            "/api/v1/",
+            problem.GetProperty("instance").GetString(),
+            StringComparison.Ordinal);
     }
 }

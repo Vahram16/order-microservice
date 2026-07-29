@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Primitives;
 
 namespace Customer.Api.Features.Customers.Common;
@@ -8,12 +9,19 @@ internal static class CustomerHttp
     private const string EtagSuffix = "\"";
     private const string IdempotencyHeader = "Idempotency-Key";
 
-    public static long RequireExpectedVersion(HttpRequest request)
+    public static Result<long> ReadExpectedVersion(HttpRequest request)
     {
+        ArgumentNullException.ThrowIfNull(request);
+
         var values = request.Headers.IfMatch;
-        if (StringValues.IsNullOrEmpty(values) || values.Count != 1)
+        if (StringValues.IsNullOrEmpty(values))
         {
-            throw new CustomerPreconditionRequiredException();
+            return CustomerApplicationErrors.PreconditionRequired;
+        }
+
+        if (values.Count != 1)
+        {
+            return CustomerApplicationErrors.InvalidPrecondition;
         }
 
         var value = values[0]?.Trim();
@@ -22,30 +30,31 @@ internal static class CustomerHttp
             !value.StartsWith(EtagPrefix, StringComparison.Ordinal) ||
             !value.EndsWith(EtagSuffix, StringComparison.Ordinal))
         {
-            throw new CustomerInvalidPreconditionException();
+            return CustomerApplicationErrors.InvalidPrecondition;
         }
 
         var versionText = value[EtagPrefix.Length..^EtagSuffix.Length];
-        if (!long.TryParse(versionText, out var version) || version <= 0)
-        {
-            throw new CustomerInvalidPreconditionException();
-        }
-
-        return version;
+        return long.TryParse(
+                   versionText,
+                   NumberStyles.None,
+                   CultureInfo.InvariantCulture,
+                   out var version) &&
+               version > 0
+            ? Result.Success(version)
+            : CustomerApplicationErrors.InvalidPrecondition;
     }
 
-    public static Guid RequireIdempotencyKey(HttpRequest request)
+    public static Result<Guid> ReadIdempotencyKey(HttpRequest request)
     {
-        var values = request.Headers[IdempotencyHeader];
-        if (StringValues.IsNullOrEmpty(values) ||
-            values.Count != 1 ||
-            !Guid.TryParse(values[0], out var key) ||
-            key == Guid.Empty)
-        {
-            throw new CustomerInvalidIdempotencyKeyException();
-        }
+        ArgumentNullException.ThrowIfNull(request);
 
-        return key;
+        var values = request.Headers[IdempotencyHeader];
+        return !StringValues.IsNullOrEmpty(values) &&
+               values.Count == 1 &&
+               Guid.TryParse(values[0], out var key) &&
+               key != Guid.Empty
+            ? Result.Success(key)
+            : CustomerApplicationErrors.InvalidIdempotencyKey;
     }
 
     public static void WriteEtag(HttpResponse response, long version) =>
@@ -62,12 +71,3 @@ internal static class CustomerHttp
         return await next(context);
     }
 }
-
-internal sealed class CustomerPreconditionRequiredException()
-    : Exception("An If-Match header containing the current customer ETag is required.");
-
-internal sealed class CustomerInvalidPreconditionException()
-    : Exception("If-Match must contain exactly one strong customer ETag.");
-
-internal sealed class CustomerInvalidIdempotencyKeyException()
-    : Exception("Idempotency-Key must contain exactly one non-empty GUID.");

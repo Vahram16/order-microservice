@@ -13,21 +13,27 @@ internal static class GetCurrentCustomerEndpoint
                 "/",
                 async (
                     ClaimsPrincipal principal,
-                    HttpResponse response,
+                    HttpContext httpContext,
                     ISender sender,
                     CancellationToken cancellationToken) =>
                 {
                     var identity = CurrentIdentity.From(principal);
-                    var customer = await sender.Send(
-                        new GetCurrentCustomerQuery(identity.Provider, identity.Subject),
-                        cancellationToken);
-                    if (customer is null)
+                    if (identity.IsFailure)
                     {
-                        return Results.NotFound();
+                        return CustomerHttpResults.Problem(identity.Error, httpContext);
                     }
 
-                    CustomerHttp.WriteEtag(response, customer.Version);
-                    return Results.Ok(customer);
+                    var result = await sender.Send(
+                        new GetCurrentCustomerQuery(identity.Value.Provider, identity.Value.Subject),
+                        cancellationToken);
+
+                    return result.Match<IResult>(
+                        customer =>
+                        {
+                            CustomerHttp.WriteEtag(httpContext.Response, customer.Version);
+                            return Results.Ok(customer);
+                        },
+                        error => CustomerHttpResults.Problem(error, httpContext));
                 })
             .WithName("GetCurrentCustomer")
             .WithSummary("Gets the customer bound to the current Keycloak subject.")
@@ -35,7 +41,7 @@ internal static class GetCurrentCustomerEndpoint
                 RolePolicy.For(CustomerAuthorization.Role),
                 ScopePolicy.For(CustomerAuthorization.ReadScope))
             .Produces<CustomerResponse>()
-            .Produces(StatusCodes.Status404NotFound)
-            .Produces(StatusCodes.Status401Unauthorized)
-            .Produces(StatusCodes.Status403Forbidden);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 }

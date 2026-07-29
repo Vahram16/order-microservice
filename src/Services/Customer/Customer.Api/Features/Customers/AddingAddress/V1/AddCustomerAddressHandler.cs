@@ -9,9 +9,9 @@ namespace Customer.Api.Features.Customers.AddingAddress.V1;
 internal sealed class AddCustomerAddressHandler(
     CustomerDbContext dbContext,
     TimeProvider timeProvider)
-    : ICommandHandler<AddCustomerAddressCommand, AddCustomerAddressResult>
+    : ICommandHandler<AddCustomerAddressCommand, Result<AddCustomerAddressResult>>
 {
-    public async Task<AddCustomerAddressResult> Handle(
+    public async Task<Result<AddCustomerAddressResult>> Handle(
         AddCustomerAddressCommand command,
         CancellationToken cancellationToken)
     {
@@ -19,31 +19,43 @@ internal sealed class AddCustomerAddressHandler(
         return await strategy.ExecuteAsync(() => ExecuteOnceAsync(command, cancellationToken));
     }
 
-    private async Task<AddCustomerAddressResult> ExecuteOnceAsync(
+    private async Task<Result<AddCustomerAddressResult>> ExecuteOnceAsync(
         AddCustomerAddressCommand command,
         CancellationToken cancellationToken)
     {
         dbContext.ChangeTracker.Clear();
-        var customer = await dbContext.Customers.GetRequiredByIdentityAsync(
+        var customer = await dbContext.Customers.FindByIdentityAsync(
             command.Provider,
             command.Subject,
             cancellationToken);
+        if (customer is null)
+        {
+            return CustomerApplicationErrors.CustomerNotFound;
+        }
 
         var existing = customer.FindAddress(command.AddressId);
         if (existing is not null)
         {
-            if (!existing.Matches(command.Address))
+            var matches = existing.Matches(command.Address);
+            if (matches.IsFailure)
             {
-                throw new CustomerIdempotencyConflictException(command.AddressId);
+                return matches.Error;
             }
 
-            return new AddCustomerAddressResult(
-                CustomerMappings.ToResponse(customer),
-                existing.Id,
-                false);
+            return matches.Value
+                ? Result.Success(new AddCustomerAddressResult(
+                    CustomerMappings.ToResponse(customer),
+                    existing.Id,
+                    false))
+                : CustomerApplicationErrors.IdempotencyKeyReused;
         }
 
-        customer.EnsureExpectedVersion(command.ExpectedVersion);
+        var version = customer.EnsureExpectedVersion(command.ExpectedVersion);
+        if (version.IsFailure)
+        {
+            return version.Error;
+        }
+
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
         await dbContext.ClearCompetingAddressDefaultsAsync(
             customer.Id,
@@ -53,7 +65,13 @@ internal sealed class AddCustomerAddressHandler(
             cancellationToken);
 
         var now = timeProvider.GetUtcNow();
-        customer.AddAddress(command.AddressId, command.Address, now);
+        var add = customer.AddAddress(command.AddressId, command.Address, now);
+        if (add.IsFailure)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return CustomerApplicationErrors.TranslateDomain(add.Error);
+        }
+
         dbContext.AddAuditEntry(
             customer,
             command.Subject,
@@ -64,10 +82,10 @@ internal sealed class AddCustomerAddressHandler(
         {
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            return new AddCustomerAddressResult(
+            return Result.Success(new AddCustomerAddressResult(
                 CustomerMappings.ToResponse(customer),
-                command.AddressId,
-                true);
+                add.Value.Id,
+                true));
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -75,34 +93,56 @@ internal sealed class AddCustomerAddressHandler(
             return await ReloadIdempotentResultAsync(command, cancellationToken);
         }
         catch (DbUpdateException exception) when (
-            exception.IsUniqueConstraintViolation(
-                CustomerDatabaseConstraints.AddressPrimaryKey))
+            exception.IsUniqueConstraintViolation(CustomerDatabaseConstraints.AddressPrimaryKey))
         {
             await transaction.RollbackAsync(cancellationToken);
             return await ReloadIdempotentResultAsync(command, cancellationToken);
         }
+        catch (DbUpdateException exception) when (
+            exception.IsUniqueConstraintViolation(CustomerDatabaseConstraints.DefaultShipping))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return CustomerApplicationErrors.DefaultShippingConflict;
+        }
+        catch (DbUpdateException exception) when (
+            exception.IsUniqueConstraintViolation(CustomerDatabaseConstraints.DefaultBilling))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return CustomerApplicationErrors.DefaultBillingConflict;
+        }
     }
 
-    private async Task<AddCustomerAddressResult> ReloadIdempotentResultAsync(
+    private async Task<Result<AddCustomerAddressResult>> ReloadIdempotentResultAsync(
         AddCustomerAddressCommand command,
         CancellationToken cancellationToken)
     {
         dbContext.ChangeTracker.Clear();
-        var customer = await dbContext.Customers.GetRequiredByIdentityAsync(
+        var customer = await dbContext.Customers.FindByIdentityAsync(
             command.Provider,
             command.Subject,
             cancellationToken);
-        var address = customer.FindAddress(command.AddressId);
-        if (address is null || !address.Matches(command.Address))
+        if (customer is null)
         {
-            throw new CustomerVersionMismatchException(
-                command.ExpectedVersion,
-                customer.Version);
+            return CustomerApplicationErrors.CustomerNotFound;
         }
 
-        return new AddCustomerAddressResult(
-            CustomerMappings.ToResponse(customer),
-            address.Id,
-            false);
+        var address = customer.FindAddress(command.AddressId);
+        if (address is null)
+        {
+            return CustomerErrors.VersionMismatch;
+        }
+
+        var matches = address.Matches(command.Address);
+        if (matches.IsFailure)
+        {
+            return matches.Error;
+        }
+
+        return matches.Value
+            ? Result.Success(new AddCustomerAddressResult(
+                CustomerMappings.ToResponse(customer),
+                address.Id,
+                false))
+            : CustomerApplicationErrors.IdempotencyKeyReused;
     }
 }
