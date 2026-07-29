@@ -60,6 +60,28 @@ public partial class InitialCustomer : Migration
                     onDelete: ReferentialAction.Cascade);
             });
 
+        migrationBuilder.CreateTable(
+            name: "customer_audit_entries",
+            columns: table => new
+            {
+                Id = table.Column<Guid>(type: "uuid", nullable: false),
+                CustomerId = table.Column<Guid>(type: "uuid", nullable: false),
+                ActorSubject = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false),
+                Action = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                OccurredAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                CustomerVersion = table.Column<long>(type: "bigint", nullable: false)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_customer_audit_entries", x => x.Id);
+                table.ForeignKey(
+                    name: "FK_customer_audit_entries_customers_CustomerId",
+                    column: x => x.CustomerId,
+                    principalTable: "customers",
+                    principalColumn: "Id",
+                    onDelete: ReferentialAction.Restrict);
+            });
+
         migrationBuilder.CreateIndex(
             name: "IX_customers_IdentityProvider_IdentitySubject",
             table: "customers",
@@ -84,11 +106,17 @@ public partial class InitialCustomer : Migration
             columns: new[] { "CustomerId", "IsDefaultBilling" },
             unique: true,
             filter: "\"IsDefaultBilling\"");
+
+        migrationBuilder.CreateIndex(
+            name: "IX_customer_audit_entries_CustomerId_OccurredAt",
+            table: "customer_audit_entries",
+            columns: new[] { "CustomerId", "OccurredAt" });
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
         migrationBuilder.DropTable(name: "customer_addresses");
+        migrationBuilder.DropTable(name: "customer_audit_entries");
         migrationBuilder.DropTable(name: "customers");
     }
 }
