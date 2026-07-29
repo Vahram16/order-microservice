@@ -2,38 +2,6 @@ using Customer.Api.Domain;
 
 namespace Customer.Api.Features.Customers.Common;
 
-public sealed record CustomerResponse(
-    Guid Id,
-    string? FirstName,
-    string? LastName,
-    string? Email,
-    string? PhoneNumber,
-    string Status,
-    IReadOnlyList<CustomerAddressResponse> Addresses,
-    DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt,
-    long Version);
-
-public sealed record CustomerAddressResponse(
-    Guid Id,
-    string? Label,
-    string RecipientName,
-    string Line1,
-    string? Line2,
-    string City,
-    string? Region,
-    string PostalCode,
-    string CountryCode,
-    string? PhoneNumber,
-    bool IsDefaultShipping,
-    bool IsDefaultBilling,
-    DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
-
-public sealed record CustomerExportResponse(
-    DateTimeOffset ExportedAt,
-    CustomerResponse Customer);
-
 internal static class CustomerMappings
 {
     public static CustomerResponse ToResponse(Domain.Customer customer) => new(

@@ -1,14 +1,12 @@
 using System.Security.Claims;
 using Customer.Api.Features.Customers.Common;
 using Customer.Api.Infrastructure;
-using Customer.Api.Persistence;
 using MediatR;
 using Microservices.Security;
-using Microsoft.EntityFrameworkCore;
 
 namespace Customer.Api.Features.Customers.Exporting.V1;
 
-internal static class ExportCustomerSlice
+internal static class ExportCustomerEndpoint
 {
     public static void Map(IEndpointRouteBuilder group) =>
         group.MapGet(
@@ -36,32 +34,4 @@ internal static class ExportCustomerSlice
                 ScopePolicy.For(CustomerAuthorization.ExportScope))
             .Produces<CustomerExportResponse>()
             .Produces(StatusCodes.Status404NotFound);
-}
-
-internal sealed record ExportCustomerQuery(string Provider, string Subject)
-    : IRequest<CustomerExportResponse>;
-
-internal sealed class ExportCustomerQueryHandler(
-    CustomerDbContext dbContext,
-    TimeProvider timeProvider)
-    : IRequestHandler<ExportCustomerQuery, CustomerExportResponse>
-{
-    public async Task<CustomerExportResponse> Handle(
-        ExportCustomerQuery request,
-        CancellationToken cancellationToken)
-    {
-        var customer = await dbContext.Customers
-            .AsNoTracking()
-            .Include(entity => entity.Addresses)
-            .SingleOrDefaultAsync(
-                entity =>
-                    entity.IdentityProvider == request.Provider &&
-                    entity.IdentitySubject == request.Subject,
-                cancellationToken)
-            ?? throw new Domain.CustomerNotFoundException();
-
-        return new CustomerExportResponse(
-            timeProvider.GetUtcNow(),
-            CustomerMappings.ToResponse(customer));
-    }
 }
