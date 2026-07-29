@@ -1,4 +1,5 @@
 using Customer.Api.Domain;
+using CustomerAggregate = Customer.Api.Domain.Customer;
 
 namespace Customer.Api.Tests;
 
@@ -9,7 +10,7 @@ public sealed class CustomerDomainTests
     [Fact]
     public void RegisterNormalizesIdentityAndClaimBackedDetails()
     {
-        var customer = Customer.Api.Domain.Customer.Register(
+        var customer = CustomerAggregate.Register(
             " keycloak ",
             " subject-123 ",
             " Ada ",
@@ -55,7 +56,7 @@ public sealed class CustomerDomainTests
     public void CustomerCannotSaveMoreThanConfiguredMaximum()
     {
         var customer = CreateCustomer();
-        for (var index = 0; index < Customer.Api.Domain.Customer.MaximumSavedAddresses; index++)
+        for (var index = 0; index < CustomerAggregate.MaximumSavedAddresses; index++)
         {
             customer.AddAddress(CreateAddress($"Address {index}"), Now.AddMinutes(index));
         }
@@ -64,8 +65,8 @@ public sealed class CustomerDomainTests
             customer.AddAddress(CreateAddress("Too many"), Now.AddHours(1)));
     }
 
-    private static Customer.Api.Domain.Customer CreateCustomer() =>
-        Customer.Api.Domain.Customer.Register(
+    private static CustomerAggregate CreateCustomer() =>
+        CustomerAggregate.Register(
             "keycloak",
             "subject-123",
             "Ada",
