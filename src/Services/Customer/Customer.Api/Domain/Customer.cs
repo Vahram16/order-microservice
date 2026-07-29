@@ -75,10 +75,16 @@ public sealed class Customer
         DateTimeOffset now)
     {
         EnsureActive();
-        FirstName = Optional(firstName, nameof(firstName), 100);
-        LastName = Optional(lastName, nameof(lastName), 100);
-        Email = Optional(email, nameof(email), 320)?.ToLowerInvariant();
-        PhoneNumber = Optional(phoneNumber, nameof(phoneNumber), 32);
+
+        var normalizedFirstName = Optional(firstName, nameof(firstName), 100);
+        var normalizedLastName = Optional(lastName, nameof(lastName), 100);
+        var normalizedEmail = Optional(email, nameof(email), 320)?.ToLowerInvariant();
+        var normalizedPhoneNumber = Optional(phoneNumber, nameof(phoneNumber), 32);
+
+        FirstName = normalizedFirstName;
+        LastName = normalizedLastName;
+        Email = normalizedEmail;
+        PhoneNumber = normalizedPhoneNumber;
         Touch(now);
     }
 
@@ -93,17 +99,18 @@ public sealed class Customer
                 $"A customer can save at most {MaximumSavedAddresses} addresses.");
         }
 
-        if (data.IsDefaultShipping)
+        var address = CustomerAddress.Create(Id, data, now);
+
+        if (address.IsDefaultShipping)
         {
             ClearDefaultShipping(now);
         }
 
-        if (data.IsDefaultBilling)
+        if (address.IsDefaultBilling)
         {
             ClearDefaultBilling(now);
         }
 
-        var address = CustomerAddress.Create(Id, data, now);
         _addresses.Add(address);
         Touch(now);
         return address;
@@ -115,17 +122,18 @@ public sealed class Customer
         ArgumentNullException.ThrowIfNull(data);
 
         var address = GetAddress(addressId);
-        if (data.IsDefaultShipping)
+        address.Update(data, now);
+
+        if (address.IsDefaultShipping)
         {
             ClearDefaultShipping(now, addressId);
         }
 
-        if (data.IsDefaultBilling)
+        if (address.IsDefaultBilling)
         {
             ClearDefaultBilling(now, addressId);
         }
 
-        address.Update(data, now);
         Touch(now);
         return address;
     }
@@ -171,14 +179,12 @@ public sealed class Customer
 
     private void Touch(DateTimeOffset now)
     {
-        if (now < UpdatedAt)
-        {
-            throw new CustomerDomainException("The update timestamp cannot move backwards.");
-        }
-
-        UpdatedAt = now;
+        UpdatedAt = LaterOf(UpdatedAt, now);
         Version++;
     }
+
+    private static DateTimeOffset LaterOf(DateTimeOffset current, DateTimeOffset candidate) =>
+        candidate > current ? candidate : current;
 
     private static string Required(string value, string field, int maximumLength)
     {
@@ -243,36 +249,61 @@ public sealed class CustomerAddress
     internal void Update(AddressData data, DateTimeOffset now)
     {
         Apply(data);
-        UpdatedAt = now;
+        UpdatedAt = LaterOf(UpdatedAt, now);
     }
 
     internal void ClearDefaultShipping(DateTimeOffset now)
     {
         IsDefaultShipping = false;
-        UpdatedAt = now;
+        UpdatedAt = LaterOf(UpdatedAt, now);
     }
 
     internal void ClearDefaultBilling(DateTimeOffset now)
     {
         IsDefaultBilling = false;
-        UpdatedAt = now;
+        UpdatedAt = LaterOf(UpdatedAt, now);
     }
 
     private void Apply(AddressData data)
     {
-        Label = NormalizeOptional(data.Label, nameof(data.Label), 50);
-        RecipientName = NormalizeRequired(data.RecipientName, nameof(data.RecipientName), 200);
-        Line1 = NormalizeRequired(data.Line1, nameof(data.Line1), 200);
-        Line2 = NormalizeOptional(data.Line2, nameof(data.Line2), 200);
-        City = NormalizeRequired(data.City, nameof(data.City), 100);
-        Region = NormalizeOptional(data.Region, nameof(data.Region), 100);
-        PostalCode = NormalizeRequired(data.PostalCode, nameof(data.PostalCode), 32);
-        CountryCode = NormalizeRequired(data.CountryCode, nameof(data.CountryCode), 2)
+        var normalizedLabel = NormalizeOptional(data.Label, nameof(data.Label), 50);
+        var normalizedRecipientName = NormalizeRequired(
+            data.RecipientName,
+            nameof(data.RecipientName),
+            200);
+        var normalizedLine1 = NormalizeRequired(data.Line1, nameof(data.Line1), 200);
+        var normalizedLine2 = NormalizeOptional(data.Line2, nameof(data.Line2), 200);
+        var normalizedCity = NormalizeRequired(data.City, nameof(data.City), 100);
+        var normalizedRegion = NormalizeOptional(data.Region, nameof(data.Region), 100);
+        var normalizedPostalCode = NormalizeRequired(
+            data.PostalCode,
+            nameof(data.PostalCode),
+            32);
+        var normalizedCountryCode = NormalizeRequired(
+                data.CountryCode,
+                nameof(data.CountryCode),
+                2)
             .ToUpperInvariant();
-        PhoneNumber = NormalizeOptional(data.PhoneNumber, nameof(data.PhoneNumber), 32);
+        var normalizedPhoneNumber = NormalizeOptional(
+            data.PhoneNumber,
+            nameof(data.PhoneNumber),
+            32);
+
+        Label = normalizedLabel;
+        RecipientName = normalizedRecipientName;
+        Line1 = normalizedLine1;
+        Line2 = normalizedLine2;
+        City = normalizedCity;
+        Region = normalizedRegion;
+        PostalCode = normalizedPostalCode;
+        CountryCode = normalizedCountryCode;
+        PhoneNumber = normalizedPhoneNumber;
         IsDefaultShipping = data.IsDefaultShipping;
         IsDefaultBilling = data.IsDefaultBilling;
     }
+
+    private static DateTimeOffset LaterOf(DateTimeOffset current, DateTimeOffset candidate) =>
+        candidate > current ? candidate : current;
 
     private static string NormalizeRequired(string value, string field, int maximumLength)
     {
