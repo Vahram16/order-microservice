@@ -7,6 +7,7 @@ using Customer.Api.Persistence;
 using FluentValidation;
 using MediatR;
 using Microservices.Security;
+using Microsoft.EntityFrameworkCore;
 
 namespace Customer.Api.Features.Customers.UpdatingAddress.V1;
 
