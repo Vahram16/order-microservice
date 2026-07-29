@@ -4,6 +4,10 @@
     <Project Path="src/AppHost/Microservices.AppHost/Microservices.AppHost.csproj" />
   </Folder>
   <Folder Name="/src/Services/" />
+  <Folder Name="/src/Services/Customer/">
+    <Project Path="src/Services/Customer/Customer.Api/Customer.Api.csproj" />
+    <Project Path="src/Services/Customer/Customer.Migrator/Customer.Migrator.csproj" />
+  </Folder>
   <Folder Name="/src/Services/ServiceTemplate/">
     <Project Path="src/Services/ServiceTemplate/ServiceTemplate.Api/ServiceTemplate.Api.csproj" />
     <Project Path="src/Services/ServiceTemplate/ServiceTemplate.Migrator/ServiceTemplate.Migrator.csproj" />
@@ -17,6 +21,7 @@
     <Project Path="src/Shared/Microservices.ServiceDefaults/Microservices.ServiceDefaults.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Customer.Api.Tests/Customer.Api.Tests.csproj" />
     <Project Path="tests/Microservices.ArchitectureTests/Microservices.ArchitectureTests.csproj" />
     <Project Path="tests/Microservices.Messaging.Tests/Microservices.Messaging.Tests.csproj" />
     <Project Path="tests/Microservices.Security.Tests/Microservices.Security.Tests.csproj" />
