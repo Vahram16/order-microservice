@@ -59,7 +59,7 @@ PostgreSQL filtered unique indexes duplicate the default-address invariants as a
 | `PUT` | `/api/v1/customers/me/addresses/{addressId}` | Replace an owned saved address |
 | `DELETE` | `/api/v1/customers/me/addresses/{addressId}` | Remove an owned saved address |
 
-All customer routes require an authenticated token with the `order-user` client role. Resource ownership is still enforced independently by resolving the aggregate through the current token subject.
+All customer routes require a token whose audience contains `customer-api` and whose `customer-api` client roles contain `order-user`. Resource ownership is still enforced independently by resolving the aggregate through the current token subject.
 
 ## Persistence and deployment
 
