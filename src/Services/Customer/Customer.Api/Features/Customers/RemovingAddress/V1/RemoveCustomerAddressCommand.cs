@@ -8,4 +8,4 @@ internal sealed record RemoveCustomerAddressCommand(
     string Subject,
     long ExpectedVersion,
     Guid AddressId)
-    : ICommand<CustomerResponse>;
+    : ICommand<Result<CustomerResponse>>;

@@ -10,4 +10,4 @@ internal sealed record UpdateCustomerAddressCommand(
     long ExpectedVersion,
     Guid AddressId,
     AddressData Address)
-    : ICommand<CustomerResponse>;
+    : ICommand<Result<CustomerResponse>>;

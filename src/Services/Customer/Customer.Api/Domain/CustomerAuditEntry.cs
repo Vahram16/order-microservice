@@ -16,8 +16,8 @@ public sealed class CustomerAuditEntry
     {
         Id = id;
         CustomerId = customerId;
-        ActorSubject = Required(actorSubject, nameof(actorSubject), 255);
-        Action = Required(action, nameof(action), 64);
+        ActorSubject = actorSubject;
+        Action = action;
         OccurredAt = occurredAt;
         CustomerVersion = customerVersion;
     }
@@ -29,23 +29,48 @@ public sealed class CustomerAuditEntry
     public DateTimeOffset OccurredAt { get; private set; }
     public long CustomerVersion { get; private set; }
 
-    public static CustomerAuditEntry Create(
+    internal static CustomerAuditEntry Create(
         Guid customerId,
         string actorSubject,
         string action,
         DateTimeOffset occurredAt,
-        long customerVersion) =>
-        new(Guid.NewGuid(), customerId, actorSubject, action, occurredAt, customerVersion);
-
-    private static string Required(string value, string field, int maximumLength)
+        long customerVersion)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        if (customerId == Guid.Empty)
+        {
+            throw new ArgumentException("Customer identifier cannot be empty.", nameof(customerId));
+        }
+
+        var normalizedActor = Required(actorSubject, nameof(actorSubject), 255);
+        var normalizedAction = Required(action, nameof(action), 64);
+
+        if (customerVersion <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(customerVersion),
+                customerVersion,
+                "Customer version must be positive.");
+        }
+
+        return new CustomerAuditEntry(
+            Guid.NewGuid(),
+            customerId,
+            normalizedActor,
+            normalizedAction,
+            occurredAt,
+            customerVersion);
+    }
+
+    private static string Required(string? value, string parameterName, int maximumLength)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
+
         var normalized = value.Trim();
         if (normalized.Length > maximumLength)
         {
-            throw new CustomerDomainException(
-                "customer.audit_validation",
-                $"{field} cannot exceed {maximumLength} characters.");
+            throw new ArgumentException(
+                $"The value cannot exceed {maximumLength} characters.",
+                parameterName);
         }
 
         return normalized;

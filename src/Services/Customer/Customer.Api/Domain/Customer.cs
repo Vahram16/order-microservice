@@ -1,4 +1,5 @@
 using System.Net.Mail;
+using Microservices.Primitives;
 
 namespace Customer.Api.Domain;
 
@@ -29,11 +30,11 @@ public sealed class Customer
         DateTimeOffset now)
     {
         Id = id;
-        IdentityProvider = Required(identityProvider, nameof(identityProvider), 32).ToLowerInvariant();
-        IdentitySubject = Required(identitySubject, nameof(identitySubject), 255);
-        FirstName = Optional(firstName, nameof(firstName), 100);
-        LastName = Optional(lastName, nameof(lastName), 100);
-        Email = NormalizeEmail(email);
+        IdentityProvider = identityProvider;
+        IdentitySubject = identitySubject;
+        FirstName = firstName;
+        LastName = lastName;
+        Email = email;
         Status = CustomerStatus.Active;
         CreatedAt = now;
         UpdatedAt = now;
@@ -53,79 +54,143 @@ public sealed class Customer
     public long Version { get; private set; }
     public IReadOnlyList<CustomerAddress> Addresses => _addresses.AsReadOnly();
 
-    public static Customer Register(
+    public static Result<Customer> Register(
         string identityProvider,
         string identitySubject,
         string? firstName,
         string? lastName,
         string? email,
-        DateTimeOffset now) =>
-        new(
-            Guid.NewGuid(),
-            identityProvider,
-            identitySubject,
-            firstName,
-            lastName,
-            email,
-            now);
-
-    public void EnsureExpectedVersion(long expectedVersion)
+        DateTimeOffset now)
     {
-        if (expectedVersion <= 0 || Version != expectedVersion)
+        var provider = Required(identityProvider, nameof(identityProvider), 32);
+        if (provider.IsFailure)
         {
-            throw new CustomerVersionMismatchException(expectedVersion, Version);
+            return provider.Error;
         }
+
+        var subject = RequiredOpaque(identitySubject, nameof(identitySubject), 255);
+        if (subject.IsFailure)
+        {
+            return subject.Error;
+        }
+
+        var normalizedFirstName = Optional(firstName, nameof(firstName), 100);
+        if (normalizedFirstName.IsFailure)
+        {
+            return normalizedFirstName.Error;
+        }
+
+        var normalizedLastName = Optional(lastName, nameof(lastName), 100);
+        if (normalizedLastName.IsFailure)
+        {
+            return normalizedLastName.Error;
+        }
+
+        var normalizedEmail = NormalizeEmail(email);
+        if (normalizedEmail.IsFailure)
+        {
+            return normalizedEmail.Error;
+        }
+
+        return Result.Success(new Customer(
+            Guid.NewGuid(),
+            provider.Value.ToLowerInvariant(),
+            subject.Value,
+            normalizedFirstName.Value.Value,
+            normalizedLastName.Value.Value,
+            normalizedEmail.Value.Value,
+            now));
     }
+
+    public Result EnsureExpectedVersion(long expectedVersion) =>
+        expectedVersion > 0 && Version == expectedVersion
+            ? Result.Success()
+            : CustomerErrors.VersionMismatch;
 
     public CustomerAddress? FindAddress(Guid addressId) =>
         _addresses.SingleOrDefault(address => address.Id == addressId);
 
-    public void UpdateDetails(
+    public Result UpdateDetails(
         string? firstName,
         string? lastName,
         string? email,
         string? phoneNumber,
         DateTimeOffset now)
     {
-        EnsureActive();
+        var active = EnsureActive();
+        if (active.IsFailure)
+        {
+            return active.Error;
+        }
 
         var normalizedFirstName = Optional(firstName, nameof(firstName), 100);
-        var normalizedLastName = Optional(lastName, nameof(lastName), 100);
-        var normalizedEmail = NormalizeEmail(email);
-        var normalizedPhoneNumber = Optional(phoneNumber, nameof(phoneNumber), 32);
+        if (normalizedFirstName.IsFailure)
+        {
+            return normalizedFirstName.Error;
+        }
 
-        FirstName = normalizedFirstName;
-        LastName = normalizedLastName;
-        Email = normalizedEmail;
-        PhoneNumber = normalizedPhoneNumber;
+        var normalizedLastName = Optional(lastName, nameof(lastName), 100);
+        if (normalizedLastName.IsFailure)
+        {
+            return normalizedLastName.Error;
+        }
+
+        var normalizedEmail = NormalizeEmail(email);
+        if (normalizedEmail.IsFailure)
+        {
+            return normalizedEmail.Error;
+        }
+
+        var normalizedPhoneNumber = Optional(phoneNumber, nameof(phoneNumber), 32);
+        if (normalizedPhoneNumber.IsFailure)
+        {
+            return normalizedPhoneNumber.Error;
+        }
+
+        FirstName = normalizedFirstName.Value.Value;
+        LastName = normalizedLastName.Value.Value;
+        Email = normalizedEmail.Value.Value;
+        PhoneNumber = normalizedPhoneNumber.Value.Value;
         Touch(now);
+        return Result.Success();
     }
 
-    public CustomerAddress AddAddress(Guid addressId, AddressData data, DateTimeOffset now)
+    public Result<CustomerAddress> AddAddress(Guid addressId, AddressData data, DateTimeOffset now)
     {
-        EnsureActive();
         ArgumentNullException.ThrowIfNull(data);
+
+        var active = EnsureActive();
+        if (active.IsFailure)
+        {
+            return active.Error;
+        }
 
         var existing = FindAddress(addressId);
         if (existing is not null)
         {
-            if (existing.Matches(data))
+            var matches = existing.Matches(data);
+            if (matches.IsFailure)
             {
-                return existing;
+                return matches.Error;
             }
 
-            throw new CustomerIdempotencyConflictException(addressId);
+            return matches.Value
+                ? Result.Success(existing)
+                : CustomerErrors.AddressIdentityConflict;
         }
 
         if (_addresses.Count >= MaximumSavedAddresses)
         {
-            throw new CustomerDomainException(
-                "customer.address_limit_exceeded",
-                $"A customer can save at most {MaximumSavedAddresses} addresses.");
+            return CustomerErrors.AddressLimitExceeded(MaximumSavedAddresses);
         }
 
-        var address = CustomerAddress.Create(addressId, Id, data, now);
+        var addressResult = CustomerAddress.Create(addressId, Id, data, now);
+        if (addressResult.IsFailure)
+        {
+            return addressResult.Error;
+        }
 
+        var address = addressResult.Value;
         if (address.IsDefaultShipping)
         {
             ClearDefaultShipping(now);
@@ -138,16 +203,30 @@ public sealed class Customer
 
         _addresses.Add(address);
         Touch(now);
-        return address;
+        return Result.Success(address);
     }
 
-    public CustomerAddress UpdateAddress(Guid addressId, AddressData data, DateTimeOffset now)
+    public Result<CustomerAddress> UpdateAddress(Guid addressId, AddressData data, DateTimeOffset now)
     {
-        EnsureActive();
         ArgumentNullException.ThrowIfNull(data);
 
-        var address = GetAddress(addressId);
-        address.Update(data, now);
+        var active = EnsureActive();
+        if (active.IsFailure)
+        {
+            return active.Error;
+        }
+
+        var address = FindAddress(addressId);
+        if (address is null)
+        {
+            return CustomerErrors.AddressNotFound;
+        }
+
+        var update = address.Update(data, now);
+        if (update.IsFailure)
+        {
+            return update.Error;
+        }
 
         if (address.IsDefaultShipping)
         {
@@ -160,22 +239,33 @@ public sealed class Customer
         }
 
         Touch(now);
-        return address;
+        return Result.Success(address);
     }
 
-    public void RemoveAddress(Guid addressId, DateTimeOffset now)
+    public Result RemoveAddress(Guid addressId, DateTimeOffset now)
     {
-        EnsureActive();
-        var address = GetAddress(addressId);
+        var active = EnsureActive();
+        if (active.IsFailure)
+        {
+            return active.Error;
+        }
+
+        var address = FindAddress(addressId);
+        if (address is null)
+        {
+            return CustomerErrors.AddressNotFound;
+        }
+
         _addresses.Remove(address);
         Touch(now);
+        return Result.Success();
     }
 
-    public bool CloseAccount(DateTimeOffset now)
+    public Result<bool> CloseAccount(DateTimeOffset now)
     {
         if (Status == CustomerStatus.Deactivated)
         {
-            return false;
+            return Result.Success(false);
         }
 
         FirstName = null;
@@ -185,11 +275,8 @@ public sealed class Customer
         _addresses.Clear();
         Status = CustomerStatus.Deactivated;
         Touch(now);
-        return true;
+        return Result.Success(true);
     }
-
-    private CustomerAddress GetAddress(Guid addressId) =>
-        FindAddress(addressId) ?? throw new CustomerAddressNotFoundException(addressId);
 
     private void ClearDefaultShipping(DateTimeOffset now, Guid? exceptAddressId = null)
     {
@@ -209,13 +296,10 @@ public sealed class Customer
         }
     }
 
-    private void EnsureActive()
-    {
-        if (Status != CustomerStatus.Active)
-        {
-            throw new CustomerInactiveException(Status);
-        }
-    }
+    private Result EnsureActive() =>
+        Status == CustomerStatus.Active
+            ? Result.Success()
+            : CustomerErrors.Inactive;
 
     private void Touch(DateTimeOffset now)
     {
@@ -226,41 +310,66 @@ public sealed class Customer
     private static DateTimeOffset LaterOf(DateTimeOffset current, DateTimeOffset candidate) =>
         candidate > current ? candidate : current;
 
-    private static string Required(string value, string field, int maximumLength)
+    private static Result<string> Required(string? value, string field, int maximumLength)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value);
-        var normalized = value.Trim();
-        if (normalized.Length > maximumLength)
+        if (string.IsNullOrWhiteSpace(value))
         {
-            throw new CustomerDomainException(
-                "customer.validation",
-                $"{field} cannot exceed {maximumLength} characters.");
+            return CustomerErrors.Validation(field, "A value is required.");
         }
 
-        return normalized;
+        var normalized = value.Trim();
+        return normalized.Length <= maximumLength
+            ? Result.Success(normalized)
+            : CustomerErrors.Validation(field, $"The value cannot exceed {maximumLength} characters.");
     }
 
-    private static string? Optional(string? value, string field, int maximumLength) =>
-        string.IsNullOrWhiteSpace(value)
-            ? null
-            : Required(value, field, maximumLength);
-
-    private static string? NormalizeEmail(string? value)
+    private static Result<string> RequiredOpaque(string? value, string field, int maximumLength)
     {
-        var normalized = Optional(value, nameof(Email), 320)?.ToLowerInvariant();
-        if (normalized is null)
+        if (string.IsNullOrWhiteSpace(value))
         {
-            return null;
+            return CustomerErrors.Validation(field, "A value is required.");
         }
 
+        if (value.Length > maximumLength)
+        {
+            return CustomerErrors.Validation(field, $"The value cannot exceed {maximumLength} characters.");
+        }
+
+        return string.Equals(value, value.Trim(), StringComparison.Ordinal)
+            ? Result.Success(value)
+            : CustomerErrors.Validation(field, "The value cannot contain leading or trailing whitespace.");
+    }
+
+    private static Result<OptionalText> Optional(string? value, string field, int maximumLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return Result.Success(new OptionalText(null));
+        }
+
+        var required = Required(value, field, maximumLength);
+        return required.IsSuccess
+            ? Result.Success(new OptionalText(required.Value))
+            : required.Error;
+    }
+
+    private static Result<OptionalText> NormalizeEmail(string? value)
+    {
+        var optional = Optional(value, nameof(Email), 320);
+        if (optional.IsFailure || optional.Value.Value is null)
+        {
+            return optional;
+        }
+
+        var normalized = optional.Value.Value.ToLowerInvariant();
         if (!MailAddress.TryCreate(normalized, out var address) ||
             !string.Equals(address.Address, normalized, StringComparison.OrdinalIgnoreCase))
         {
-            throw new CustomerDomainException(
-                "customer.invalid_email",
-                "Email must be a valid email address.");
+            return CustomerErrors.InvalidEmail;
         }
 
-        return normalized;
+        return Result.Success(new OptionalText(normalized));
     }
+
+    private readonly record struct OptionalText(string? Value);
 }

@@ -1,6 +1,6 @@
 # Customer service
 
-`Customer.Api` is the business-owned Customer bounded context. Keycloak owns authentication, credentials, MFA, sessions, federation, and token issuance. Customer service owns the commerce relationship: customer lifecycle, business contact data, saved addresses, and non-PII change audit records.
+`Customer.Api` is the business-owned Customer bounded context. Its `Domain` folder contains the aggregate and value objects inside the same service project. Keycloak owns authentication, credentials, MFA, sessions, federation, and token issuance. Customer service owns the commerce relationship: customer lifecycle, business contact data, saved addresses, and non-PII change audit records.
 
 ## Identity boundary
 
@@ -39,6 +39,24 @@ Every `V1` directory uses one top-level responsibility per source file. Operatio
 Commands implement the shared `ICommand<TResponse>` contract and handlers implement `ICommandHandler<TCommand, TResponse>`. Read-only requests implement `IQuery<TResponse>` and use `IQueryHandler<TQuery, TResponse>`. MediatR remains the dispatcher, while the shared CQRS interfaces make command/query intent enforceable.
 
 Only stable cross-slice primitives are shared: response mapping, ETag parsing, authorization constants, composable customer queries, audit persistence, address-default persistence, and PostgreSQL error classification. There is no shared application-service layer or repository facade that couples the slices. Architecture tests enforce the file manifest, prevent raw `IRequest`/`IRequestHandler` usage inside Customer slices, reject sibling-slice dependencies, and prevent reintroducing monolithic `*Slice.cs` files.
+
+## Domain boundary
+
+The domain model lives under `Customer.Api/Domain` and compiles into the Customer API assembly. This keeps the vertical-slice service as one project while preserving a clear source boundary. Architecture tests prevent domain files from referencing ASP.NET Core, MediatR, FluentValidation, EF Core, application features, persistence, or infrastructure.
+
+## Error boundary
+
+`Microservices.Primitives` provides framework-free `Result`, `Result<T>`, `OperationError`, and `ErrorCategory` contracts. Successful reference-type results cannot contain `null`, and successful values are created explicitly with `Result.Success(value)`.
+
+The domain returns expected invariant outcomes such as invalid value objects, inactive-customer mutations, missing aggregate children, address limits, address identity conflicts, and stale aggregate versions. It does not return HTTP types and does not use aggregate-not-found, header, authentication, database, or idempotency-key terminology.
+
+Application handlers own aggregate absence, authentication-claim extraction, request preconditions, known database conflicts, and idempotency behavior. An address identity conflict is translated into `customer.idempotency_key_reused` only when the application knows the address identity came from an API idempotency key.
+
+Only the presentation layer maps semantic errors to HTTP Problem Details. Customer error types are resolvable under `/errors/v1/customer/{code}` and include a stable code, title, status, retry guidance, request instance, and trace identifier. `OperationError` contains only client-safe descriptions and explicitly approved public metadata; exception messages and diagnostic context are never copied automatically to responses.
+
+Audit construction consumes aggregate IDs, validated identity subjects, application-owned action constants, and aggregate versions. Invalid values indicate a programming, configuration, or corrupt-state defect, so audit construction throws and follows the safe `500` path instead of returning a misleading client `400`.
+
+`Microservices.ServiceDefaults` supplies the shared FluentValidation, status-code-page, content-negotiation fallback, trace-correlation, and safe unhandled-exception pipeline used by both Customer API and ServiceTemplate API. See [Error handling architecture](error-handling.md).
 
 ## Authorization and least privilege
 
@@ -89,7 +107,7 @@ Address creation requires a stable GUID idempotency key:
 Idempotency-Key: 018f50a0-8f3c-7cf4-b4ef-8c09f8f02a1f
 ```
 
-The key becomes the address identifier. Repeating the same request returns the existing result; reusing the key with different data returns `409 Conflict`. This remains idempotent even when the retry carries the ETag used by the original request.
+The key becomes the address identifier. Repeating the same request returns the existing result; reusing the key with different data returns `409 Conflict` with `customer.idempotency_key_reused`. This remains idempotent even when the retry carries the ETag used by the original request.
 
 The aggregate enforces at most 20 saved addresses and one shipping/billing default. PostgreSQL filtered unique indexes duplicate the default invariants. When a default changes, handlers clear competing rows inside the same transaction before saving the aggregate, avoiding unique-index command-ordering races.
 
@@ -143,9 +161,13 @@ Aspire creates the local database, completes the migrator, and then starts Custo
 CI runs:
 
 - restore and zero-warning Release builds;
-- domain and identity-boundary tests;
+- domain source-boundary tests;
+- result null, metadata, and success/failure invariant tests;
+- domain failure-atomicity and internal-audit-invariant tests;
 - authenticated HTTP integration tests against PostgreSQL;
-- clean migration application;
+- customer and platform error-catalog tests;
+- validation and framework-generated Problem Details tests;
+- unsupported `Accept` and safe unknown-exception fallback tests;
 - concurrent provisioning and idempotent address retries;
 - ETag/precondition behavior;
 - default-address persistence behavior;

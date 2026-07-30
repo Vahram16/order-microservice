@@ -15,23 +15,38 @@ internal static class UpdateCustomerAddressEndpoint
                     Guid addressId,
                     UpdateCustomerAddressRequest request,
                     ClaimsPrincipal principal,
-                    HttpRequest httpRequest,
-                    HttpResponse response,
+                    HttpContext httpContext,
                     ISender sender,
                     CancellationToken cancellationToken) =>
                 {
                     var identity = CurrentIdentity.From(principal);
-                    var customer = await sender.Send(
+                    if (identity.IsFailure)
+                    {
+                        return CustomerHttpResults.Problem(identity.Error, httpContext);
+                    }
+
+                    var expectedVersion = CustomerHttp.ReadExpectedVersion(httpContext.Request);
+                    if (expectedVersion.IsFailure)
+                    {
+                        return CustomerHttpResults.Problem(expectedVersion.Error, httpContext);
+                    }
+
+                    var result = await sender.Send(
                         new UpdateCustomerAddressCommand(
-                            identity.Provider,
-                            identity.Subject,
-                            CustomerHttp.RequireExpectedVersion(httpRequest),
+                            identity.Value.Provider,
+                            identity.Value.Subject,
+                            expectedVersion.Value,
                             addressId,
                             request.ToAddressData()),
                         cancellationToken);
 
-                    CustomerHttp.WriteEtag(response, customer.Version);
-                    return Results.Ok(customer);
+                    return result.Match<IResult>(
+                        customer =>
+                        {
+                            CustomerHttp.WriteEtag(httpContext.Response, customer.Version);
+                            return Results.Ok(customer);
+                        },
+                        error => CustomerHttpResults.Problem(error, httpContext));
                 })
             .WithName("UpdateCurrentCustomerAddress")
             .WithSummary("Replaces an address owned by the current customer.")
@@ -40,7 +55,9 @@ internal static class UpdateCustomerAddressEndpoint
                 ScopePolicy.For(CustomerAuthorization.AddressWriteScope))
             .Produces<CustomerResponse>()
             .ProducesValidationProblem()
-            .Produces(StatusCodes.Status404NotFound)
-            .Produces(StatusCodes.Status412PreconditionFailed)
-            .Produces(StatusCodes.Status428PreconditionRequired);
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status412PreconditionFailed)
+            .ProducesProblem(StatusCodes.Status428PreconditionRequired);
 }

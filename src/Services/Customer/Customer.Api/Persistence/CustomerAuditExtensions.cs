@@ -9,11 +9,16 @@ internal static class CustomerAuditExtensions
         Domain.Customer customer,
         string actorSubject,
         string action,
-        DateTimeOffset occurredAt) =>
+        DateTimeOffset occurredAt)
+    {
+        ArgumentNullException.ThrowIfNull(dbContext);
+        ArgumentNullException.ThrowIfNull(customer);
+
         dbContext.CustomerAuditEntries.Add(CustomerAuditEntry.Create(
             customer.Id,
             actorSubject,
             action,
             occurredAt,
             customer.Version));
+    }
 }

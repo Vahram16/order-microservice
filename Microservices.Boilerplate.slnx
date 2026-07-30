@@ -17,6 +17,7 @@
     <Project Path="src/Shared/Microservices.Contracts/Microservices.Contracts.csproj" />
     <Project Path="src/Shared/Microservices.Messaging/Microservices.Messaging.csproj" />
     <Project Path="src/Shared/Microservices.Persistence.Postgres/Microservices.Persistence.Postgres.csproj" />
+    <Project Path="src/Shared/Microservices.Primitives/Microservices.Primitives.csproj" />
     <Project Path="src/Shared/Microservices.Security/Microservices.Security.csproj" />
     <Project Path="src/Shared/Microservices.ServiceDefaults/Microservices.ServiceDefaults.csproj" />
   </Folder>
@@ -24,6 +25,8 @@
     <Project Path="tests/Customer.Api.Tests/Customer.Api.Tests.csproj" />
     <Project Path="tests/Microservices.ArchitectureTests/Microservices.ArchitectureTests.csproj" />
     <Project Path="tests/Microservices.Messaging.Tests/Microservices.Messaging.Tests.csproj" />
+    <Project Path="tests/Microservices.Primitives.Tests/Microservices.Primitives.Tests.csproj" />
     <Project Path="tests/Microservices.Security.Tests/Microservices.Security.Tests.csproj" />
+    <Project Path="tests/Microservices.ServiceDefaults.Tests/Microservices.ServiceDefaults.Tests.csproj" />
   </Folder>
 </Solution>

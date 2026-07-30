@@ -8,21 +8,23 @@ namespace Customer.Api.Features.Customers.Exporting.V1;
 internal sealed class ExportCustomerHandler(
     CustomerDbContext dbContext,
     TimeProvider timeProvider)
-    : IQueryHandler<ExportCustomerQuery, CustomerExportResponse>
+    : IQueryHandler<ExportCustomerQuery, Result<CustomerExportResponse>>
 {
-    public async Task<CustomerExportResponse> Handle(
+    public async Task<Result<CustomerExportResponse>> Handle(
         ExportCustomerQuery query,
         CancellationToken cancellationToken)
     {
         var customer = await dbContext.Customers
             .AsNoTracking()
-            .GetRequiredByIdentityAsync(
+            .FindByIdentityAsync(
                 query.Provider,
                 query.Subject,
                 cancellationToken);
 
-        return new CustomerExportResponse(
-            timeProvider.GetUtcNow(),
-            CustomerMappings.ToResponse(customer));
+        return customer is null
+            ? CustomerApplicationErrors.CustomerNotFound
+            : Result.Success(new CustomerExportResponse(
+                timeProvider.GetUtcNow(),
+                CustomerMappings.ToResponse(customer)));
     }
 }

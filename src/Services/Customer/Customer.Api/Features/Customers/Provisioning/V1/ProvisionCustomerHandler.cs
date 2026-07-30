@@ -8,9 +8,9 @@ namespace Customer.Api.Features.Customers.Provisioning.V1;
 internal sealed class ProvisionCustomerHandler(
     CustomerDbContext dbContext,
     TimeProvider timeProvider)
-    : ICommandHandler<ProvisionCustomerCommand, ProvisionCustomerResult>
+    : ICommandHandler<ProvisionCustomerCommand, Result<ProvisionCustomerResult>>
 {
-    public async Task<ProvisionCustomerResult> Handle(
+    public async Task<Result<ProvisionCustomerResult>> Handle(
         ProvisionCustomerCommand command,
         CancellationToken cancellationToken)
     {
@@ -20,18 +20,25 @@ internal sealed class ProvisionCustomerHandler(
             cancellationToken);
         if (existing is not null)
         {
-            return new ProvisionCustomerResult(CustomerMappings.ToResponse(existing), false);
+            return Result.Success(new ProvisionCustomerResult(
+                CustomerMappings.ToResponse(existing),
+                false));
         }
 
         var now = timeProvider.GetUtcNow();
-        var customer = Domain.Customer.Register(
+        var registration = Domain.Customer.Register(
             command.Identity.Provider,
             command.Identity.Subject,
             command.Identity.GivenName,
             command.Identity.FamilyName,
             command.Identity.Email,
             now);
+        if (registration.IsFailure)
+        {
+            return CustomerApplicationErrors.InvalidIdentityClaims;
+        }
 
+        var customer = registration.Value;
         dbContext.Customers.Add(customer);
         dbContext.AddAuditEntry(
             customer,
@@ -42,11 +49,12 @@ internal sealed class ProvisionCustomerHandler(
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
-            return new ProvisionCustomerResult(CustomerMappings.ToResponse(customer), true);
+            return Result.Success(new ProvisionCustomerResult(
+                CustomerMappings.ToResponse(customer),
+                true));
         }
         catch (DbUpdateException exception) when (
-            exception.IsUniqueConstraintViolation(
-                CustomerDatabaseConstraints.Identity))
+            exception.IsUniqueConstraintViolation(CustomerDatabaseConstraints.Identity))
         {
             dbContext.ChangeTracker.Clear();
             existing = await dbContext.Customers.FindByIdentityAsync(
@@ -59,7 +67,9 @@ internal sealed class ProvisionCustomerHandler(
                 throw;
             }
 
-            return new ProvisionCustomerResult(CustomerMappings.ToResponse(existing), false);
+            return Result.Success(new ProvisionCustomerResult(
+                CustomerMappings.ToResponse(existing),
+                false));
         }
     }
 }

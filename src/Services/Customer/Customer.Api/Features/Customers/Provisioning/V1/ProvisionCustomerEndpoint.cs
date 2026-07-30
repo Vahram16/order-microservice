@@ -13,18 +13,29 @@ internal static class ProvisionCustomerEndpoint
                 "/",
                 async (
                     ClaimsPrincipal principal,
-                    HttpResponse response,
+                    HttpContext httpContext,
                     ISender sender,
                     CancellationToken cancellationToken) =>
                 {
+                    var identity = CurrentIdentity.From(principal);
+                    if (identity.IsFailure)
+                    {
+                        return CustomerHttpResults.Problem(identity.Error, httpContext);
+                    }
+
                     var result = await sender.Send(
-                        new ProvisionCustomerCommand(CurrentIdentity.From(principal)),
+                        new ProvisionCustomerCommand(identity.Value),
                         cancellationToken);
 
-                    CustomerHttp.WriteEtag(response, result.Customer.Version);
-                    return result.Created
-                        ? Results.Created("/api/v1/customers/me", result.Customer)
-                        : Results.Ok(result.Customer);
+                    return result.Match<IResult>(
+                        success =>
+                        {
+                            CustomerHttp.WriteEtag(httpContext.Response, success.Customer.Version);
+                            return success.Created
+                                ? Results.Created("/api/v1/customers/me", success.Customer)
+                                : Results.Ok(success.Customer);
+                        },
+                        error => CustomerHttpResults.Problem(error, httpContext));
                 })
             .WithName("ProvisionCurrentCustomer")
             .WithSummary("Idempotently provisions the customer bound to the current Keycloak subject.")
@@ -33,6 +44,7 @@ internal static class ProvisionCustomerEndpoint
                 ScopePolicy.For(CustomerAuthorization.UpdateScope))
             .Produces<CustomerResponse>(StatusCodes.Status200OK)
             .Produces<CustomerResponse>(StatusCodes.Status201Created)
-            .Produces(StatusCodes.Status401Unauthorized)
-            .Produces(StatusCodes.Status403Forbidden);
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 }

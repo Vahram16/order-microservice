@@ -1,12 +1,12 @@
 using Customer.Api.Features.Customers;
 using Customer.Api.Features.Customers.Common;
-using Customer.Api.Infrastructure;
 using Customer.Api.Persistence;
 using FluentValidation;
 using MediatR;
 using Microservices.Application;
 using Microservices.Persistence.Postgres;
 using Microservices.Security;
+using Microservices.ServiceDefaults.ProblemDetails;
 using Microsoft.Extensions.Hosting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -30,8 +30,7 @@ builder.AddApiDocumentation(
             [CustomerAuthorization.ExportScope] = "Export Customer-service-owned personal data.",
             [CustomerAuthorization.DeleteScope] = "Close and anonymize the authenticated customer account."
         }));
-builder.Services.AddProblemDetails();
-builder.Services.AddExceptionHandler<CustomerExceptionHandler>();
+builder.Services.AddMicroserviceProblemDetails();
 builder.Services.AddApiSecurity(builder.Configuration, builder.Environment);
 builder.Services.AddPostgresDbContext<CustomerDbContext>(
     builder.Configuration,
@@ -52,12 +51,14 @@ builder.Services.AddMediatR(configuration =>
 var app = builder.Build();
 
 app.UseConfiguredForwardedHeaders();
-app.UseExceptionHandler();
+app.UseMicroserviceProblemDetails();
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapDefaultEndpoints();
 app.MapApiDocumentation();
+app.MapMicroserviceErrorCatalog();
+CustomerErrorCatalog.Map(app);
 app.MapCustomerEndpoints();
 
 if (app.Environment.IsDevelopment())

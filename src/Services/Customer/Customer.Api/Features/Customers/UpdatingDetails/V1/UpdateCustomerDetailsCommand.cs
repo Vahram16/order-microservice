@@ -11,4 +11,4 @@ internal sealed record UpdateCustomerDetailsCommand(
     string? LastName,
     string? Email,
     string? PhoneNumber)
-    : ICommand<CustomerResponse>;
+    : ICommand<Result<CustomerResponse>>;

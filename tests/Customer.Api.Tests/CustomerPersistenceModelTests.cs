@@ -7,7 +7,7 @@ namespace Customer.Api.Tests;
 public sealed class CustomerPersistenceModelTests
 {
     [Fact]
-    public void ExceptionMappedConstraintNamesMustMatchTheEfModel()
+    public void ResultMappedConstraintNamesMustMatchTheEfModel()
     {
         var options = new DbContextOptionsBuilder<CustomerDbContext>()
             .UseNpgsql(

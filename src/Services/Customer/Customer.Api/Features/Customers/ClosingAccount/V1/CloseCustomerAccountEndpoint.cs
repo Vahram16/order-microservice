@@ -13,21 +13,36 @@ internal static class CloseCustomerAccountEndpoint
                 "/",
                 async (
                     ClaimsPrincipal principal,
-                    HttpRequest request,
-                    HttpResponse response,
+                    HttpContext httpContext,
                     ISender sender,
                     CancellationToken cancellationToken) =>
                 {
                     var identity = CurrentIdentity.From(principal);
-                    var customer = await sender.Send(
+                    if (identity.IsFailure)
+                    {
+                        return CustomerHttpResults.Problem(identity.Error, httpContext);
+                    }
+
+                    var expectedVersion = CustomerHttp.ReadExpectedVersion(httpContext.Request);
+                    if (expectedVersion.IsFailure)
+                    {
+                        return CustomerHttpResults.Problem(expectedVersion.Error, httpContext);
+                    }
+
+                    var result = await sender.Send(
                         new CloseCustomerAccountCommand(
-                            identity.Provider,
-                            identity.Subject,
-                            CustomerHttp.RequireExpectedVersion(request)),
+                            identity.Value.Provider,
+                            identity.Value.Subject,
+                            expectedVersion.Value),
                         cancellationToken);
 
-                    CustomerHttp.WriteEtag(response, customer.Version);
-                    return Results.Ok(customer);
+                    return result.Match<IResult>(
+                        customer =>
+                        {
+                            CustomerHttp.WriteEtag(httpContext.Response, customer.Version);
+                            return Results.Ok(customer);
+                        },
+                        error => CustomerHttpResults.Problem(error, httpContext));
                 })
             .WithName("CloseCurrentCustomerAccount")
             .WithSummary("Anonymizes Customer-owned PII, removes saved addresses, and deactivates the customer.")
@@ -35,8 +50,8 @@ internal static class CloseCustomerAccountEndpoint
                 RolePolicy.For(CustomerAuthorization.Role),
                 ScopePolicy.For(CustomerAuthorization.DeleteScope))
             .Produces<CustomerResponse>()
-            .ProducesValidationProblem()
-            .Produces(StatusCodes.Status404NotFound)
-            .Produces(StatusCodes.Status412PreconditionFailed)
-            .Produces(StatusCodes.Status428PreconditionRequired);
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status412PreconditionFailed)
+            .ProducesProblem(StatusCodes.Status428PreconditionRequired);
 }
