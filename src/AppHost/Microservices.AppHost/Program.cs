@@ -13,8 +13,7 @@ var postgres = builder
         container
             .WithImageTag("18")
             .WithHostPort(5432)
-            .WithDataVolume("microservices-postgres-data")
-            .WithLifetime(ContainerLifetime.Persistent));
+            .WithDataVolume("microservices-postgres-data"));
 
 var serviceDatabase = postgres.AddDatabase("service-template-db");
 var customerDatabase = postgres.AddDatabase("customer-db", "customer");
@@ -24,7 +23,12 @@ var rabbitMq = builder.AddRabbitMQ("rabbitmq")
     .WithDataVolume();
 
 var keycloak = builder
-    .AddKeycloak("keycloak", port: 8080)
+    .AddKeycloak("keycloak")
+    .WithHttpsEndpoint(
+        port: 8080,
+        targetPort: 8443,
+        name: "public",
+        isProxied: false)
     .WithImageTag("26.7.0")
     .WithRealmImport("Keycloak")
     .WithReference(keycloakDatabase)
@@ -35,7 +39,6 @@ var keycloak = builder
     .WithEnvironment("KC_HOSTNAME", keycloakBaseUrl)
     .WithEnvironment("KC_HOSTNAME_STRICT", "true")
     .WithEnvironment("KC_METRICS_ENABLED", "true")
-    .WithLifetime(ContainerLifetime.Persistent)
     .WaitFor(keycloakDatabase);
 
 var serviceMigrations = builder.AddProject<Projects.ServiceTemplate_Migrator>(
