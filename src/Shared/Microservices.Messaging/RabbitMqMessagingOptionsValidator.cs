@@ -58,6 +58,8 @@ internal static class RabbitMqMessagingOptionsValidator
         ValidatePositive(options.StartTimeout, nameof(options.StartTimeout), failures);
         ValidatePositive(options.StopTimeout, nameof(options.StopTimeout), failures);
         ValidatePositive(options.ConsumerStopTimeout, nameof(options.ConsumerStopTimeout), failures);
+        ValidatePositive(options.QueueMessageTimeToLive, nameof(options.QueueMessageTimeToLive), failures);
+        ValidatePositive(options.FaultQueueRetention, nameof(options.FaultQueueRetention), failures);
 
         if (options.ConsumerStopTimeout > options.StopTimeout)
         {
@@ -74,6 +76,18 @@ internal static class RabbitMqMessagingOptionsValidator
         {
             failures.Add(
                 $"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.ConcurrentMessageLimit)}' must be between 1 and PrefetchCount.");
+        }
+
+        ValidatePositive(options.QueueMaxLength, nameof(options.QueueMaxLength), failures);
+        ValidatePositive(options.QueueMaxLengthBytes, nameof(options.QueueMaxLengthBytes), failures);
+        ValidatePositive(options.QueueDeliveryLimit, nameof(options.QueueDeliveryLimit), failures);
+        ValidatePositive(options.FaultQueueMaxLength, nameof(options.FaultQueueMaxLength), failures);
+        ValidatePositive(options.MaximumMessageBytes, nameof(options.MaximumMessageBytes), failures);
+
+        if (options.MaximumMessageBytes > options.QueueMaxLengthBytes)
+        {
+            failures.Add(
+                $"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.MaximumMessageBytes)}' must not exceed '{nameof(RabbitMqMessagingOptions.QueueMaxLengthBytes)}'.");
         }
 
         foreach (var consumer in options.Consumers)
@@ -148,6 +162,23 @@ internal static class RabbitMqMessagingOptionsValidator
         {
             failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{prefix}:{nameof(policy.ConcurrentMessageLimit)}' must be between 1 and PrefetchCount.");
         }
+
+        if (policy.RateLimit is null != policy.RateLimitInterval is null)
+        {
+            failures.Add(
+                $"'{RabbitMqMessagingOptions.SectionName}:{prefix}' must configure both RateLimit and RateLimitInterval.");
+        }
+        else if (policy.RateLimit is not null)
+        {
+            ValidatePositive(policy.RateLimit.Value, $"{prefix}:{nameof(policy.RateLimit)}", failures);
+            ValidatePositive(policy.RateLimitInterval!.Value, $"{prefix}:{nameof(policy.RateLimitInterval)}", failures);
+        }
+
+        if (policy.SingleActiveConsumer && (prefetch != 1 || concurrency != 1))
+        {
+            failures.Add(
+                $"'{RabbitMqMessagingOptions.SectionName}:{prefix}' must use PrefetchCount=1 and ConcurrentMessageLimit=1 when SingleActiveConsumer is enabled.");
+        }
     }
 
     private static void ValidateIntervals(
@@ -171,6 +202,14 @@ internal static class RabbitMqMessagingOptionsValidator
     private static void ValidatePositive(TimeSpan value, string propertyName, List<string> failures)
     {
         if (value <= TimeSpan.Zero)
+        {
+            failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{propertyName}' must be positive.");
+        }
+    }
+
+    private static void ValidatePositive(long value, string propertyName, List<string> failures)
+    {
+        if (value <= 0)
         {
             failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{propertyName}' must be positive.");
         }
