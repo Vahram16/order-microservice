@@ -1,15 +1,16 @@
 using System.Data.Common;
+using System.Net;
 using System.Net.Sockets;
 using System.Security;
 using System.Text.Json;
 
 namespace Microservices.Messaging;
 
-/// <summary>Marks an exception as transient for message retry and redelivery.</summary>
-public interface ITransientMessageException;
+/// <summary>Marks a failure as transient for message retry and redelivery.</summary>
+public interface ITransientConsumerFailure;
 
-/// <summary>Marks an exception as permanent and immediately faultable.</summary>
-public interface IPermanentMessageException;
+/// <summary>Marks a failure as permanent and immediately faultable.</summary>
+public interface IPermanentConsumerFailure;
 
 /// <summary>
 /// Extension point for service-specific exception classification. Rules are evaluated in
@@ -49,12 +50,12 @@ internal sealed class ConsumerExceptionClassifier(
             }
         }
 
-        if (current is IPermanentMessageException)
+        if (current is IPermanentConsumerFailure)
         {
             return false;
         }
 
-        if (current is ITransientMessageException)
+        if (current is ITransientConsumerFailure)
         {
             return true;
         }
@@ -62,10 +63,10 @@ internal sealed class ConsumerExceptionClassifier(
         return current switch
         {
             TimeoutException => true,
-            DbException => true,
-            HttpRequestException => true,
-            IOException => true,
+            DbException databaseException => IsTransientDatabaseFailure(databaseException),
+            HttpRequestException httpException => IsTransientHttpFailure(httpException),
             SocketException => true,
+            IOException => true,
 
             JsonException => false,
             UnauthorizedAccessException => false,
@@ -75,6 +76,22 @@ internal sealed class ConsumerExceptionClassifier(
             _ => false
         };
     }
+
+    private static bool IsTransientDatabaseFailure(DbException exception)
+    {
+        var isTransientProperty = exception.GetType().GetProperty("IsTransient");
+        return isTransientProperty?.PropertyType == typeof(bool) &&
+               isTransientProperty.GetValue(exception) is true;
+    }
+
+    private static bool IsTransientHttpFailure(HttpRequestException exception) =>
+        exception.StatusCode is null or
+            HttpStatusCode.RequestTimeout or
+            HttpStatusCode.TooManyRequests or
+            HttpStatusCode.InternalServerError or
+            HttpStatusCode.BadGateway or
+            HttpStatusCode.ServiceUnavailable or
+            HttpStatusCode.GatewayTimeout;
 
     private static Exception Unwrap(Exception exception)
     {
