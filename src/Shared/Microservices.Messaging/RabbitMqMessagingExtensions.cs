@@ -190,13 +190,13 @@ public static class RabbitMqMessagingExtensions
         if (options.UseQuorumQueues)
         {
             endpoint.SetQuorumQueue();
+            endpoint.SetQueueArgument("x-delivery-limit", options.QueueDeliveryLimit);
         }
 
         endpoint.SetQueueArgument("x-message-ttl", options.QueueMessageTimeToLive);
         endpoint.SetQueueArgument("x-max-length", options.QueueMaxLength);
         endpoint.SetQueueArgument("x-max-length-bytes", options.QueueMaxLengthBytes);
         endpoint.SetQueueArgument("x-overflow", "reject-publish");
-        endpoint.SetQueueArgument("x-delivery-limit", options.QueueDeliveryLimit);
     }
 
     private static void ConfigureFaultQueue(
@@ -209,11 +209,11 @@ public static class RabbitMqMessagingExtensions
         if (options.UseQuorumQueues)
         {
             settings.SetQuorumQueue();
+            settings.SetQueueArgument("x-delivery-limit", -1);
         }
 
         settings.SetQueueArgument("x-message-ttl", options.FaultQueueRetention);
         settings.SetQueueArgument("x-max-length", options.FaultQueueMaxLength);
-        settings.SetQueueArgument("x-delivery-limit", -1);
     }
 
     private static ResolvedConsumerDeliveryPolicy ResolvePolicy(
