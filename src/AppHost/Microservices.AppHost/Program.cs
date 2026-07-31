@@ -20,6 +20,8 @@ var customerDatabase = postgres.AddDatabase("customer-db", "customer");
 var keycloakDatabase = postgres.AddDatabase("keycloak-db", "keycloak");
 var rabbitMq = builder.AddRabbitMQ("rabbitmq")
     .WithManagementPlugin()
+    .WithDockerfile("../../../infrastructure/rabbitmq", "Containerfile")
+    .WithHttpEndpoint(targetPort: 15692, name: "prometheus")
     .WithDataVolume();
 
 var keycloak = builder
