@@ -76,6 +76,11 @@ internal static class RabbitMqMessagingOptionsValidator
                 $"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.ConcurrentMessageLimit)}' must be between 1 and PrefetchCount.");
         }
 
+        foreach (var consumer in options.Consumers)
+        {
+            ValidateConsumerPolicy(consumer.Key, consumer.Value, failures);
+        }
+
         if (options.Port is 0)
         {
             failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.Port)}' must be greater than 0 when configured.");
@@ -84,7 +89,7 @@ internal static class RabbitMqMessagingOptionsValidator
         {
             failures.Add(
                 $"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.Port)}' cannot be 5671 when " +
-                $"'{nameof(RabbitMqMessagingOptions.UseTls)}' is disabled.");
+                $"'{nameof(RabbitMqMessagingOptionsOptions.UseTls)}' is disabled.");
         }
 
         if (options.TlsServerName is not null && string.IsNullOrWhiteSpace(options.TlsServerName))
@@ -103,25 +108,59 @@ internal static class RabbitMqMessagingOptionsValidator
         return hostAddress;
     }
 
+    private static void ValidateConsumerPolicy(
+        string endpointName,
+        ConsumerFailurePolicyOptions policy,
+        List<string> failures)
+    {
+        if (string.IsNullOrWhiteSpace(endpointName))
+        {
+            failures.Add($"'{RabbitMqMessagingOptions.SectionName}:Consumers' cannot contain a blank endpoint name.");
+            return;
+        }
+
+        var prefix = $"{nameof(RabbitMqMessagingOptions.Consumers)}:{endpointName}";
+        if (policy.RetryIntervals is not null)
+        {
+            ValidateIntervals(policy.RetryIntervals, $"{prefix}:{nameof(policy.RetryIntervals)}", TimeSpan.FromSeconds(30), failures);
+        }
+
+        if (policy.RedeliveryIntervals is not null)
+        {
+            ValidateIntervals(policy.RedeliveryIntervals, $"{prefix}:{nameof(policy.RedeliveryIntervals)}", TimeSpan.FromDays(1), failures);
+        }
+
+        var prefetch = policy.PrefetchCount ?? 1;
+        if (policy.PrefetchCount is 0)
+        {
+            failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{prefix}:{nameof(policy.PrefetchCount)}' must be greater than zero.");
+        }
+
+        if (policy.ConcurrentMessageLimit is 0 || policy.ConcurrentMessageLimit > prefetch)
+        {
+            failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{prefix}:{nameof(policy.ConcurrentMessageLimit)}' must be between 1 and PrefetchCount.");
+        }
+    }
+
     private static void ValidateIntervals(
-        IReadOnlyCollection<TimeSpan>? intervals,
+        TimeSpan[]? intervals,
         string propertyName,
         TimeSpan maximumInterval,
-        ICollection<string> failures)
+        List<string> failures)
     {
-        if (intervals is null || intervals.Count == 0)
+        if (intervals is null || intervals.Length == 0)
         {
             failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{propertyName}' must contain at least one interval.");
             return;
         }
 
-        if (intervals.Count > 10 || intervals.Any(interval => interval <= TimeSpan.Zero || interval > maximumInterval))
+        if (intervals.Length > 10 || intervals.Any(interval => interval <= TimeSpan.Zero || interval > maximumInterval))
         {
             failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{propertyName}' must contain 1-10 positive, bounded intervals.");
         }
     }
 
-    private static void ValidatePositive(TimeSpan value, string propertyName, ICollection<string> failures)
+    private static void ValidatePositive(TimeSpan value, string propertyName, List<string> failures)
     {
         if (value <= TimeSpan.Zero)
         {
@@ -129,7 +168,7 @@ internal static class RabbitMqMessagingOptionsValidator
         }
     }
 
-    private static void ValidateHostOptions(RabbitMqMessagingOptions options, ICollection<string> failures)
+    private static void ValidateHostOptions(RabbitMqMessagingOptions options, List<string> failures)
     {
         AddRequiredFailure(options.Host, nameof(RabbitMqMessagingOptions.Host), failures);
         AddRequiredFailure(options.VirtualHost, nameof(RabbitMqMessagingOptions.VirtualHost), failures);
@@ -137,7 +176,7 @@ internal static class RabbitMqMessagingOptionsValidator
         AddRequiredFailure(options.Password, nameof(RabbitMqMessagingOptions.Password), failures);
     }
 
-    private static void AddRequiredFailure(string value, string propertyName, ICollection<string> failures)
+    private static void AddRequiredFailure(string value, string propertyName, List<string> failures)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
