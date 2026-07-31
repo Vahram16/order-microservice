@@ -1,0 +1,176 @@
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
+using MassTransit;
+using MassTransit.EntityFrameworkCoreIntegration;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace Microservices.Messaging;
+
+internal static class MessagingInstrumentation
+{
+    public const string MeterName = "Microservices.Messaging";
+
+    public static readonly Meter Meter = new(MeterName);
+
+    public static readonly Counter<long> RetryAttempts = Meter.CreateCounter<long>(
+        "messaging.consumer.retry.attempts",
+        description: "Immediate consumer retry attempts.");
+
+    public static readonly Counter<long> RedeliveryAttempts = Meter.CreateCounter<long>(
+        "messaging.consumer.redelivery.attempts",
+        description: "Broker-backed consumer redelivery attempts.");
+
+    public static readonly Counter<long> ConsumerFailures = Meter.CreateCounter<long>(
+        "messaging.consumer.failures",
+        description: "Consumer attempts that ended with an exception.");
+
+    public static readonly Histogram<double> ConsumerAttemptDuration = Meter.CreateHistogram<double>(
+        "messaging.consumer.attempt.duration",
+        unit: "s",
+        description: "Duration of each consumer delivery attempt, including retries.");
+
+    public static readonly Counter<long> OutboxCollectionFailures = Meter.CreateCounter<long>(
+        "messaging.outbox.collection.failures",
+        description: "Failures while collecting PostgreSQL outbox backlog metrics.");
+}
+
+internal sealed class ConsumerDeliveryMetricsFilter(
+    IConsumerExceptionClassifier classifier) : IFilter<ConsumeContext>
+{
+    public async Task Send(ConsumeContext context, IPipe<ConsumeContext> next)
+    {
+        var endpoint = context.ReceiveContext.InputAddress.AbsolutePath.Trim('/');
+        var retryAttempt = context.GetRetryAttempt();
+        var redeliveryCount = context.GetRedeliveryCount();
+        var tags = new TagList
+        {
+            { "messaging.destination.name", endpoint },
+            { "messaging.message.type", context.Message.GetType().FullName ?? context.Message.GetType().Name }
+        };
+
+        if (retryAttempt > 0)
+        {
+            MessagingInstrumentation.RetryAttempts.Add(1, tags);
+        }
+        else if (redeliveryCount > 0)
+        {
+            MessagingInstrumentation.RedeliveryAttempts.Add(1, tags);
+        }
+
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            await next.Send(context).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            tags.Add("error.type", exception.GetType().FullName ?? exception.GetType().Name);
+            tags.Add(
+                "messaging.failure.disposition",
+                classifier.IsTransient(exception) ? "transient" : "permanent");
+            MessagingInstrumentation.ConsumerFailures.Add(1, tags);
+            throw;
+        }
+        finally
+        {
+            MessagingInstrumentation.ConsumerAttemptDuration.Record(
+                Stopwatch.GetElapsedTime(started).TotalSeconds,
+                tags);
+        }
+    }
+
+    public void Probe(ProbeContext context) =>
+        context.CreateFilterScope("consumerDeliveryMetrics");
+}
+
+internal sealed partial class OutboxMetricsCollector<TDbContext> : BackgroundService
+    where TDbContext : DbContext
+{
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ILogger<OutboxMetricsCollector<TDbContext>> _logger;
+    private readonly TimeSpan _interval;
+    private readonly KeyValuePair<string, object?>[] _tags;
+    private readonly ObservableGauge<long> _backlogGauge;
+    private readonly ObservableGauge<double> _oldestAgeGauge;
+    private long _backlog;
+    private double _oldestAgeSeconds;
+
+    public OutboxMetricsCollector(
+        IServiceScopeFactory scopeFactory,
+        ILogger<OutboxMetricsCollector<TDbContext>> logger,
+        RabbitMqMessagingOptions options)
+    {
+        _scopeFactory = scopeFactory;
+        _logger = logger;
+        _interval = options.OutboxMetricsInterval;
+        _tags = [new KeyValuePair<string, object?>("db.context", typeof(TDbContext).Name)];
+        _backlogGauge = MessagingInstrumentation.Meter.CreateObservableGauge(
+            "messaging.outbox.backlog",
+            ObserveBacklog,
+            description: "Messages waiting in the PostgreSQL bus or consumer outbox.");
+        _oldestAgeGauge = MessagingInstrumentation.Meter.CreateObservableGauge(
+            "messaging.outbox.oldest.age",
+            ObserveOldestAge,
+            unit: "s",
+            description: "Age of the oldest message waiting in the PostgreSQL outbox.");
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await CollectAsync(stoppingToken).ConfigureAwait(false);
+
+        using var timer = new PeriodicTimer(_interval);
+        while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
+        {
+            await CollectAsync(stoppingToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task CollectAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<TDbContext>();
+            var outboxMessages = dbContext.Set<OutboxMessage>().AsNoTracking();
+            var backlog = await outboxMessages.LongCountAsync(cancellationToken).ConfigureAwait(false);
+            var oldestSentTime = await outboxMessages
+                .Select(message => (DateTime?)message.SentTime)
+                .MinAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            Interlocked.Exchange(ref _backlog, backlog);
+            Volatile.Write(
+                ref _oldestAgeSeconds,
+                oldestSentTime is null
+                    ? 0
+                    : Math.Max(0, (DateTime.UtcNow - oldestSentTime.Value).TotalSeconds));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            MessagingInstrumentation.OutboxCollectionFailures.Add(1, _tags);
+            LogCollectionFailure(_logger, typeof(TDbContext).Name, exception);
+        }
+    }
+
+    private Measurement<long> ObserveBacklog() =>
+        new(Interlocked.Read(ref _backlog), _tags);
+
+    private Measurement<double> ObserveOldestAge() =>
+        new(Volatile.Read(ref _oldestAgeSeconds), _tags);
+
+    [LoggerMessage(
+        EventId = 1001,
+        Level = LogLevel.Warning,
+        Message = "Unable to collect messaging outbox metrics for {DbContext}")]
+    private static partial void LogCollectionFailure(
+        ILogger logger,
+        string dbContext,
+        Exception exception);
+}
