@@ -44,7 +44,9 @@ tests/
   Microservices.Messaging.Tests/
   Microservices.Security.Tests/
 infrastructure/
-  keycloak/                         optimized production image definition
+  keycloak/                         optimized production identity image definition
+  rabbitmq/                         pinned broker image with delayed exchange and Prometheus
+  observability/                    messaging dashboard, scrape config, and alert rules
 ```
 
 The former in-repository Identity/OpenIddict service, migrator, database, tests, and packages have
@@ -159,6 +161,25 @@ These are infrastructure examples, not existing Order endpoints. The repository 
 its actual subject, tenant, resource-ownership, and state-transition rules. Scopes and roles never
 replace those checks.
 
+## Messaging reliability
+
+Every service using `AddRabbitMqWithPostgresOutbox<TDbContext>` receives the shared production
+failure-delivery policy:
+
+- bounded, transient-only immediate retry;
+- bounded RabbitMQ delayed redelivery with increasing intervals;
+- permanent-failure rejection and MassTransit `_error` routing;
+- PostgreSQL bus outbox and consumer inbox/outbox;
+- enforced MessageId, CorrelationId, CausationId, and contract-version conventions;
+- per-consumer prefetch, concurrency, rate limiting, and explicit ordering controls;
+- durable quorum queues with TTL, length, byte, overflow, and delivery limits;
+- graceful startup, readiness, recovery, and consumer draining;
+- OpenTelemetry, RabbitMQ Prometheus metrics, alerts, and a Grafana dashboard.
+
+The full exception, poison-message, idempotency, topology, replay, lifecycle, and contract-governance
+rules are in `docs/messaging-failure-delivery-policy.md`. Deployment instructions for the dashboard,
+Prometheus rules, and restricted RabbitMQ scrape are in `infrastructure/observability/README.md`.
+
 ## Run locally with Aspire
 
 Requirements:
@@ -178,7 +199,7 @@ dotnet run --project src/AppHost/Microservices.AppHost
 Aspire starts:
 
 - PostgreSQL on host port `5432`, with separate application and Keycloak databases;
-- RabbitMQ;
+- the pinned RabbitMQ image with the delayed-message exchange and Prometheus plugins;
 - Keycloak 26.7.0 on host port `8080`;
 - `ServiceTemplate.Migrator`;
 - `ServiceTemplate.Api` after its dependencies are ready.
@@ -221,9 +242,14 @@ AppHost or depend on the Aspire integration package.
 
 ## Verification
 
-The CI pipeline now:
+The CI pipeline:
 
-- restores, builds, and tests every .NET project;
+- restores, builds, and tests every .NET project with analyzers enforced;
+- builds and starts the pinned RabbitMQ image with delayed redelivery and Prometheus support;
+- runs RabbitMQ/PostgreSQL behavioral tests for retry, redelivery, `_error` routing, deduplication,
+  outbox commit/rollback, broker/database recovery, and graceful draining;
+- validates integration-message identity and messaging configuration constraints;
+- validates the Grafana dashboard JSON and Prometheus scrape/rule files with `promtool`;
 - builds `infrastructure/keycloak/Containerfile`;
 - starts the pinned Keycloak image with the development realm import;
 - checks OIDC discovery and PKCE support;
