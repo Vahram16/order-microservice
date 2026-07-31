@@ -89,7 +89,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker exec postgres psql \
+          postgres_container="$(docker ps --filter ancestor=postgres:18 --format '{{.ID}}' | head -n 1)"
+          test -n "$postgres_container"
+          docker exec "$postgres_container" psql \
             --username postgres \
             --dbname postgres \
             --command 'CREATE DATABASE messaging_ci;' 2>&1 \
