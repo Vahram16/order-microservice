@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Net;
 using System.Text.Json;
 using Microservices.Messaging;
 using Microsoft.Extensions.DependencyInjection;
@@ -38,13 +39,25 @@ public sealed class ConsumerExceptionClassifierTests
         Assert.True(classifier.IsTransient(new ServiceSpecificException()));
     }
 
+    [Fact]
+    public void PermanentMarkerTakesPrecedenceOverTransientMarker()
+    {
+        var classifier = CreateClassifier();
+
+        Assert.False(classifier.IsTransient(new ConflictingMarkedException()));
+    }
+
     public static TheoryData<Exception> TransientExceptions() =>
         new()
         {
             new TimeoutException(),
             new HttpRequestException(),
+            new HttpRequestException("timeout", null, HttpStatusCode.RequestTimeout),
+            new HttpRequestException("throttled", null, HttpStatusCode.TooManyRequests),
+            new HttpRequestException("unavailable", null, HttpStatusCode.ServiceUnavailable),
             new IOException(),
-            new TestDbException()
+            new TransientTestDbException(),
+            new MarkedTransientException()
         };
 
     public static TheoryData<Exception> PermanentExceptions() =>
@@ -53,7 +66,10 @@ public sealed class ConsumerExceptionClassifierTests
             new JsonException(),
             new UnauthorizedAccessException(),
             new ArgumentException(),
-            new InvalidOperationException()
+            new InvalidOperationException(),
+            new HttpRequestException("bad request", null, HttpStatusCode.BadRequest),
+            new PermanentTestDbException(),
+            new MarkedPermanentException()
         };
 
     private static IConsumerExceptionClassifier CreateClassifier()
@@ -74,5 +90,21 @@ public sealed class ConsumerExceptionClassifierTests
 
     private sealed class ServiceSpecificException : Exception;
 
-    private sealed class TestDbException : DbException;
+    private sealed class TransientTestDbException : DbException
+    {
+        public override bool IsTransient => true;
+    }
+
+    private sealed class PermanentTestDbException : DbException
+    {
+        public override bool IsTransient => false;
+    }
+
+    private sealed class MarkedTransientException : Exception, ITransientConsumerFailure;
+
+    private sealed class MarkedPermanentException : Exception, IPermanentConsumerFailure;
+
+    private sealed class ConflictingMarkedException : Exception,
+        ITransientConsumerFailure,
+        IPermanentConsumerFailure;
 }
