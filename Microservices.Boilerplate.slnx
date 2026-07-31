@@ -22,6 +22,7 @@
     <Project Path="src/Shared/Microservices.ServiceDefaults/Microservices.ServiceDefaults.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Microservices.Application.Tests/Microservices.Application.Tests.csproj" />
     <Project Path="tests/Customer.Api.Tests/Customer.Api.Tests.csproj" />
     <Project Path="tests/Microservices.ArchitectureTests/Microservices.ArchitectureTests.csproj" />
     <Project Path="tests/Microservices.Messaging.Tests/Microservices.Messaging.Tests.csproj" />

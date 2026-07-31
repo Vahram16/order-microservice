@@ -6,6 +6,7 @@ using Microservices.Messaging;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 
 namespace Microservices.Messaging.Tests;
@@ -27,6 +28,25 @@ public sealed class RabbitMqMessagingExtensionsTests
         Assert.Equal(
             "service-template-submit-order",
             formatter.Consumer<SubmitOrderConsumer>());
+    }
+
+    [Fact]
+    public async Task RegistrationIncludesRabbitMqInReadinessChecks()
+    {
+        var services = new ServiceCollection();
+        services.AddRabbitMqWithPostgresOutbox<TestDbContext>(
+            ConnectionStringConfiguration("amqps://guest:secret@rabbitmq.example:5671/"),
+            "service-template");
+
+        await using var provider = services.BuildServiceProvider();
+        var healthChecks = provider
+            .GetRequiredService<IOptions<HealthCheckServiceOptions>>()
+            .Value
+            .Registrations;
+
+        Assert.Contains(healthChecks, registration =>
+            registration.Name.Contains("masstransit", StringComparison.OrdinalIgnoreCase) &&
+            registration.Tags.Contains("ready"));
     }
 
     [Theory]

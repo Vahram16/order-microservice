@@ -15,6 +15,7 @@ internal sealed class UpdateCustomerAddressDataValidator : AbstractValidator<Add
         RuleFor(address => address.Region).MaximumLength(100);
         RuleFor(address => address.PostalCode).NotEmpty().MaximumLength(32);
         RuleFor(address => address.CountryCode)
+            .Cascade(CascadeMode.Stop)
             .NotEmpty()
             .Length(2)
             .Matches("^[A-Za-z]{2}$")

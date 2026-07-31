@@ -58,6 +58,7 @@ builder.AddProject<Projects.ServiceTemplate_Api>(
     .WithEnvironment("Security__ValidAuthorizedParties__0", "order-mobile")
     .WithEnvironment("Security__ValidAuthorizedParties__1", "scalar-dev")
     .WithEnvironment("Security__RequireHttpsMetadata", "true")
+    .WithHttpHealthCheck("/health", endpointName: "https")
     .WithUrlForEndpoint("https", url =>
     {
         url.Url = "/scalar/v1";
@@ -84,6 +85,7 @@ builder.AddProject<Projects.Customer_Api>(
     .WithEnvironment("Security__ValidAuthorizedParties__0", "order-mobile")
     .WithEnvironment("Security__ValidAuthorizedParties__1", "customer-scalar-dev")
     .WithEnvironment("Security__RequireHttpsMetadata", "true")
+    .WithHttpHealthCheck("/health", endpointName: "https")
     .WithUrlForEndpoint("https", url =>
     {
         url.Url = "/scalar/v1";

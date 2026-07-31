@@ -6,12 +6,13 @@ using MediatR;
 using Microservices.Application;
 using Microservices.Persistence.Postgres;
 using Microservices.Security;
+using Microservices.ServiceDefaults;
 using Microservices.ServiceDefaults.ProblemDetails;
 using Microsoft.Extensions.Hosting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.AddServiceDefaults();
+builder.AddWebApiDefaults();
 builder.AddApiDocumentation(
     "Customer API",
     new ApiDocumentationOAuthOptions(
@@ -35,7 +36,8 @@ builder.Services.AddApiSecurity(builder.Configuration, builder.Environment);
 builder.Services.AddPostgresDbContext<CustomerDbContext>(
     builder.Configuration,
     "customer-db");
-builder.Services.AddHealthChecks().AddDbContextCheck<CustomerDbContext>();
+builder.Services.AddHealthChecks().AddDbContextCheck<CustomerDbContext>(
+    tags: [ServiceHealthCheckTags.Readiness]);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddValidatorsFromAssemblyContaining<Program>(
     ServiceLifetime.Scoped,

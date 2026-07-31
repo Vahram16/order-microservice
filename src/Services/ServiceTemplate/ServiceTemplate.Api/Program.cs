@@ -1,25 +1,28 @@
+using System.Security.Claims;
 using FluentValidation;
 using MediatR;
 using Microservices.Application;
 using Microservices.Messaging;
 using Microservices.Persistence.Postgres;
 using Microservices.Security;
+using Microservices.ServiceDefaults;
 using Microservices.ServiceDefaults.ProblemDetails;
 using ServiceTemplate.Api.Persistence;
-using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.AddServiceDefaults();
+builder.AddWebApiDefaults();
 builder.AddApiDocumentation("Service Template API");
 builder.Services.AddMicroserviceProblemDetails();
 builder.Services.AddApiSecurity(builder.Configuration, builder.Environment);
 builder.Services.AddPostgresDbContext<ServiceTemplateDbContext>(
     builder.Configuration,
     "service-template-db");
-builder.Services.AddHealthChecks().AddDbContextCheck<ServiceTemplateDbContext>();
+builder.Services.AddHealthChecks().AddDbContextCheck<ServiceTemplateDbContext>(
+    tags: [ServiceHealthCheckTags.Readiness]);
 
-builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+builder.Services.AddValidatorsFromAssemblyContaining<Program>(
+    includeInternalTypes: true);
 builder.Services.AddMediatR(configuration =>
 {
     configuration.RegisterServicesFromAssemblyContaining<Program>();

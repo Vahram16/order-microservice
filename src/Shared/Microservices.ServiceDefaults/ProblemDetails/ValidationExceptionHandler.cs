@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
@@ -19,7 +20,9 @@ internal sealed class ValidationExceptionHandler : IExceptionHandler
         }
 
         var errors = validationException.Errors
-            .GroupBy(failure => failure.PropertyName, StringComparer.Ordinal)
+            .GroupBy(
+                failure => ToJsonPropertyPath(failure.PropertyName),
+                StringComparer.Ordinal)
             .ToDictionary(
                 group => group.Key,
                 group => group.Select(failure => failure.ErrorMessage).Distinct().ToArray(),
@@ -44,5 +47,24 @@ internal sealed class ValidationExceptionHandler : IExceptionHandler
             exception,
             cancellationToken);
         return true;
+    }
+
+    private static string ToJsonPropertyPath(string propertyPath) =>
+        string.Join(
+            '.',
+            propertyPath
+                .Split('.', StringSplitOptions.RemoveEmptyEntries)
+                .Select(ToJsonPropertyPathSegment));
+
+    private static string ToJsonPropertyPathSegment(string segment)
+    {
+        var indexerStart = segment.IndexOf('[', StringComparison.Ordinal);
+        if (indexerStart < 0)
+        {
+            return JsonNamingPolicy.CamelCase.ConvertName(segment);
+        }
+
+        var propertyName = segment[..indexerStart];
+        return JsonNamingPolicy.CamelCase.ConvertName(propertyName) + segment[indexerStart..];
     }
 }

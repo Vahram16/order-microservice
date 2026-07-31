@@ -11,8 +11,10 @@ internal sealed class AddCustomerAddressValidator
         RuleFor(command => command.Subject).NotEmpty().MaximumLength(255);
         RuleFor(command => command.ExpectedVersion).GreaterThan(0);
         RuleFor(command => command.AddressId).NotEmpty();
+        RuleFor(command => command.Address).NotNull();
+        // AddressData mirrors the flat request body; the command wrapper is not public.
         RuleFor(command => command.Address)
-            .NotNull()
-            .SetValidator(new AddCustomerAddressDataValidator());
+            .SetValidator(new AddCustomerAddressDataValidator())
+            .OverridePropertyName(string.Empty);
     }
 }

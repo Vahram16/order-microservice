@@ -30,7 +30,35 @@ public sealed class ProblemDetailsPipelineTests
         Assert.StartsWith("application/problem+json", context.Response.ContentType, StringComparison.Ordinal);
         Assert.Equal("request.validation_failed", problem.GetProperty("code").GetString());
         Assert.Equal("/errors/v1/platform/request.validation_failed", problem.GetProperty("type").GetString());
-        Assert.Equal("Email is required.", problem.GetProperty("errors").GetProperty("Email")[0].GetString());
+        Assert.Equal("Email is required.", problem.GetProperty("errors").GetProperty("email")[0].GetString());
+    }
+
+    [Fact]
+    public async Task ValidationPropertyPathsUseJsonCamelCaseAndPreserveNesting()
+    {
+        using var services = CreateServices();
+        var context = CreateContext(services);
+        var handler = new ValidationExceptionHandler();
+        var exception = new ValidationException(
+        [
+            new ValidationFailure("RecipientName", "Recipient name is required."),
+            new ValidationFailure("ShippingAddress.CountryCode", "Country code is required."),
+            new ValidationFailure("Addresses[0].PostalCode", "Postal code is required.")
+        ]);
+
+        await handler.TryHandleAsync(context, exception, CancellationToken.None);
+        var problem = await ReadProblemAsync(context);
+        var errors = problem.GetProperty("errors");
+
+        Assert.Equal(
+            "Recipient name is required.",
+            errors.GetProperty("recipientName")[0].GetString());
+        Assert.Equal(
+            "Country code is required.",
+            errors.GetProperty("shippingAddress.countryCode")[0].GetString());
+        Assert.Equal(
+            "Postal code is required.",
+            errors.GetProperty("addresses[0].postalCode")[0].GetString());
     }
 
     [Fact]

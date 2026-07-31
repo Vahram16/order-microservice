@@ -30,37 +30,50 @@ internal sealed class ReverseProxyOptionsValidator : IValidateOptions<ReversePro
         }
 
         var failures = new List<string>();
+        var knownProxies = options.KnownProxies ?? [];
+        var knownNetworks = options.KnownNetworks ?? [];
+        var allowedHosts = options.AllowedHosts ?? [];
 
         if (options.ForwardLimit is < 1 or > 5)
         {
             failures.Add("'ReverseProxy:ForwardLimit' must be between 1 and 5.");
         }
 
-        if (options.KnownProxies.Length == 0 && options.KnownNetworks.Length == 0)
+        if (knownProxies.Length == 0 && knownNetworks.Length == 0)
         {
             failures.Add(
                 "An enabled reverse proxy requires at least one explicit known proxy or network.");
         }
 
-        foreach (var value in options.KnownProxies)
+        foreach (var value in knownProxies)
         {
-            if (!IPAddress.TryParse(value, out _))
+            if (!IPAddress.TryParse(value?.Trim(), out var address))
             {
                 failures.Add($"Reverse proxy address '{value}' is not a valid IP address.");
             }
-        }
-
-        foreach (var value in options.KnownNetworks)
-        {
-            if (!System.Net.IPNetwork.TryParse(value, out _))
+            else if (IPAddress.Any.Equals(address) || IPAddress.IPv6Any.Equals(address))
             {
-                failures.Add($"Reverse proxy network '{value}' is not valid CIDR notation.");
+                failures.Add(
+                    $"Reverse proxy address '{value}' cannot trust every source address.");
             }
         }
 
-        if (options.AllowedHosts.Length == 0 ||
-            options.AllowedHosts.Any(host =>
-                string.IsNullOrWhiteSpace(host) || host is "*" or "0.0.0.0" or "[::]"))
+        foreach (var value in knownNetworks)
+        {
+            if (!System.Net.IPNetwork.TryParse(value?.Trim(), out var network))
+            {
+                failures.Add($"Reverse proxy network '{value}' is not valid CIDR notation.");
+            }
+            else if (network.PrefixLength == 0)
+            {
+                failures.Add(
+                    $"Reverse proxy network '{value}' cannot trust every source address.");
+            }
+        }
+
+        if (allowedHosts.Length == 0 ||
+            allowedHosts.Any(host =>
+                host?.Trim() is null or "" or "*" or "0.0.0.0" or "[::]"))
         {
             failures.Add(
                 "An enabled reverse proxy requires explicit 'ReverseProxy:AllowedHosts' values.");
@@ -93,19 +106,19 @@ internal static class ReverseProxyOptionsSetup
         forwarded.KnownIPNetworks.Clear();
         forwarded.AllowedHosts.Clear();
 
-        foreach (var value in configured.KnownProxies)
+        foreach (var value in configured.KnownProxies ?? [])
         {
-            forwarded.KnownProxies.Add(IPAddress.Parse(value));
+            forwarded.KnownProxies.Add(IPAddress.Parse(value.Trim()));
         }
 
-        foreach (var value in configured.KnownNetworks)
+        foreach (var value in configured.KnownNetworks ?? [])
         {
-            forwarded.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(value));
+            forwarded.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(value.Trim()));
         }
 
-        foreach (var value in configured.AllowedHosts)
+        foreach (var value in configured.AllowedHosts ?? [])
         {
-            forwarded.AllowedHosts.Add(value);
+            forwarded.AllowedHosts.Add(value.Trim());
         }
     }
 }

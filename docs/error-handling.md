@@ -68,6 +68,14 @@ The application owns:
 
 When an address identity conflict is caused by a reused API idempotency key, the application translates the domain error into the public idempotency error.
 
+### Request validation boundary
+
+FluentValidation is limited to the application request boundary. It validates whether a command or query is structurally safe to dispatch, including required request fields, lengths, formats, and request-only relationships. A request validator must not perform aggregate lookups or become the authoritative implementation of a domain invariant. Authentication claims are not request fields; missing or invalid claims follow the authentication outcome instead of producing request-validation errors.
+
+Domain factories and aggregates remain authoritative for business invariants, even when a boundary validator repeats a cheap check to provide earlier, field-oriented feedback. Domain rejection is represented by `Result` and `OperationError`, so the same invariant is enforced for callers that do not pass through MediatR or FluentValidation.
+
+`ValidationException` is one deliberate exception to the general rule that expected outcomes use results. `ValidationBehavior` aggregates boundary failures and throws it only to short-circuit the MediatR pipeline. The centralized exception handler recognizes that specific exception and converts it to the standard `400 request.validation_failed` response. It must not be used for domain rejection, authentication, infrastructure failure, or as a general application control-flow mechanism.
+
 ### Internal invariant path
 
 Audit construction receives aggregate identifiers, validated identity claims, application-owned action constants, and aggregate versions. Invalid values on that path indicate a programming, configuration, or corrupt-state defect. Audit construction therefore throws instead of returning a client-correctable validation result.
