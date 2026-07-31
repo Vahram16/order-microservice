@@ -129,6 +129,7 @@ public sealed class MessagingFailureDeliveryBehaviorTests(MessagingBehaviorFixtu
         var message = TestMessageFactory.RetrySuccess();
         await fixture.PublishAsync(message);
         await fixture.Probe.WaitForCompletionAsync(message.MessageId);
+        await fixture.WaitForEffectCountAsync(message.MessageId, expectedCount: 1);
 
         Assert.Equal(1, await fixture.GetEffectCountAsync(message.MessageId));
     }
@@ -240,6 +241,23 @@ public sealed class MessagingBehaviorFixture : IAsyncLifetime
             .Where(effect => effect.Id == id)
             .Select(effect => effect.Count)
             .SingleOrDefaultAsync();
+    }
+
+    public async Task WaitForEffectCountAsync(Guid id, int expectedCount)
+    {
+        var timeout = Stopwatch.StartNew();
+        while (timeout.Elapsed < TimeSpan.FromSeconds(10))
+        {
+            if (await GetEffectCountAsync(id) == expectedCount)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+        }
+
+        throw new TimeoutException(
+            $"Database effect '{id}' did not reach count {expectedCount}.");
     }
 
     public async Task<long> GetOutboxBacklogAsync()
@@ -471,7 +489,11 @@ public sealed class RabbitMqManagementClient(HttpClient client)
             {
                 await using var stream = await response.Content.ReadAsStreamAsync();
                 using var document = await JsonDocument.ParseAsync(stream);
-                if (document.RootElement.GetProperty("messages").GetInt32() >= minimumMessages)
+                var queue = document.RootElement;
+                var messages = ReadInt32(queue, "messages") ??
+                    (ReadInt32(queue, "messages_ready") ?? 0) +
+                    (ReadInt32(queue, "messages_unacknowledged") ?? 0);
+                if (messages >= minimumMessages)
                 {
                     return;
                 }
@@ -525,8 +547,16 @@ public sealed class RabbitMqManagementClient(HttpClient client)
         throw new TimeoutException("RabbitMQ clients did not reconnect within the expected time.");
     }
 
+    private static int? ReadInt32(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var value) &&
+        value.ValueKind == JsonValueKind.Number &&
+        value.TryGetInt32(out var number)
+            ? number
+            : null;
+
     private static string QueuePath(string queueName) =>
-        $"/api/queues/%2F/{Uri.EscapeDataString(queueName)}";
+        $"/api/queues/%2F/{Uri.EscapeDataString(queueName)}" +
+        "?disable_stats=false&enable_queue_totals=true";
 
     private static string Required(string name) =>
         Environment.GetEnvironmentVariable(name) is { Length: > 0 } value
