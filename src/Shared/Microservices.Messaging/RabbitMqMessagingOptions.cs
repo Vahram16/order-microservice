@@ -18,6 +18,7 @@ public sealed class RabbitMqMessagingOptions
     public string? TlsServerName { get; init; }
     public TimeSpan OutboxQueryDelay { get; init; } = TimeSpan.FromSeconds(1);
     public TimeSpan DuplicateDetectionWindow { get; init; } = TimeSpan.FromMinutes(30);
+    public TimeSpan OutboxMetricsInterval { get; init; } = TimeSpan.FromSeconds(10);
 
     /// <summary>Short, in-memory retry intervals. Keep these bounded and brief.</summary>
     public TimeSpan[] RetryIntervals { get; init; } =
