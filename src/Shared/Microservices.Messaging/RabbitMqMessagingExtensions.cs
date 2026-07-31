@@ -38,7 +38,6 @@ public static class RabbitMqMessagingExtensions
 
         services.AddSingleton(options);
         services.AddSingleton<IConsumerExceptionClassifier, ConsumerExceptionClassifier>();
-        services.AddSingleton<ConsumerDeliveryMetricsFilter>();
         services.AddSingleton<OutboxMetricsCollector<TDbContext>>();
         services.AddHostedService(provider =>
             provider.GetRequiredService<OutboxMetricsCollector<TDbContext>>());
@@ -108,7 +107,6 @@ public static class RabbitMqMessagingExtensions
                     retry.Handle<Exception>(classifier.IsTransient);
                 });
 
-                endpoint.UseFilter(context.GetRequiredService<ConsumerDeliveryMetricsFilter>());
                 endpoint.UseEntityFrameworkOutbox<TDbContext>(context);
             });
 
@@ -155,6 +153,9 @@ public static class RabbitMqMessagingExtensions
                     context,
                     filter => filter.Include(type =>
                         typeof(IIntegrationMessage).IsAssignableFrom(type)));
+                rabbit.UseConsumeFilter(
+                    typeof(ConsumerDeliveryMetricsFilter<>),
+                    context);
                 rabbit.UseConsumeFilter(
                     typeof(IntegrationMessageConsumeFilter<>),
                     context,
