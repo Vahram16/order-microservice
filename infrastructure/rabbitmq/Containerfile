@@ -10,7 +10,8 @@ RUN set -eux; \
     echo "${DELAYED_MESSAGE_EXCHANGE_SHA256}  /plugins/${DELAYED_MESSAGE_EXCHANGE_FILE}" | sha256sum --check --strict; \
     chmod 0644 /plugins/${DELAYED_MESSAGE_EXCHANGE_FILE}; \
     chown rabbitmq:rabbitmq /plugins/${DELAYED_MESSAGE_EXCHANGE_FILE}; \
-    rabbitmq-plugins enable --offline rabbitmq_delayed_message_exchange rabbitmq_prometheus
+    rabbitmq-plugins enable --offline rabbitmq_delayed_message_exchange rabbitmq_prometheus; \
+    rm -f /var/lib/rabbitmq/.erlang.cookie
 
 COPY --chown=rabbitmq:rabbitmq rabbitmq.conf /etc/rabbitmq/rabbitmq.conf
 
