@@ -23,23 +23,19 @@ internal static class RabbitMqMessagingOptionsValidator
         else if (!Uri.TryCreate(connectionString, UriKind.Absolute, out hostAddress) ||
                  string.IsNullOrWhiteSpace(hostAddress.Host))
         {
-            failures.Add(
-                $"Connection string '{RabbitMqMessagingOptions.ConnectionStringName}' must be an absolute RabbitMQ URI.");
+            failures.Add($"Connection string '{RabbitMqMessagingOptions.ConnectionStringName}' must be an absolute RabbitMQ URI.");
         }
         else if (!IsRabbitMqScheme(hostAddress.Scheme))
         {
-            failures.Add(
-                $"Connection string '{RabbitMqMessagingOptions.ConnectionStringName}' must use a RabbitMQ URI scheme.");
+            failures.Add($"Connection string '{RabbitMqMessagingOptions.ConnectionStringName}' must use a RabbitMQ URI scheme.");
         }
         else if (hostAddress.Port == 0)
         {
-            failures.Add(
-                $"Connection string '{RabbitMqMessagingOptions.ConnectionStringName}' cannot use port 0.");
+            failures.Add($"Connection string '{RabbitMqMessagingOptions.ConnectionStringName}' cannot use port 0.");
         }
         else if (!IsSecureScheme(hostAddress.Scheme) && hostAddress.Port == 5671)
         {
-            failures.Add(
-                $"Connection string '{RabbitMqMessagingOptions.ConnectionStringName}' cannot use an insecure URI scheme with TLS port 5671.");
+            failures.Add($"Connection string '{RabbitMqMessagingOptions.ConnectionStringName}' cannot use an insecure URI scheme with TLS port 5671.");
         }
         else if (options.UseTls && !IsSecureScheme(hostAddress.Scheme))
         {
@@ -48,28 +44,41 @@ internal static class RabbitMqMessagingOptionsValidator
                 $"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.UseTls)}' is enabled.");
         }
 
-        if (options.OutboxQueryDelay <= TimeSpan.Zero)
-        {
-            failures.Add(
-                $"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.OutboxQueryDelay)}' must be positive.");
-        }
-
-        if (options.DuplicateDetectionWindow <= TimeSpan.Zero)
-        {
-            failures.Add(
-                $"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.DuplicateDetectionWindow)}' must be positive.");
-        }
-        else if (options.DuplicateDetectionWindow < options.OutboxQueryDelay)
+        ValidatePositive(options.OutboxQueryDelay, nameof(options.OutboxQueryDelay), failures);
+        ValidatePositive(options.DuplicateDetectionWindow, nameof(options.DuplicateDetectionWindow), failures);
+        if (options.DuplicateDetectionWindow < options.OutboxQueryDelay)
         {
             failures.Add(
                 $"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.DuplicateDetectionWindow)}' must be " +
                 $"greater than or equal to '{nameof(RabbitMqMessagingOptions.OutboxQueryDelay)}'.");
         }
 
-        if (options.Port is 0)
+        ValidateIntervals(options.RetryIntervals, nameof(options.RetryIntervals), TimeSpan.FromSeconds(30), failures);
+        ValidateIntervals(options.RedeliveryIntervals, nameof(options.RedeliveryIntervals), TimeSpan.FromDays(1), failures);
+        ValidatePositive(options.StartTimeout, nameof(options.StartTimeout), failures);
+        ValidatePositive(options.StopTimeout, nameof(options.StopTimeout), failures);
+        ValidatePositive(options.ConsumerStopTimeout, nameof(options.ConsumerStopTimeout), failures);
+
+        if (options.ConsumerStopTimeout > options.StopTimeout)
         {
             failures.Add(
-                $"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.Port)}' must be greater than 0 when configured.");
+                $"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.ConsumerStopTimeout)}' must not exceed '{nameof(RabbitMqMessagingOptions.StopTimeout)}'.");
+        }
+
+        if (options.PrefetchCount == 0)
+        {
+            failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.PrefetchCount)}' must be greater than zero.");
+        }
+
+        if (options.ConcurrentMessageLimit == 0 || options.ConcurrentMessageLimit > options.PrefetchCount)
+        {
+            failures.Add(
+                $"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.ConcurrentMessageLimit)}' must be between 1 and PrefetchCount.");
+        }
+
+        if (options.Port is 0)
+        {
+            failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.Port)}' must be greater than 0 when configured.");
         }
         else if (!options.UseTls && options.Port is 5671)
         {
@@ -78,11 +87,9 @@ internal static class RabbitMqMessagingOptionsValidator
                 $"'{nameof(RabbitMqMessagingOptions.UseTls)}' is disabled.");
         }
 
-        if (options.TlsServerName is not null &&
-            string.IsNullOrWhiteSpace(options.TlsServerName))
+        if (options.TlsServerName is not null && string.IsNullOrWhiteSpace(options.TlsServerName))
         {
-            failures.Add(
-                $"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.TlsServerName)}' cannot be blank when configured.");
+            failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.TlsServerName)}' cannot be blank when configured.");
         }
 
         if (failures.Count != 0)
@@ -96,9 +103,33 @@ internal static class RabbitMqMessagingOptionsValidator
         return hostAddress;
     }
 
-    private static void ValidateHostOptions(
-        RabbitMqMessagingOptions options,
+    private static void ValidateIntervals(
+        IReadOnlyCollection<TimeSpan>? intervals,
+        string propertyName,
+        TimeSpan maximumInterval,
         ICollection<string> failures)
+    {
+        if (intervals is null || intervals.Count == 0)
+        {
+            failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{propertyName}' must contain at least one interval.");
+            return;
+        }
+
+        if (intervals.Count > 10 || intervals.Any(interval => interval <= TimeSpan.Zero || interval > maximumInterval))
+        {
+            failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{propertyName}' must contain 1-10 positive, bounded intervals.");
+        }
+    }
+
+    private static void ValidatePositive(TimeSpan value, string propertyName, ICollection<string> failures)
+    {
+        if (value <= TimeSpan.Zero)
+        {
+            failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{propertyName}' must be positive.");
+        }
+    }
+
+    private static void ValidateHostOptions(RabbitMqMessagingOptions options, ICollection<string> failures)
     {
         AddRequiredFailure(options.Host, nameof(RabbitMqMessagingOptions.Host), failures);
         AddRequiredFailure(options.VirtualHost, nameof(RabbitMqMessagingOptions.VirtualHost), failures);
@@ -106,10 +137,7 @@ internal static class RabbitMqMessagingOptionsValidator
         AddRequiredFailure(options.Password, nameof(RabbitMqMessagingOptions.Password), failures);
     }
 
-    private static void AddRequiredFailure(
-        string value,
-        string propertyName,
-        ICollection<string> failures)
+    private static void AddRequiredFailure(string value, string propertyName, ICollection<string> failures)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
