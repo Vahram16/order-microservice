@@ -11,7 +11,9 @@ RUN set -eux; \
     chmod 0644 /plugins/${DELAYED_MESSAGE_EXCHANGE_FILE}; \
     chown rabbitmq:rabbitmq /plugins/${DELAYED_MESSAGE_EXCHANGE_FILE}; \
     rabbitmq-plugins enable --offline rabbitmq_delayed_message_exchange rabbitmq_prometheus; \
-    rm -f /var/lib/rabbitmq/.erlang.cookie
+    rm -f /var/lib/rabbitmq/.erlang.cookie; \
+    chown -R rabbitmq:rabbitmq /var/lib/rabbitmq; \
+    chmod 0750 /var/lib/rabbitmq
 
 COPY --chown=rabbitmq:rabbitmq rabbitmq.conf /etc/rabbitmq/rabbitmq.conf
 
