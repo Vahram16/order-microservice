@@ -78,7 +78,12 @@ internal static class RabbitMqMessagingOptionsValidator
 
         foreach (var consumer in options.Consumers)
         {
-            ValidateConsumerPolicy(consumer.Key, consumer.Value, failures);
+            ValidateConsumerPolicy(
+                consumer.Key,
+                consumer.Value,
+                options.PrefetchCount,
+                options.ConcurrentMessageLimit,
+                failures);
         }
 
         if (options.Port is 0)
@@ -89,7 +94,7 @@ internal static class RabbitMqMessagingOptionsValidator
         {
             failures.Add(
                 $"'{RabbitMqMessagingOptions.SectionName}:{nameof(RabbitMqMessagingOptions.Port)}' cannot be 5671 when " +
-                $"'{nameof(RabbitMqMessagingOptionsOptions.UseTls)}' is disabled.");
+                $"'{nameof(RabbitMqMessagingOptions.UseTls)}' is disabled.");
         }
 
         if (options.TlsServerName is not null && string.IsNullOrWhiteSpace(options.TlsServerName))
@@ -110,7 +115,9 @@ internal static class RabbitMqMessagingOptionsValidator
 
     private static void ValidateConsumerPolicy(
         string endpointName,
-        ConsumerFailurePolicyOptions policy,
+        ConsumerDeliveryPolicyOptions policy,
+        ushort globalPrefetchCount,
+        ushort globalConcurrentMessageLimit,
         List<string> failures)
     {
         if (string.IsNullOrWhiteSpace(endpointName))
@@ -130,13 +137,14 @@ internal static class RabbitMqMessagingOptionsValidator
             ValidateIntervals(policy.RedeliveryIntervals, $"{prefix}:{nameof(policy.RedeliveryIntervals)}", TimeSpan.FromDays(1), failures);
         }
 
-        var prefetch = policy.PrefetchCount ?? 1;
-        if (policy.PrefetchCount is 0)
+        var prefetch = policy.PrefetchCount ?? globalPrefetchCount;
+        var concurrency = policy.ConcurrentMessageLimit ?? globalConcurrentMessageLimit;
+        if (prefetch == 0)
         {
             failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{prefix}:{nameof(policy.PrefetchCount)}' must be greater than zero.");
         }
 
-        if (policy.ConcurrentMessageLimit is 0 || policy.ConcurrentMessageLimit > prefetch)
+        if (concurrency == 0 || concurrency > prefetch)
         {
             failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{prefix}:{nameof(policy.ConcurrentMessageLimit)}' must be between 1 and PrefetchCount.");
         }
