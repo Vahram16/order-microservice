@@ -66,11 +66,33 @@ public static class RabbitMqMessagingExtensions
 
             registration.AddConfigureEndpointsCallback((context, name, endpoint) =>
             {
+                configureAutomaticEndpoint?.Invoke(context, name, endpoint);
+
                 var policy = ResolvePolicy(options, name);
                 var classifier = context.GetRequiredService<IConsumerExceptionClassifier>();
 
                 endpoint.PrefetchCount = policy.PrefetchCount;
                 endpoint.ConcurrentMessageLimit = policy.ConcurrentMessageLimit;
+
+                if (endpoint is IRabbitMqReceiveEndpointConfigurator rabbitEndpoint)
+                {
+                    ConfigureReceiveQueue(rabbitEndpoint, options, policy);
+                }
+
+                if (policy.RateLimit is not null)
+                {
+                    endpoint.UseRateLimit(
+                        policy.RateLimit.Value,
+                        policy.RateLimitInterval!.Value);
+                }
+
+                // Redelivery must wrap immediate retry so each broker redelivery receives the
+                // configured short retry sequence before the message is scheduled again.
+                endpoint.UseDelayedRedelivery(redelivery =>
+                {
+                    redelivery.Intervals(policy.RedeliveryIntervals);
+                    redelivery.Handle<Exception>(classifier.IsTransient);
+                });
 
                 endpoint.UseMessageRetry(retry =>
                 {
@@ -78,13 +100,6 @@ public static class RabbitMqMessagingExtensions
                     retry.Handle<Exception>(classifier.IsTransient);
                 });
 
-                endpoint.UseDelayedRedelivery(redelivery =>
-                {
-                    redelivery.Intervals(policy.RedeliveryIntervals);
-                    redelivery.Handle<Exception>(classifier.IsTransient);
-                });
-
-                configureAutomaticEndpoint?.Invoke(context, name, endpoint);
                 endpoint.UseEntityFrameworkOutbox<TDbContext>(context);
             });
 
@@ -121,6 +136,11 @@ public static class RabbitMqMessagingExtensions
                         });
                 }
 
+                rabbit.SendTopology.ConfigureErrorSettings = settings =>
+                    ConfigureFaultQueue(settings, options);
+                rabbit.SendTopology.ConfigureDeadLetterSettings = settings =>
+                    ConfigureFaultQueue(settings, options);
+
                 // Selected scheduler: RabbitMQ delayed-message exchange plugin. This keeps
                 // redelivery broker-backed and survives process restarts without an application
                 // scheduler database. Production brokers must install and enable the plugin.
@@ -130,6 +150,44 @@ public static class RabbitMqMessagingExtensions
         });
 
         return services;
+    }
+
+    private static void ConfigureReceiveQueue(
+        IRabbitMqReceiveEndpointConfigurator endpoint,
+        RabbitMqMessagingOptions options,
+        ResolvedConsumerDeliveryPolicy policy)
+    {
+        endpoint.Durable = true;
+        endpoint.AutoDelete = false;
+        endpoint.SingleActiveConsumer = policy.SingleActiveConsumer;
+
+        if (options.UseQuorumQueues)
+        {
+            endpoint.SetQuorumQueue();
+        }
+
+        endpoint.SetQueueArgument("x-message-ttl", options.QueueMessageTimeToLive);
+        endpoint.SetQueueArgument("x-max-length", options.QueueMaxLength);
+        endpoint.SetQueueArgument("x-max-length-bytes", options.QueueMaxLengthBytes);
+        endpoint.SetQueueArgument("x-overflow", "reject-publish");
+        endpoint.SetQueueArgument("x-delivery-limit", options.QueueDeliveryLimit);
+    }
+
+    private static void ConfigureFaultQueue(
+        IRabbitMqQueueBindingConfigurator settings,
+        RabbitMqMessagingOptions options)
+    {
+        settings.Durable = true;
+        settings.AutoDelete = false;
+
+        if (options.UseQuorumQueues)
+        {
+            settings.SetQuorumQueue();
+        }
+
+        settings.SetQueueArgument("x-message-ttl", options.FaultQueueRetention);
+        settings.SetQueueArgument("x-max-length", options.FaultQueueMaxLength);
+        settings.SetQueueArgument("x-delivery-limit", -1);
     }
 
     private static ResolvedConsumerDeliveryPolicy ResolvePolicy(
@@ -142,14 +200,20 @@ public static class RabbitMqMessagingExtensions
             consumer?.RetryIntervals ?? options.RetryIntervals,
             consumer?.RedeliveryIntervals ?? options.RedeliveryIntervals,
             consumer?.PrefetchCount ?? options.PrefetchCount,
-            consumer?.ConcurrentMessageLimit ?? options.ConcurrentMessageLimit);
+            consumer?.ConcurrentMessageLimit ?? options.ConcurrentMessageLimit,
+            consumer?.RateLimit,
+            consumer?.RateLimitInterval,
+            consumer?.SingleActiveConsumer ?? false);
     }
 
     private sealed record ResolvedConsumerDeliveryPolicy(
         TimeSpan[] RetryIntervals,
         TimeSpan[] RedeliveryIntervals,
         ushort PrefetchCount,
-        ushort ConcurrentMessageLimit);
+        ushort ConcurrentMessageLimit,
+        int? RateLimit,
+        TimeSpan? RateLimitInterval,
+        bool SingleActiveConsumer);
 
     private static void ConfigureTls(
         IRabbitMqHostConfigurator host,
