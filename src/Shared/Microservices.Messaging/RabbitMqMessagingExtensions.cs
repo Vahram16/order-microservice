@@ -15,42 +15,8 @@ public static class RabbitMqMessagingExtensions
 {
     /// <summary>
     /// Registers MassTransit using RabbitMQ with PostgreSQL-backed Entity Framework Core
-    /// bus and consumer outboxes.
+    /// bus and consumer outboxes, bounded transient retry, and bounded delayed redelivery.
     /// </summary>
-    /// <typeparam name="TDbContext">
-    /// The service-owned context used by the bus outbox and every automatically configured
-    /// receive endpoint. Its model must include the mappings added by
-    /// <see cref="AddMassTransitOutboxEntities"/>.
-    /// </typeparam>
-    /// <param name="services">The service collection.</param>
-    /// <param name="configuration">
-    /// Configuration containing either <c>ConnectionStrings:rabbitmq</c> or the
-    /// <c>Messaging</c> fallback settings.
-    /// </param>
-    /// <param name="endpointNamePrefix">
-    /// A stable lowercase kebab-case topology identifier for the service. Every replica must
-    /// use the same value. Do not include a machine, pod, process, deployment slot, or random
-    /// identifier. Changing this value changes receive queue names and is a topology migration.
-    /// The value is also used as the service-level RabbitMQ client connection label.
-    /// </param>
-    /// <param name="configureRegistrations">
-    /// Optionally registers MassTransit consumers, sagas, activities, and their definitions.
-    /// </param>
-    /// <param name="configureAutomaticEndpoint">
-    /// Optionally configures each registration-driven receive endpoint before the required
-    /// Entity Framework Core inbox/outbox middleware is attached.
-    /// </param>
-    /// <returns>The same service collection.</returns>
-    /// <remarks>
-    /// This helper supports receive endpoints created from MassTransit registrations by
-    /// <c>ConfigureEndpoints</c>. Raw <c>ReceiveEndpoint</c> declarations are intentionally not
-    /// exposed because they bypass the shared endpoint callback and its consumer inbox/outbox.
-    /// <typeparamref name="TDbContext"/> is deliberately the single transactional context for
-    /// this service. Business changes that must be atomic with message consumption must be saved
-    /// through that same scoped context; another context or database is outside the transaction.
-    /// Outside a consumer, publish or send through the scoped <see cref="IPublishEndpoint"/> or
-    /// <see cref="ISendEndpointProvider"/> before saving <typeparamref name="TDbContext"/>.
-    /// </remarks>
     public static IServiceCollection AddRabbitMqWithPostgresOutbox<TDbContext>(
         this IServiceCollection services,
         IConfiguration configuration,
@@ -68,6 +34,16 @@ public static class RabbitMqMessagingExtensions
         var rabbitHostAddress = RabbitMqMessagingOptionsValidator.ValidateAndGetHostAddress(
             options,
             rabbitConnectionString);
+
+        services.AddSingleton(options);
+        services.AddSingleton<IConsumerExceptionClassifier, ConsumerExceptionClassifier>();
+        services.Configure<MassTransitHostOptions>(host =>
+        {
+            host.WaitUntilStarted = true;
+            host.StartTimeout = options.StartTimeout;
+            host.StopTimeout = options.StopTimeout;
+            host.ConsumerStopTimeout = options.ConsumerStopTimeout;
+        });
 
         services.ConfigureOpenTelemetryTracerProvider(tracing =>
             tracing.AddSource(DiagnosticHeaders.DefaultListenerName));
@@ -90,6 +66,24 @@ public static class RabbitMqMessagingExtensions
 
             registration.AddConfigureEndpointsCallback((context, name, endpoint) =>
             {
+                var policy = ResolvePolicy(options, name);
+                var classifier = context.GetRequiredService<IConsumerExceptionClassifier>();
+
+                endpoint.PrefetchCount = policy.PrefetchCount;
+                endpoint.ConcurrentMessageLimit = policy.ConcurrentMessageLimit;
+
+                endpoint.UseMessageRetry(retry =>
+                {
+                    retry.Intervals(policy.RetryIntervals);
+                    retry.Handle<Exception>(classifier.IsTransient);
+                });
+
+                endpoint.UseDelayedRedelivery(redelivery =>
+                {
+                    redelivery.Intervals(policy.RedeliveryIntervals);
+                    redelivery.Handle<Exception>(classifier.IsTransient);
+                });
+
                 configureAutomaticEndpoint?.Invoke(context, name, endpoint);
                 endpoint.UseEntityFrameworkOutbox<TDbContext>(context);
             });
@@ -127,12 +121,35 @@ public static class RabbitMqMessagingExtensions
                         });
                 }
 
+                // Selected scheduler: RabbitMQ delayed-message exchange plugin. This keeps
+                // redelivery broker-backed and survives process restarts without an application
+                // scheduler database. Production brokers must install and enable the plugin.
+                rabbit.UseDelayedMessageScheduler();
                 rabbit.ConfigureEndpoints(context);
             });
         });
 
         return services;
     }
+
+    private static ResolvedConsumerDeliveryPolicy ResolvePolicy(
+        RabbitMqMessagingOptions options,
+        string endpointName)
+    {
+        options.Consumers.TryGetValue(endpointName, out var consumer);
+
+        return new ResolvedConsumerDeliveryPolicy(
+            consumer?.RetryIntervals ?? options.RetryIntervals,
+            consumer?.RedeliveryIntervals ?? options.RedeliveryIntervals,
+            consumer?.PrefetchCount ?? options.PrefetchCount,
+            consumer?.ConcurrentMessageLimit ?? options.ConcurrentMessageLimit);
+    }
+
+    private sealed record ResolvedConsumerDeliveryPolicy(
+        TimeSpan[] RetryIntervals,
+        TimeSpan[] RedeliveryIntervals,
+        ushort PrefetchCount,
+        ushort ConcurrentMessageLimit);
 
     private static void ConfigureTls(
         IRabbitMqHostConfigurator host,
@@ -147,7 +164,6 @@ public static class RabbitMqMessagingExtensions
         RabbitMqMessagingOptions options,
         string defaultServerName)
     {
-        // None delegates protocol selection to the operating-system security policy.
         ssl.Protocol = SslProtocols.None;
         ssl.ServerName = options.TlsServerName ?? defaultServerName;
         ssl.EnforcePolicyErrors(
@@ -174,14 +190,6 @@ public static class RabbitMqMessagingExtensions
         }
     }
 
-    /// <summary>
-    /// Adds MassTransit's inbox and outbox entity mappings to the Entity Framework Core model.
-    /// </summary>
-    /// <remarks>
-    /// Call this from <c>OnModelCreating</c> on the same context passed to
-    /// <see cref="AddRabbitMqWithPostgresOutbox{TDbContext}"/>, then create and deploy a migration
-    /// for the three infrastructure tables.
-    /// </remarks>
     public static void AddMassTransitOutboxEntities(this ModelBuilder modelBuilder)
     {
         modelBuilder.AddInboxStateEntity();
