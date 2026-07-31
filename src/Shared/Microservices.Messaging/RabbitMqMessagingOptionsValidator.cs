@@ -46,6 +46,7 @@ internal static class RabbitMqMessagingOptionsValidator
 
         ValidatePositive(options.OutboxQueryDelay, nameof(options.OutboxQueryDelay), failures);
         ValidatePositive(options.DuplicateDetectionWindow, nameof(options.DuplicateDetectionWindow), failures);
+        ValidatePositive(options.OutboxMetricsInterval, nameof(options.OutboxMetricsInterval), failures);
         if (options.DuplicateDetectionWindow < options.OutboxQueryDelay)
         {
             failures.Add(
