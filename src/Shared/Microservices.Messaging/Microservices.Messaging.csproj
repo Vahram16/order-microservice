@@ -13,6 +13,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../Microservices.Contracts/Microservices.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Microservices.Messaging.Tests" />
   </ItemGroup>
 
