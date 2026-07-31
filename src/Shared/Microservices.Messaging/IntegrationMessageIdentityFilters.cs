@@ -19,15 +19,24 @@ internal sealed class IntegrationMessageSendFilter<T> : IFilter<SendContext<T>>
     {
         if (context.Message is IIntegrationMessage message)
         {
-            IntegrationMessageIdentity.Validate(message);
-            context.MessageId = message.MessageId;
-            context.CorrelationId = message.CorrelationId;
-            context.Headers.Set(IntegrationMessageHeaders.ContractVersion, message.ContractVersion);
+            IntegrationMessageIdentity.Apply(context, message);
+        }
 
-            if (message.CausationId is not null)
-            {
-                context.Headers.Set(IntegrationMessageHeaders.CausationId, message.CausationId.Value);
-            }
+        return next.Send(context);
+    }
+
+    public void Probe(ProbeContext context) =>
+        context.CreateFilterScope("integrationMessageIdentity");
+}
+
+internal sealed class IntegrationMessagePublishFilter<T> : IFilter<PublishContext<T>>
+    where T : class
+{
+    public Task Send(PublishContext<T> context, IPipe<PublishContext<T>> next)
+    {
+        if (context.Message is IIntegrationMessage message)
+        {
+            IntegrationMessageIdentity.Apply(context, message);
         }
 
         return next.Send(context);
@@ -86,6 +95,19 @@ internal sealed class IntegrationMessageConsumeFilter<T> : IFilter<ConsumeContex
 
 internal static class IntegrationMessageIdentity
 {
+    public static void Apply(SendContext context, IIntegrationMessage message)
+    {
+        Validate(message);
+        context.MessageId = message.MessageId;
+        context.CorrelationId = message.CorrelationId;
+        context.Headers.Set(IntegrationMessageHeaders.ContractVersion, message.ContractVersion);
+
+        if (message.CausationId is not null)
+        {
+            context.Headers.Set(IntegrationMessageHeaders.CausationId, message.CausationId.Value);
+        }
+    }
+
     public static void Validate(IIntegrationMessage message)
     {
         ArgumentNullException.ThrowIfNull(message);
