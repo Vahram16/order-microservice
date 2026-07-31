@@ -125,6 +125,28 @@ jobs:
               | tee -a Logs/build.log
           done < <(find src -name '*.csproj' -type f | sort)
 
+      - name: Validate messaging observability artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m json.tool \
+            infrastructure/observability/grafana/messaging-reliability-dashboard.json \
+            >/dev/null
+
+          docker run --rm \
+            --entrypoint /bin/promtool \
+            --volume "$PWD/infrastructure/observability/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v3.12.0 \
+            check rules /etc/prometheus/messaging-alerts.yml 2>&1 \
+            | tee Logs/prometheus-rules.log
+
+          docker run --rm \
+            --entrypoint /bin/promtool \
+            --volume "$PWD/infrastructure/observability/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v3.12.0 \
+            check config /etc/prometheus/rabbitmq-scrape.yml 2>&1 \
+            | tee Logs/prometheus-config.log
+
       - name: Run tests
         shell: bash
         run: |
