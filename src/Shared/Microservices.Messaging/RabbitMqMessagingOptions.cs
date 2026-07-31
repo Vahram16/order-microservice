@@ -26,4 +26,33 @@ public sealed class RabbitMqMessagingOptions
     public TimeSpan OutboxQueryDelay { get; init; } = TimeSpan.FromSeconds(1);
 
     public TimeSpan DuplicateDetectionWindow { get; init; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>Short, in-memory retry intervals. Keep these bounded and brief.</summary>
+    public TimeSpan[] RetryIntervals { get; init; } =
+    [
+        TimeSpan.FromMilliseconds(200),
+        TimeSpan.FromSeconds(1),
+        TimeSpan.FromSeconds(3)
+    ];
+
+    /// <summary>
+    /// Broker-backed delayed redelivery intervals after immediate retries are exhausted.
+    /// RabbitMQ's delayed-message exchange plugin is required.
+    /// </summary>
+    public TimeSpan[] RedeliveryIntervals { get; init; } =
+    [
+        TimeSpan.FromSeconds(15),
+        TimeSpan.FromMinutes(1),
+        TimeSpan.FromMinutes(5)
+    ];
+
+    public ushort PrefetchCount { get; init; } = 32;
+
+    public ushort ConcurrentMessageLimit { get; init; } = 8;
+
+    public TimeSpan StartTimeout { get; init; } = TimeSpan.FromSeconds(30);
+
+    public TimeSpan StopTimeout { get; init; } = TimeSpan.FromSeconds(30);
+
+    public TimeSpan ConsumerStopTimeout { get; init; } = TimeSpan.FromSeconds(25);
 }
