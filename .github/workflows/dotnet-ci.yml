@@ -83,7 +83,7 @@ jobs:
 
             if curl --fail --silent --show-error \
               --user guest:guest \
-              http://localhost:15672/api/health/checks/ready >/dev/null; then
+              http://localhost:15672/api/overview >/dev/null; then
               exit 0
             fi
 
