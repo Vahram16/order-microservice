@@ -16,9 +16,14 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     env:
       CUSTOMER_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=customer_ci;Username=postgres;Password=postgres
+      MESSAGING_TEST_POSTGRES_CONNECTION_STRING: Host=localhost;Port=5432;Database=messaging_ci;Username=postgres;Password=postgres
+      MESSAGING_TEST_RABBITMQ_CONNECTION_STRING: amqp://guest:guest@localhost:5672/
+      MESSAGING_TEST_RABBITMQ_API: http://localhost:15672
+      MESSAGING_TEST_RABBITMQ_USERNAME: guest
+      MESSAGING_TEST_RABBITMQ_PASSWORD: guest
     services:
       postgres:
         image: postgres:18
@@ -44,6 +49,51 @@ jobs:
           global-json-file: global.json
           cache: true
           cache-dependency-path: Directory.Packages.props
+
+      - name: Build RabbitMQ test image
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p Logs
+          docker build \
+            --progress=plain \
+            --file infrastructure/rabbitmq/Containerfile \
+            --tag order-rabbitmq:ci \
+            infrastructure/rabbitmq 2>&1 | tee Logs/rabbitmq-image.log
+
+      - name: Start RabbitMQ
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name rabbitmq-ci \
+            --publish 5672:5672 \
+            --publish 15672:15672 \
+            --publish 15692:15692 \
+            --env RABBITMQ_DEFAULT_USER=guest \
+            --env RABBITMQ_DEFAULT_PASS=guest \
+            order-rabbitmq:ci
+
+          for attempt in $(seq 1 30); do
+            if docker exec rabbitmq-ci rabbitmq-diagnostics --quiet ping; then
+              exit 0
+            fi
+
+            sleep 2
+          done
+
+          docker logs rabbitmq-ci
+          exit 1
+
+      - name: Create messaging test database
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec postgres psql \
+            --username postgres \
+            --dbname postgres \
+            --command 'CREATE DATABASE messaging_ci;' 2>&1 \
+            | tee Logs/messaging-database.log
 
       - name: Restore projects
         shell: bash
@@ -95,6 +145,15 @@ jobs:
           set -euo pipefail
           bash scripts/verify-keycloak-development.sh 2>&1 \
             | tee Logs/keycloak-development.log
+
+      - name: Capture RabbitMQ diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p Logs
+          docker logs rabbitmq-ci > Logs/rabbitmq.log 2>&1 || true
+          docker exec rabbitmq-ci rabbitmq-diagnostics status > Logs/rabbitmq-status.log 2>&1 || true
+          docker exec rabbitmq-ci rabbitmq-plugins list --enabled > Logs/rabbitmq-plugins.log 2>&1 || true
 
       - name: Upload CI diagnostics
         if: always()
