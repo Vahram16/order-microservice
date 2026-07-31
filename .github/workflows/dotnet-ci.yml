@@ -72,10 +72,18 @@ jobs:
             --publish 15692:15692 \
             --env RABBITMQ_DEFAULT_USER=guest \
             --env RABBITMQ_DEFAULT_PASS=guest \
+            --env RABBITMQ_ERLANG_COOKIE=messaging-ci-cookie-not-a-secret \
             order-rabbitmq:ci
 
           for attempt in $(seq 1 30); do
-            if docker exec rabbitmq-ci rabbitmq-diagnostics --quiet ping; then
+            if ! docker inspect --format '{{.State.Running}}' rabbitmq-ci | grep --quiet true; then
+              docker logs rabbitmq-ci
+              exit 1
+            fi
+
+            if curl --fail --silent --show-error \
+              --user guest:guest \
+              http://localhost:15672/api/health/checks/ready >/dev/null; then
               exit 0
             fi
 
