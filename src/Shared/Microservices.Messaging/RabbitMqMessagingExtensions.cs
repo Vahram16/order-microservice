@@ -38,6 +38,10 @@ public static class RabbitMqMessagingExtensions
 
         services.AddSingleton(options);
         services.AddSingleton<IConsumerExceptionClassifier, ConsumerExceptionClassifier>();
+        services.AddSingleton<ConsumerDeliveryMetricsFilter>();
+        services.AddSingleton<OutboxMetricsCollector<TDbContext>>();
+        services.AddHostedService(provider =>
+            provider.GetRequiredService<OutboxMetricsCollector<TDbContext>>());
         services.Configure<MassTransitHostOptions>(host =>
         {
             host.WaitUntilStarted = true;
@@ -49,7 +53,10 @@ public static class RabbitMqMessagingExtensions
         services.ConfigureOpenTelemetryTracerProvider(tracing =>
             tracing.AddSource(DiagnosticHeaders.DefaultListenerName));
         services.ConfigureOpenTelemetryMeterProvider(metrics =>
-            metrics.AddMeter(InstrumentationOptions.MeterName));
+        {
+            metrics.AddMeter(InstrumentationOptions.MeterName);
+            metrics.AddMeter(MessagingInstrumentation.MeterName);
+        });
 
         services.AddMassTransit(registration =>
         {
@@ -101,6 +108,7 @@ public static class RabbitMqMessagingExtensions
                     retry.Handle<Exception>(classifier.IsTransient);
                 });
 
+                endpoint.UseFilter(context.GetRequiredService<ConsumerDeliveryMetricsFilter>());
                 endpoint.UseEntityFrameworkOutbox<TDbContext>(context);
             });
 
