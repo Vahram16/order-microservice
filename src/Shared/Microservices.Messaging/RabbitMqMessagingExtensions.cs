@@ -3,6 +3,7 @@ using System.Security.Authentication;
 using MassTransit;
 using MassTransit.Logging;
 using MassTransit.Monitoring;
+using Microservices.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -135,6 +136,22 @@ public static class RabbitMqMessagingExtensions
                             }
                         });
                 }
+
+                rabbit.UsePublishFilter(
+                    typeof(IntegrationMessagePublishFilter<>),
+                    context,
+                    filter => filter.Include(type =>
+                        typeof(IIntegrationMessage).IsAssignableFrom(type)));
+                rabbit.UseSendFilter(
+                    typeof(IntegrationMessageSendFilter<>),
+                    context,
+                    filter => filter.Include(type =>
+                        typeof(IIntegrationMessage).IsAssignableFrom(type)));
+                rabbit.UseConsumeFilter(
+                    typeof(IntegrationMessageConsumeFilter<>),
+                    context,
+                    filter => filter.Include(type =>
+                        typeof(IIntegrationMessage).IsAssignableFrom(type)));
 
                 rabbit.SendTopology.ConfigureErrorSettings = settings =>
                     ConfigureFaultQueue(settings, options);
