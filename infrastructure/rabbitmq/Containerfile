@@ -1,0 +1,14 @@
+FROM rabbitmq:4.2.9-management
+
+ARG DELAYED_MESSAGE_EXCHANGE_VERSION=4.2.0
+ARG DELAYED_MESSAGE_EXCHANGE_FILE=rabbitmq_delayed_message_exchange-4.2.0.ez
+
+ADD https://github.com/rabbitmq/rabbitmq-delayed-message-exchange/releases/download/v${DELAYED_MESSAGE_EXCHANGE_VERSION}/${DELAYED_MESSAGE_EXCHANGE_FILE} /plugins/${DELAYED_MESSAGE_EXCHANGE_FILE}
+
+RUN set -eux; \
+    sha256sum /plugins/${DELAYED_MESSAGE_EXCHANGE_FILE}; \
+    rabbitmq-plugins enable --offline rabbitmq_delayed_message_exchange rabbitmq_prometheus
+
+COPY rabbitmq.conf /etc/rabbitmq/rabbitmq.conf
+
+EXPOSE 5672 15672 15692
