@@ -1,0 +1,20 @@
+FROM rabbitmq:4.2.9-management@sha256:32a3085d1e8f274d8fe07c9a9850384cbeadb7a5f5eef1b520ee6c3b7850b503
+
+ARG DELAYED_MESSAGE_EXCHANGE_VERSION=4.2.0
+ARG DELAYED_MESSAGE_EXCHANGE_FILE=rabbitmq_delayed_message_exchange-4.2.0.ez
+ARG DELAYED_MESSAGE_EXCHANGE_SHA256=f168b2c09810cde3726961d31f38e3408e6a7fbff3929908d6f962061d8e70a1
+
+ADD https://github.com/rabbitmq/rabbitmq-delayed-message-exchange/releases/download/v${DELAYED_MESSAGE_EXCHANGE_VERSION}/${DELAYED_MESSAGE_EXCHANGE_FILE} /plugins/${DELAYED_MESSAGE_EXCHANGE_FILE}
+
+RUN set -eux; \
+    echo "${DELAYED_MESSAGE_EXCHANGE_SHA256}  /plugins/${DELAYED_MESSAGE_EXCHANGE_FILE}" | sha256sum --check --strict; \
+    chmod 0644 /plugins/${DELAYED_MESSAGE_EXCHANGE_FILE}; \
+    chown rabbitmq:rabbitmq /plugins/${DELAYED_MESSAGE_EXCHANGE_FILE}; \
+    rabbitmq-plugins enable --offline rabbitmq_delayed_message_exchange rabbitmq_prometheus; \
+    rm -f /var/lib/rabbitmq/.erlang.cookie; \
+    chown -R rabbitmq:rabbitmq /var/lib/rabbitmq; \
+    chmod 0750 /var/lib/rabbitmq
+
+COPY --chown=rabbitmq:rabbitmq rabbitmq.conf /etc/rabbitmq/rabbitmq.conf
+
+EXPOSE 5672 15672 15692
