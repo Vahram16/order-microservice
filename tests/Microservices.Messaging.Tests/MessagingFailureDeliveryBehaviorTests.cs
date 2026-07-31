@@ -16,12 +16,12 @@ using Npgsql;
 namespace Microservices.Messaging.Tests;
 
 [CollectionDefinition(Name, DisableParallelization = true)]
-public sealed class MessagingBehaviorCollection : ICollectionFixture<MessagingBehaviorFixture>
+public sealed class MessagingBehaviorTestGroup : ICollectionFixture<MessagingBehaviorFixture>
 {
     public const string Name = "messaging-behavior";
 }
 
-[Collection(MessagingBehaviorCollection.Name)]
+[Collection(MessagingBehaviorTestGroup.Name)]
 public sealed class MessagingFailureDeliveryBehaviorTests(MessagingBehaviorFixture fixture)
 {
     [Fact]
@@ -147,7 +147,7 @@ public sealed class MessagingFailureDeliveryBehaviorTests(MessagingBehaviorFixtu
 
     [Fact]
     public Task GracefulShutdownDrainsActiveConsumer() =>
-        fixture.VerifyGracefulDrainAsync();
+        MessagingBehaviorFixture.VerifyGracefulDrainAsync();
 }
 
 public sealed class MessagingBehaviorFixture : IAsyncLifetime
@@ -271,7 +271,7 @@ public sealed class MessagingBehaviorFixture : IAsyncLifetime
             $"{EndpointName<TConsumer>()}_error",
             minimumMessages: 1);
 
-    public async Task VerifyGracefulDrainAsync()
+    public static async Task VerifyGracefulDrainAsync()
     {
         var postgres = RequiredEnvironmentVariable(PostgreSqlEnvironmentVariable);
         var rabbitMq = RequiredEnvironmentVariable(RabbitMqEnvironmentVariable);
@@ -375,8 +375,8 @@ public sealed class MessagingBehaviorFixture : IAsyncLifetime
     }
 
     private static void SetConsumerIntervals<TConsumer>(
-        IDictionary<string, string?> values,
-        IEndpointNameFormatter formatter,
+        Dictionary<string, string?> values,
+        KebabCaseEndpointNameFormatter formatter,
         IReadOnlyList<TimeSpan> retryIntervals,
         IReadOnlyList<TimeSpan> redeliveryIntervals)
         where TConsumer : class, IConsumer
@@ -566,7 +566,7 @@ public sealed class RetrySuccessConsumer(
     {
         if (probe.RecordAttempt(context.Message.MessageId) < 3)
         {
-            throw new TestTransientFailure();
+            throw new TestTransientException();
         }
 
         dbContext.Effects.Add(new MessagingEffect(context.Message.MessageId, 1));
@@ -580,7 +580,7 @@ public sealed class PermanentFailureConsumer(DeliveryProbe probe) : IConsumer<Pe
     public Task Consume(ConsumeContext<PermanentFailure> context)
     {
         probe.RecordAttempt(context.Message.MessageId);
-        throw new TestPermanentFailure();
+        throw new TestPermanentException();
     }
 }
 
@@ -589,7 +589,7 @@ public sealed class RetryExhaustionConsumer(DeliveryProbe probe) : IConsumer<Ret
     public Task Consume(ConsumeContext<RetryExhaustion> context)
     {
         probe.RecordAttempt(context.Message.MessageId);
-        throw new TestTransientFailure();
+        throw new TestTransientException();
     }
 }
 
@@ -598,7 +598,7 @@ public sealed class RedeliveryConsumer(DeliveryProbe probe) : IConsumer<Redelive
     public Task Consume(ConsumeContext<RedeliveryFailure> context)
     {
         probe.RecordAttempt(context.Message.MessageId);
-        throw new TestTransientFailure();
+        throw new TestTransientException();
     }
 }
 
@@ -648,7 +648,7 @@ public sealed class DatabaseRecoveryConsumer(
                 throw;
             }
 
-            throw new TestTransientFailure();
+            throw new TestTransientException();
         }
 
         dbContext.Effects.Add(new MessagingEffect(context.Message.MessageId, 1));
@@ -679,9 +679,9 @@ public sealed class DrainGate
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 }
 
-public sealed class TestTransientFailure : Exception, ITransientConsumerFailure;
+public sealed class TestTransientException : Exception, ITransientConsumerFailure;
 
-public sealed class TestPermanentFailure : Exception, IPermanentConsumerFailure;
+public sealed class TestPermanentException : Exception, IPermanentConsumerFailure;
 
 public sealed record RetrySuccess(
     Guid MessageId,
