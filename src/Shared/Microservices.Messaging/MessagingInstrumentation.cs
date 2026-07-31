@@ -37,10 +37,11 @@ internal static class MessagingInstrumentation
         description: "Failures while collecting PostgreSQL outbox backlog metrics.");
 }
 
-internal sealed class ConsumerDeliveryMetricsFilter(
-    IConsumerExceptionClassifier classifier) : IFilter<ConsumeContext>
+internal sealed class ConsumerDeliveryMetricsFilter<T>(
+    IConsumerExceptionClassifier classifier) : IFilter<ConsumeContext<T>>
+    where T : class
 {
-    public async Task Send(ConsumeContext context, IPipe<ConsumeContext> next)
+    public async Task Send(ConsumeContext<T> context, IPipe<ConsumeContext<T>> next)
     {
         var endpoint = context.ReceiveContext.InputAddress.AbsolutePath.Trim('/');
         var retryAttempt = context.GetRetryAttempt();
@@ -48,7 +49,7 @@ internal sealed class ConsumerDeliveryMetricsFilter(
         var tags = new TagList
         {
             { "messaging.destination.name", endpoint },
-            { "messaging.message.type", context.Message.GetType().FullName ?? context.Message.GetType().Name }
+            { "messaging.message.type", typeof(T).FullName ?? typeof(T).Name }
         };
 
         if (retryAttempt > 0)
