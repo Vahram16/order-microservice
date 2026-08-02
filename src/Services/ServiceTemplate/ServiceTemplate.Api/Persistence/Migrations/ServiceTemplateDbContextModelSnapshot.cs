@@ -157,6 +157,14 @@ namespace ServiceTemplate.Api.Persistence.Migrations
                     b.HasIndex("InboxMessageId", "InboxConsumerId", "SequenceNumber")
                         .IsUnique();
 
+                    b.HasIndex("SentTime", "OutboxId")
+                        .HasDatabaseName("IX_OutboxMessage_BusPending_SentTime")
+                        .HasFilter("\"OutboxId\" IS NOT NULL");
+
+                    b.HasIndex("SentTime", "InboxMessageId", "InboxConsumerId")
+                        .HasDatabaseName("IX_OutboxMessage_ConsumerPending_SentTime")
+                        .HasFilter("\"OutboxId\" IS NULL AND \"InboxMessageId\" IS NOT NULL AND \"InboxConsumerId\" IS NOT NULL");
+
                     b.ToTable("OutboxMessage");
                 });
 
