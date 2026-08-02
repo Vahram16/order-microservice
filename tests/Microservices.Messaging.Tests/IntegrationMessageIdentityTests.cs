@@ -1,3 +1,5 @@
+using System.Text.Json;
+using MassTransit;
 using Microservices.Contracts;
 using Microservices.Messaging;
 
@@ -6,73 +8,75 @@ namespace Microservices.Messaging.Tests;
 public sealed class IntegrationMessageIdentityTests
 {
     [Fact]
-    public void ValidationAcceptsCompleteStableIdentity()
+    public void CanonicalContractDoesNotRequireTransportMetadataInPayload()
     {
-        var message = new TestIntegrationMessage(
-            Guid.NewGuid(),
-            Guid.NewGuid(),
-            Guid.NewGuid(),
-            ContractVersion: 1);
+        var propertyNames = typeof(IIntegrationMessage)
+            .GetProperties()
+            .Select(property => property.Name)
+            .ToArray();
 
-        IntegrationMessageIdentity.Validate(message);
+        Assert.Empty(propertyNames);
     }
 
     [Fact]
-    public void ValidationRejectsEmptyMessageIdAsPermanentFailure()
+    public void HistoricalPayloadWithUnknownAdditiveFieldStillDeserializes()
     {
-        var message = ValidMessage() with { MessageId = Guid.Empty };
+        const string historicalPayload =
+            """
+            {
+              "orderId": "8a625563-23d6-4f89-9708-a98bb5070cc5",
+              "status": "accepted",
+              "occurredAtUtc": "2026-07-31T12:34:56+00:00",
+              "retiredOptionalField": "ignored"
+            }
+            """;
 
-        var exception = Assert.Throws<IntegrationMessageIdentityException>(() =>
-            IntegrationMessageIdentity.Validate(message));
+        var message = JsonSerializer.Deserialize<OrderAcceptedV1>(
+            historicalPayload,
+            IntegrationContractJson.CreateOptions());
 
-        Assert.IsAssignableFrom<IPermanentConsumerFailure>(exception);
+        Assert.NotNull(message);
+        Assert.Equal(Guid.Parse("8a625563-23d6-4f89-9708-a98bb5070cc5"), message.OrderId);
+        Assert.Equal("accepted", message.Status);
     }
 
     [Fact]
-    public void ValidationRejectsEmptyCorrelationIdAsPermanentFailure()
+    public void BreakingContractVersionUsesDistinctMessageIdentity()
     {
-        var message = ValidMessage() with { CorrelationId = Guid.Empty };
+        var versionOne = MessageUrn.ForType<Contracts.V1.OrderAccepted>();
+        var versionTwo = MessageUrn.ForType<Contracts.V2.OrderAccepted>();
 
-        var exception = Assert.Throws<IntegrationMessageIdentityException>(() =>
-            IntegrationMessageIdentity.Validate(message));
-
-        Assert.IsAssignableFrom<IPermanentConsumerFailure>(exception);
+        Assert.NotEqual(versionOne, versionTwo);
     }
 
     [Fact]
-    public void ValidationRejectsEmptyCausationIdAsPermanentFailure()
+    public void ApplicationHeadersCannotOverrideTransportIdentity()
     {
-        var message = ValidMessage() with { CausationId = Guid.Empty };
+        var headers = new Dictionary<string, string>
+        {
+            [IntegrationTransportHeaders.CausationId] = Guid.NewGuid().ToString()
+        };
 
-        var exception = Assert.Throws<IntegrationMessageIdentityException>(() =>
-            IntegrationMessageIdentity.Validate(message));
+        var exception = Assert.Throws<ArgumentException>(() =>
+            IntegrationTransportHeaders.ValidateApplicationHeaders(headers));
 
-        Assert.IsAssignableFrom<IPermanentConsumerFailure>(exception);
+        Assert.Contains("transport-owned", exception.Message, StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData(0)]
-    [InlineData(-1)]
-    public void ValidationRejectsNonPositiveContractVersion(int contractVersion)
-    {
-        var message = ValidMessage() with { ContractVersion = contractVersion };
+    private sealed record OrderAcceptedV1(
+        Guid OrderId,
+        string Status,
+        DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
+}
 
-        var exception = Assert.Throws<IntegrationMessageIdentityException>(() =>
-            IntegrationMessageIdentity.Validate(message));
+namespace Microservices.Messaging.Tests.Contracts.V1
+{
+    internal sealed record OrderAccepted(Guid OrderId, DateTimeOffset OccurredAtUtc)
+        : IIntegrationEvent;
+}
 
-        Assert.IsAssignableFrom<IPermanentConsumerFailure>(exception);
-    }
-
-    private static TestIntegrationMessage ValidMessage() =>
-        new(
-            Guid.NewGuid(),
-            Guid.NewGuid(),
-            null,
-            ContractVersion: 1);
-
-    private sealed record TestIntegrationMessage(
-        Guid MessageId,
-        Guid CorrelationId,
-        Guid? CausationId,
-        int ContractVersion) : IIntegrationMessage;
+namespace Microservices.Messaging.Tests.Contracts.V2
+{
+    internal sealed record OrderAccepted(Guid OrderId, string Currency, DateTimeOffset OccurredAtUtc)
+        : IIntegrationEvent;
 }
