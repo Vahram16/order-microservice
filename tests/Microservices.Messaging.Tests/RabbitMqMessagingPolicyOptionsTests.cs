@@ -10,6 +10,28 @@ public sealed class RabbitMqMessagingPolicyOptionsTests
         "amqps://guest:secret@rabbitmq.example:5671/";
 
     [Fact]
+    public void ConfiguredDeliveryIntervalsReplaceDefaultsInsteadOfAppending()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Messaging:RetryIntervals:0"] = "00:00:00.020",
+                ["Messaging:RedeliveryIntervals:0"] = "00:00:00.200"
+            })
+            .Build();
+
+        var options = RabbitMqMessagingOptionsBinder.Bind(configuration);
+
+        Assert.Equal([TimeSpan.FromMilliseconds(20)], options.RetryIntervals);
+        Assert.Equal([TimeSpan.FromMilliseconds(200)], options.RedeliveryIntervals);
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(240),
+            RabbitMqMessagingOptionsValidator.CalculateRetryAndRedeliveryDelay(
+                options.RetryIntervals,
+                options.RedeliveryIntervals));
+    }
+
+    [Fact]
     public void RemovedReceiveQueueTtlConfigurationFailsStartupValidation()
     {
         var configuration = new ConfigurationBuilder()
