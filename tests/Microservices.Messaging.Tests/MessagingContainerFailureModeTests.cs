@@ -30,7 +30,7 @@ public sealed class MessagingContainerFailureModeTests
             startTimeout: TimeSpan.FromSeconds(1));
 
         var elapsed = Stopwatch.StartNew();
-        await Assert.ThrowsAnyAsync<Exception>(() => host.StartAsync()).ConfigureAwait(false);
+        await Assert.ThrowsAnyAsync<Exception>(() => host.StartAsync());
 
         Assert.InRange(elapsed.Elapsed, TimeSpan.Zero, TimeSpan.FromSeconds(10));
     }
@@ -44,7 +44,7 @@ public sealed class MessagingContainerFailureModeTests
             .WithPortBinding(5672, true)
             .WithWaitStrategy(Wait.ForUnixContainer().UntilExternalTcpPortIsAvailable(5672))
             .Build();
-        await rabbit.StartAsync().ConfigureAwait(false);
+        await rabbit.StartAsync();
 
         var connectionString = RabbitConnectionString(rabbit);
         using var host = BuildHost(
@@ -54,8 +54,7 @@ public sealed class MessagingContainerFailureModeTests
             new DeliveryProbe(),
             startTimeout: TimeSpan.FromSeconds(5));
 
-        var exception = await Assert.ThrowsAnyAsync<Exception>(() => host.StartAsync())
-            .ConfigureAwait(false);
+        var exception = await Assert.ThrowsAnyAsync<Exception>(() => host.StartAsync());
         var text = exception.ToString();
 
         Assert.True(
@@ -74,8 +73,8 @@ public sealed class MessagingContainerFailureModeTests
             .WithPassword("postgres")
             .Build();
         await using var rabbit = BuildProductionRabbitMqContainer();
-        await postgres.StartAsync().ConfigureAwait(false);
-        await rabbit.StartAsync().ConfigureAwait(false);
+        await postgres.StartAsync();
+        await rabbit.StartAsync();
 
         var prefix = $"outbox-recovery-{Guid.NewGuid():N}"[..46];
         var message = ReliabilityMessageFactory.OutboxProduced();
@@ -86,34 +85,33 @@ public sealed class MessagingContainerFailureModeTests
                    prefix,
                    firstProbe))
         {
-            await RecreateDatabaseAsync(firstHost.Services).ConfigureAwait(false);
-            await firstHost.StartAsync().ConfigureAwait(false);
-            await rabbit.StopAsync().ConfigureAwait(false);
+            await RecreateDatabaseAsync(firstHost.Services);
+            await firstHost.StartAsync();
+            await rabbit.StopAsync();
 
             await using var scope = firstHost.Services.CreateAsyncScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<ReliabilityDbContext>();
             var publisher = scope.ServiceProvider.GetRequiredService<IIntegrationMessagePublisher>();
-            await using var transaction = await dbContext.Database.BeginTransactionAsync()
-                .ConfigureAwait(false);
-            await publisher.PublishAsync(message).ConfigureAwait(false);
-            await dbContext.SaveChangesAsync().ConfigureAwait(false);
-            await transaction.CommitAsync().ConfigureAwait(false);
+            await using var transaction = await dbContext.Database.BeginTransactionAsync();
+            await publisher.PublishAsync(message);
+            await dbContext.SaveChangesAsync();
+            await transaction.CommitAsync();
 
-            Assert.True(await dbContext.Set<OutboxMessage>().AnyAsync().ConfigureAwait(false));
-            await StopIgnoringBrokerFailureAsync(firstHost).ConfigureAwait(false);
+            Assert.True(await dbContext.Set<OutboxMessage>().AnyAsync());
+            await StopIgnoringBrokerFailureAsync(firstHost);
         }
 
-        await rabbit.StartAsync().ConfigureAwait(false);
+        await rabbit.StartAsync();
         var recoveryProbe = new DeliveryProbe();
         using var recoveryHost = BuildHost(
             postgres.GetConnectionString(),
             RabbitConnectionString(rabbit),
             prefix,
             recoveryProbe);
-        await recoveryHost.StartAsync().ConfigureAwait(false);
+        await recoveryHost.StartAsync();
 
-        await recoveryProbe.WaitForCompletionAsync(message.MessageId).ConfigureAwait(false);
-        await WaitForOutboxDrainAsync(recoveryHost.Services).ConfigureAwait(false);
+        await recoveryProbe.WaitForCompletionAsync(message.MessageId);
+        await WaitForOutboxDrainAsync(recoveryHost.Services);
         Assert.Equal(1, recoveryProbe.CompletionCount(message.MessageId));
     }
 
@@ -126,8 +124,8 @@ public sealed class MessagingContainerFailureModeTests
             .WithPassword("postgres")
             .Build();
         await using var rabbit = BuildProductionRabbitMqContainer();
-        await postgres.StartAsync().ConfigureAwait(false);
-        await rabbit.StartAsync().ConfigureAwait(false);
+        await postgres.StartAsync();
+        await rabbit.StartAsync();
 
         var probe = new DeliveryProbe();
         using var host = BuildHost(
@@ -135,24 +133,23 @@ public sealed class MessagingContainerFailureModeTests
             RabbitConnectionString(rabbit),
             $"collector-recovery-{Guid.NewGuid():N}"[..48],
             probe);
-        await RecreateDatabaseAsync(host.Services).ConfigureAwait(false);
-        await host.StartAsync().ConfigureAwait(false);
+        await RecreateDatabaseAsync(host.Services);
+        await host.StartAsync();
 
-        await rabbit.StopAsync().ConfigureAwait(false);
+        await rabbit.StopAsync();
         var pendingMessage = ReliabilityMessageFactory.OutboxProduced();
         await using (var scope = host.Services.CreateAsyncScope())
         {
             var dbContext = scope.ServiceProvider.GetRequiredService<ReliabilityDbContext>();
             var publisher = scope.ServiceProvider.GetRequiredService<IIntegrationMessagePublisher>();
-            await using var transaction = await dbContext.Database.BeginTransactionAsync()
-                .ConfigureAwait(false);
-            await publisher.PublishAsync(pendingMessage).ConfigureAwait(false);
-            await dbContext.SaveChangesAsync().ConfigureAwait(false);
-            await transaction.CommitAsync().ConfigureAwait(false);
+            await using var transaction = await dbContext.Database.BeginTransactionAsync();
+            await publisher.PublishAsync(pendingMessage);
+            await dbContext.SaveChangesAsync();
+            await transaction.CommitAsync();
         }
 
         var collector = host.Services.GetRequiredService<OutboxMetricsCollector<ReliabilityDbContext>>();
-        await collector.CollectAsync(CancellationToken.None).ConfigureAwait(false);
+        await collector.CollectAsync(CancellationToken.None);
         var known = Assert.Single(
             collector.CurrentSnapshots,
             snapshot => snapshot.Role ==
@@ -160,8 +157,8 @@ public sealed class MessagingContainerFailureModeTests
         Assert.True(known.Count > 0);
         Assert.True(collector.IsHealthy);
 
-        await postgres.StopAsync().ConfigureAwait(false);
-        await collector.CollectAsync(CancellationToken.None).ConfigureAwait(false);
+        await postgres.StopAsync();
+        await collector.CollectAsync(CancellationToken.None);
         var stale = Assert.Single(
             collector.CurrentSnapshots,
             snapshot => snapshot.Role ==
@@ -169,14 +166,13 @@ public sealed class MessagingContainerFailureModeTests
         Assert.Equal(known.Count, stale.Count);
         Assert.False(collector.IsHealthy);
 
-        await postgres.StartAsync().ConfigureAwait(false);
-        await collector.CollectAsync(CancellationToken.None).ConfigureAwait(false);
+        await postgres.StartAsync();
+        await collector.CollectAsync(CancellationToken.None);
         Assert.True(collector.IsHealthy);
     }
 
     private static IContainer BuildProductionRabbitMqContainer() =>
         new ContainerBuilder("order-rabbitmq:ci")
-            .WithImagePullPolicy(PullPolicy.Never())
             .WithEnvironment("RABBITMQ_DEFAULT_USER", "guest")
             .WithEnvironment("RABBITMQ_DEFAULT_PASS", "guest")
             .WithEnvironment("RABBITMQ_ERLANG_COOKIE", $"reliability-{Guid.NewGuid():N}")
@@ -240,8 +236,8 @@ public sealed class MessagingContainerFailureModeTests
     {
         await using var scope = services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<ReliabilityDbContext>();
-        await dbContext.Database.EnsureDeletedAsync().ConfigureAwait(false);
-        await dbContext.Database.EnsureCreatedAsync().ConfigureAwait(false);
+        await dbContext.Database.EnsureDeletedAsync();
+        await dbContext.Database.EnsureCreatedAsync();
     }
 
     private static async Task WaitForOutboxDrainAsync(IServiceProvider services)
@@ -251,12 +247,12 @@ public sealed class MessagingContainerFailureModeTests
         {
             await using var scope = services.CreateAsyncScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<ReliabilityDbContext>();
-            if (!await dbContext.Set<OutboxMessage>().AnyAsync().ConfigureAwait(false))
+            if (!await dbContext.Set<OutboxMessage>().AnyAsync())
             {
                 return;
             }
 
-            await Task.Delay(TimeSpan.FromMilliseconds(50)).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromMilliseconds(50));
         }
 
         throw new TimeoutException("Pending outbox messages were not delivered after recovery.");
@@ -266,7 +262,7 @@ public sealed class MessagingContainerFailureModeTests
     {
         try
         {
-            await host.StopAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            await host.StopAsync(TimeSpan.FromSeconds(5));
         }
         catch (Exception)
         {
