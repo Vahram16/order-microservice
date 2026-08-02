@@ -11,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Npgsql;
 using Testcontainers.PostgreSql;
 
 namespace Microservices.Messaging.Tests;
@@ -134,9 +135,10 @@ public sealed class MessagingContainerFailureModeTests
         await postgres.StartAsync();
         await rabbit.StartAsync();
 
+        var postgresConnectionString = postgres.GetConnectionString();
         var probe = new DeliveryProbe();
         using var host = BuildHost(
-            postgres.GetConnectionString(),
+            postgresConnectionString,
             RabbitConnectionString(rabbit),
             $"collector-recovery-{Guid.NewGuid():N}"[..48],
             probe);
@@ -168,7 +170,7 @@ public sealed class MessagingContainerFailureModeTests
         Assert.True(known.Count > 0);
         Assert.True(collector.IsHealthy);
 
-        await postgres.StopAsync();
+        await SetDatabaseConnectionsAllowedAsync(postgresConnectionString, allowed: false);
         await collector.CollectAsync(CancellationToken.None);
         var stale = Assert.Single(
             collector.CurrentSnapshots,
@@ -177,7 +179,7 @@ public sealed class MessagingContainerFailureModeTests
         Assert.Equal(known.Count, stale.Count);
         Assert.False(collector.IsHealthy);
 
-        await postgres.StartAsync();
+        await SetDatabaseConnectionsAllowedAsync(postgresConnectionString, allowed: true);
         await WaitForCollectorRecoveryAsync(collector);
     }
 
@@ -271,6 +273,40 @@ public sealed class MessagingContainerFailureModeTests
         throw new TimeoutException("Pending outbox messages were not delivered after recovery.");
     }
 
+    private static async Task SetDatabaseConnectionsAllowedAsync(
+        string applicationConnectionString,
+        bool allowed)
+    {
+        var application = new NpgsqlConnectionStringBuilder(applicationConnectionString);
+        var databaseName = application.Database;
+        var admin = new NpgsqlConnectionStringBuilder(applicationConnectionString)
+        {
+            Database = "postgres",
+            Pooling = false
+        };
+        var quotedDatabaseName = $"\"{databaseName.Replace("\"", "\"\"", StringComparison.Ordinal)}\"";
+
+        await using var connection = new NpgsqlConnection(admin.ConnectionString);
+        await connection.OpenAsync();
+        await using (var alter = connection.CreateCommand())
+        {
+            alter.CommandText = $"ALTER DATABASE {quotedDatabaseName} WITH ALLOW_CONNECTIONS {(allowed ? "true" : "false")};";
+            await alter.ExecuteNonQueryAsync();
+        }
+
+        if (allowed)
+        {
+            return;
+        }
+
+        await using var terminate = connection.CreateCommand();
+        terminate.CommandText =
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity " +
+            "WHERE datname = @databaseName AND pid <> pg_backend_pid();";
+        terminate.Parameters.AddWithValue("databaseName", databaseName);
+        await terminate.ExecuteNonQueryAsync();
+    }
+
     private static async Task WaitForCollectorRecoveryAsync(
         OutboxMetricsCollector<ReliabilityDbContext> collector)
     {
@@ -286,7 +322,7 @@ public sealed class MessagingContainerFailureModeTests
             await Task.Delay(TimeSpan.FromMilliseconds(100));
         }
 
-        throw new TimeoutException("Outbox collector did not recover after PostgreSQL restarted.");
+        throw new TimeoutException("Outbox collector did not recover after database access was restored.");
     }
 
     private static async Task StopIgnoringBrokerFailureAsync(IHost host)
