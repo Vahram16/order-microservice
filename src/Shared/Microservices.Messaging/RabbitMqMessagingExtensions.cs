@@ -30,8 +30,7 @@ public static class RabbitMqMessagingExtensions
         ValidateEndpointNamePrefix(endpointNamePrefix);
         RabbitMqMessagingOptionsValidator.RejectRemovedConfiguration(configuration);
 
-        var options = configuration.GetSection(RabbitMqMessagingOptions.SectionName)
-            .Get<RabbitMqMessagingOptions>() ?? new RabbitMqMessagingOptions();
+        var options = RabbitMqMessagingOptionsBinder.Bind(configuration);
         var rabbitConnectionString = configuration.GetConnectionString(
             RabbitMqMessagingOptions.ConnectionStringName);
         var rabbitHostAddress = RabbitMqMessagingOptionsValidator.ValidateAndGetHostAddress(
