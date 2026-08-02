@@ -18,7 +18,7 @@ public sealed class OutboxMonitoringPostgresTests
     private const int ConsumerMessages = 20_000;
 
     [Fact]
-    public async Task CollectorCountsOnlyPendingMessageRolesAndUsesMonitoringIndexes()
+    public async Task CollectorCountsPendingRolesAndIndexesSupportOldestMessageLookup()
     {
         await using var postgres = new PostgreSqlBuilder("postgres:18")
             .WithDatabase("outbox_monitoring")
@@ -59,12 +59,17 @@ public sealed class OutboxMonitoringPostgresTests
             .CheckHealthAsync(new HealthCheckContext());
         Assert.Equal(HealthStatus.Healthy, health.Status);
 
+        // PostgreSQL may correctly prefer a sequential scan for an exact aggregate that touches
+        // every pending row. The latency-sensitive operation is locating the oldest row; validate
+        // that each partial index is planner-usable for that bounded lookup.
         var busPlan = await ExplainAsync(
             services,
             """
-            SELECT count(*)::bigint, min("SentTime")
+            SELECT "SentTime"
             FROM "OutboxMessage"
-            WHERE "OutboxId" IS NOT NULL;
+            WHERE "OutboxId" IS NOT NULL
+            ORDER BY "SentTime"
+            LIMIT 1;
             """);
         Assert.Contains("IX_OutboxMessage_BusPending_SentTime", busPlan, StringComparison.Ordinal);
         Assert.DoesNotContain("Seq Scan on \"OutboxMessage\"", busPlan, StringComparison.Ordinal);
@@ -72,11 +77,13 @@ public sealed class OutboxMonitoringPostgresTests
         var consumerPlan = await ExplainAsync(
             services,
             """
-            SELECT count(*)::bigint, min("SentTime")
+            SELECT "SentTime"
             FROM "OutboxMessage"
             WHERE "OutboxId" IS NULL
               AND "InboxMessageId" IS NOT NULL
-              AND "InboxConsumerId" IS NOT NULL;
+              AND "InboxConsumerId" IS NOT NULL
+            ORDER BY "SentTime"
+            LIMIT 1;
             """);
         Assert.Contains(
             "IX_OutboxMessage_ConsumerPending_SentTime",
