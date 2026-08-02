@@ -112,7 +112,7 @@ internal sealed partial class OutboxMetricsCollector<TDbContext> : BackgroundSer
     private readonly ObservableGauge<double> _oldestAgeGauge;
     private readonly ObservableGauge<int> _healthGauge;
     private readonly ObservableGauge<double> _lastSuccessAgeGauge;
-    private OutboxSnapshot[] _snapshots = [];
+    private OutboxMetricSnapshot[] _snapshots = [];
     private long _lastSuccessUtcTicks;
     private long _nextFailureLogUtcTicks;
     private int _healthy;
@@ -147,6 +147,11 @@ internal sealed partial class OutboxMetricsCollector<TDbContext> : BackgroundSer
             description: "Seconds since the outbox collector last completed successfully.");
     }
 
+    internal IReadOnlyList<OutboxMetricSnapshot> CurrentSnapshots =>
+        Volatile.Read(ref _snapshots);
+
+    internal bool IsHealthy => Volatile.Read(ref _healthy) == 1;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await CollectAsync(stoppingToken).ConfigureAwait(false);
@@ -167,31 +172,23 @@ internal sealed partial class OutboxMetricsCollector<TDbContext> : BackgroundSer
 
             await using var scope = _scopeFactory.CreateAsyncScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<TDbContext>();
-            var rows = await dbContext.Set<OutboxMessage>()
-                .AsNoTracking()
-                .GroupBy(message =>
-                    message.OutboxId != null
-                        ? OutboxRole.Bus
-                        : message.InboxMessageId != null && message.InboxConsumerId != null
-                            ? OutboxRole.Consumer
-                            : OutboxRole.Unclassified)
-                .Select(group => new OutboxQueryResult(
-                    group.Key,
-                    group.LongCount(),
-                    group.Min(message => message.SentTime)))
-                .ToArrayAsync(queryCancellation.Token)
+            var outboxMessages = dbContext.Set<OutboxMessage>().AsNoTracking();
+            var bus = await QueryRoleAsync(
+                    outboxMessages.Where(message => message.OutboxId != null),
+                    OutboxRole.Bus,
+                    queryCancellation.Token)
+                .ConfigureAwait(false);
+            var consumer = await QueryRoleAsync(
+                    outboxMessages.Where(message =>
+                        message.OutboxId == null &&
+                        message.InboxMessageId != null &&
+                        message.InboxConsumerId != null),
+                    OutboxRole.Consumer,
+                    queryCancellation.Token)
                 .ConfigureAwait(false);
 
-            var now = DateTime.UtcNow;
-            var snapshots = rows
-                .Select(row => new OutboxSnapshot(
-                    row.Role,
-                    row.Count,
-                    Math.Max(0, (now - row.OldestSentTime).TotalSeconds)))
-                .ToArray();
-
-            Volatile.Write(ref _snapshots, snapshots);
-            Interlocked.Exchange(ref _lastSuccessUtcTicks, now.Ticks);
+            Volatile.Write(ref _snapshots, [bus, consumer]);
+            Interlocked.Exchange(ref _lastSuccessUtcTicks, DateTime.UtcNow.Ticks);
             Volatile.Write(ref _healthy, 1);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -199,10 +196,33 @@ internal sealed partial class OutboxMetricsCollector<TDbContext> : BackgroundSer
         }
         catch (Exception exception)
         {
+            // Last-known backlog values deliberately remain unchanged. Health and staleness expose
+            // the failure independently so an unavailable database can never look like zero work.
             Volatile.Write(ref _healthy, 0);
             MessagingInstrumentation.OutboxCollectionFailures.Add(1, _collectorTags);
             LogCollectionFailureWithRateLimit(exception);
         }
+    }
+
+    private static async Task<OutboxMetricSnapshot> QueryRoleAsync(
+        IQueryable<OutboxMessage> query,
+        OutboxRole role,
+        CancellationToken cancellationToken)
+    {
+        var aggregate = await query
+            .GroupBy(static _ => 1)
+            .Select(group => new OutboxAggregate(
+                group.LongCount(),
+                group.Min(message => message.SentTime)))
+            .SingleOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return aggregate is null
+            ? new OutboxMetricSnapshot(role, 0, 0)
+            : new OutboxMetricSnapshot(
+                role,
+                aggregate.Count,
+                Math.Max(0, (DateTime.UtcNow - aggregate.OldestSentTime).TotalSeconds));
     }
 
     private IEnumerable<Measurement<long>> ObserveBacklog()
@@ -257,22 +277,20 @@ internal sealed partial class OutboxMetricsCollector<TDbContext> : BackgroundSer
         }
     }
 
-    private enum OutboxRole
+    internal enum OutboxRole
     {
         Bus = 0,
-        Consumer = 1,
-        Unclassified = 2
+        Consumer = 1
     }
 
-    private sealed record OutboxQueryResult(
-        OutboxRole Role,
-        long Count,
-        DateTime OldestSentTime);
-
-    private sealed record OutboxSnapshot(
+    internal sealed record OutboxMetricSnapshot(
         OutboxRole Role,
         long Count,
         double OldestAgeSeconds);
+
+    private sealed record OutboxAggregate(
+        long Count,
+        DateTime OldestSentTime);
 
     [LoggerMessage(
         EventId = 1001,
