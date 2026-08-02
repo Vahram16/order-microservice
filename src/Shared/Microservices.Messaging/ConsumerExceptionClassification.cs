@@ -126,7 +126,6 @@ internal sealed class ConsumerExceptionClassifier(
             InvalidCastException => ConsumerExceptionDisposition.Permanent,
             InvalidDataException => ConsumerExceptionDisposition.Permanent,
             NotSupportedException => ConsumerExceptionDisposition.Permanent,
-            UriFormatException => ConsumerExceptionDisposition.Permanent,
 
             // TimeoutException and IOException are intentionally not broad retry categories.
             // A dependency-specific rule or a classified inner SocketException must prove transience.
