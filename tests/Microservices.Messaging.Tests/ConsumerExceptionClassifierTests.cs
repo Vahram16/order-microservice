@@ -65,6 +65,16 @@ public sealed class ConsumerExceptionClassifierTests
     }
 
     [Fact]
+    public void PermanentSqlStateOverridesProviderTransientFlag()
+    {
+        var classifier = CreateClassifier();
+
+        Assert.Equal(
+            ConsumerExceptionDisposition.Permanent,
+            classifier.Classify(new TestDbException("23505", isTransient: true)));
+    }
+
+    [Fact]
     public void PermanentFailureInAggregateTakesPrecedenceOverTransientFailure()
     {
         var classifier = CreateClassifier();
@@ -101,6 +111,7 @@ public sealed class ConsumerExceptionClassifierTests
             new TestDbException("53300"),
             new TestDbException("55P03"),
             new TestDbException("57P01"),
+            new TestDbException(null, isTransient: true),
             new MarkedTransientException()
         };
 
@@ -148,9 +159,13 @@ public sealed class ConsumerExceptionClassifierTests
         public string Code { get; } = code;
     }
 
-    private sealed class TestDbException(string? sqlState) : DbException
+    private sealed class TestDbException(
+        string? sqlState,
+        bool isTransient = false) : DbException
     {
         public override string? SqlState => sqlState;
+
+        public override bool IsTransient => isTransient;
     }
 
     private sealed class MarkedTransientException : Exception, ITransientConsumerFailure;
