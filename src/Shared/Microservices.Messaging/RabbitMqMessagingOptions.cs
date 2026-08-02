@@ -23,7 +23,12 @@ public sealed class RabbitMqMessagingOptions
     public TimeSpan OutboxMetricsQueryTimeout { get; init; } = TimeSpan.FromSeconds(5);
 
     /// <summary>Short, in-memory retry intervals. Keep these bounded and brief.</summary>
-    public TimeSpan[] RetryIntervals { get; init; } =
+    /// <remarks>
+    /// This property has a setter because configuration collection binding appends to initialized
+    /// arrays. The messaging binder replaces a configured array atomically so operator values can
+    /// never be combined with defaults and silently multiply the retry lifecycle.
+    /// </remarks>
+    public TimeSpan[] RetryIntervals { get; set; } =
     [
         TimeSpan.FromMilliseconds(200),
         TimeSpan.FromSeconds(1),
@@ -34,7 +39,7 @@ public sealed class RabbitMqMessagingOptions
     /// Broker-backed delayed redelivery intervals after immediate retries are exhausted.
     /// RabbitMQ's delayed-message exchange plugin is required.
     /// </summary>
-    public TimeSpan[] RedeliveryIntervals { get; init; } =
+    public TimeSpan[] RedeliveryIntervals { get; set; } =
     [
         TimeSpan.FromSeconds(15),
         TimeSpan.FromMinutes(1),
