@@ -34,7 +34,9 @@ public sealed class OutboxMonitoringPostgresTests
         var elapsed = Stopwatch.StartNew();
         await collector.CollectAsync(CancellationToken.None);
 
-        Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(10), elapsed.Elapsed.ToString("c"));
+        Assert.True(
+            elapsed.Elapsed < TimeSpan.FromSeconds(10),
+            elapsed.Elapsed.ToString("c", CultureInfo.InvariantCulture));
         Assert.True(collector.IsHealthy);
         Assert.Collection(
             collector.CurrentSnapshots.OrderBy(snapshot => snapshot.Role),
@@ -146,7 +148,7 @@ public sealed class OutboxMonitoringPostgresTests
             INSERT INTO "OutboxMessage"
                 ("Body", "ContentType", "MessageId", "MessageType", "SentTime", "OutboxId")
             SELECT
-                '{{}}',
+                json_build_object()::text,
                 'application/vnd.masstransit+json',
                 gen_random_uuid(),
                 'urn:message:tests:BusPending',
@@ -161,7 +163,7 @@ public sealed class OutboxMonitoringPostgresTests
                 ("Body", "ContentType", "MessageId", "MessageType", "SentTime",
                  "InboxMessageId", "InboxConsumerId")
             SELECT
-                '{{}}',
+                json_build_object()::text,
                 'application/vnd.masstransit+json',
                 gen_random_uuid(),
                 'urn:message:tests:ConsumerPending',
