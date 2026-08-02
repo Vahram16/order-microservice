@@ -278,7 +278,8 @@ public sealed class MessagingContainerFailureModeTests
         bool allowed)
     {
         var application = new NpgsqlConnectionStringBuilder(applicationConnectionString);
-        var databaseName = application.Database;
+        var databaseName = application.Database ??
+            throw new InvalidOperationException("The PostgreSQL test connection string must name a database.");
         var admin = new NpgsqlConnectionStringBuilder(applicationConnectionString)
         {
             Database = "postgres",
