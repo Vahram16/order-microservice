@@ -99,10 +99,16 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
     public async Task SendToEndpointAsync<TMessage>(string endpointName, TMessage message)
         where TMessage : class
     {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var bus = Services.GetRequiredService<IBus>();
-        var endpoint = await bus.GetSendEndpoint(new Uri($"queue:{endpointName}"))
+
+        // A receive endpoint owns both an exchange and a governed queue. Sending through queue:
+        // asks the transport to declare the queue and can conflict with its capacity arguments.
+        // Addressing the exchange routes to the existing queue without redeclaring its topology.
+        var endpoint = await bus.GetSendEndpoint(new Uri($"exchange:{endpointName}"))
+            .WaitAsync(timeout.Token)
             .ConfigureAwait(false);
-        await endpoint.Send(message).ConfigureAwait(false);
+        await endpoint.Send(message, timeout.Token).ConfigureAwait(false);
     }
 
     public async Task ExecuteBusOutboxTransactionAsync(
@@ -473,7 +479,11 @@ public sealed class RabbitMqManagementClient(HttpClient client) : IDisposable
         var api = Required("MESSAGING_TEST_RABBITMQ_API");
         var username = Required("MESSAGING_TEST_RABBITMQ_USERNAME");
         var password = Required("MESSAGING_TEST_RABBITMQ_PASSWORD");
-        var client = new HttpClient { BaseAddress = new Uri(api, UriKind.Absolute) };
+        var client = new HttpClient
+        {
+            BaseAddress = new Uri(api, UriKind.Absolute),
+            Timeout = TimeSpan.FromSeconds(5)
+        };
         var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
         return new RabbitMqManagementClient(client);
