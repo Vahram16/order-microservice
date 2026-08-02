@@ -17,6 +17,7 @@ public sealed class ConsumerPolicyRegistryTests
     {
         var options = new RabbitMqMessagingOptions
         {
+            AllowValidatedDefaultConsumerPolicy = true,
             Consumers = new Dictionary<string, ConsumerDeliveryPolicyOptions>(StringComparer.Ordinal)
             {
                 ["orders-misspelled"] = ExplicitPolicy
@@ -37,7 +38,10 @@ public sealed class ConsumerPolicyRegistryTests
     [Fact]
     public void ConsumerRenameCannotSilentlyDropTypedPolicy()
     {
-        var registry = new ConsumerPolicyRegistry(new RabbitMqMessagingOptions());
+        var registry = new ConsumerPolicyRegistry(new RabbitMqMessagingOptions
+        {
+            AllowValidatedDefaultConsumerPolicy = true
+        });
         registry.Add(typeof(CriticalConsumerFixture), "orders-v1-critical", ExplicitPolicy);
         registry.Resolve("orders-v2-critical");
 
