@@ -46,6 +46,9 @@ public static class RabbitMqMessagingExtensions
         services.AddSingleton<OutboxMetricsCollector<TDbContext>>();
         services.AddHostedService(provider =>
             provider.GetRequiredService<OutboxMetricsCollector<TDbContext>>());
+        services.AddHealthChecks().AddCheck<OutboxCollectorHealthCheck<TDbContext>>(
+            "messaging-outbox-collector",
+            tags: ["ready"]);
         services.Configure<MassTransitHostOptions>(host =>
         {
             host.WaitUntilStarted = true;
