@@ -17,20 +17,20 @@ internal static class MessagingInstrumentation
 
     public static readonly Counter<long> RetryAttempts = Meter.CreateCounter<long>(
         "messaging.consumer.retry.attempts",
-        description: "Immediate consumer retry attempts.");
+        description: "Immediate retry invocations. Retries inside a broker redelivery are included.");
 
-    public static readonly Counter<long> RedeliveryAttempts = Meter.CreateCounter<long>(
-        "messaging.consumer.redelivery.attempts",
-        description: "Broker-backed consumer redelivery attempts.");
+    public static readonly Counter<long> RedeliveryDeliveries = Meter.CreateCounter<long>(
+        "messaging.consumer.redelivery.deliveries",
+        description: "Broker-backed redelivery lifecycles, counted once before their immediate retry sequence.");
 
-    public static readonly Counter<long> ConsumerFailures = Meter.CreateCounter<long>(
-        "messaging.consumer.failures",
-        description: "Consumer attempts that ended with an exception.");
+    public static readonly Counter<long> ConsumerAttemptFailures = Meter.CreateCounter<long>(
+        "messaging.consumer.attempt.failures",
+        description: "Individual consumer invocations that threw, including transient attempts later recovered.");
 
     public static readonly Histogram<double> ConsumerAttemptDuration = Meter.CreateHistogram<double>(
         "messaging.consumer.attempt.duration",
         unit: "s",
-        description: "Duration of each consumer delivery attempt, including retries.");
+        description: "Duration of one consumer invocation, not the complete retry/redelivery lifecycle.");
 
     public static readonly Counter<long> OutboxCollectionFailures = Meter.CreateCounter<long>(
         "messaging.outbox.collection.failures",
@@ -43,7 +43,7 @@ internal sealed class ConsumerDeliveryMetricsFilter<T>(
 {
     public async Task Send(ConsumeContext<T> context, IPipe<ConsumeContext<T>> next)
     {
-        var endpoint = context.ReceiveContext.InputAddress.AbsolutePath.Trim('/');
+        var endpoint = GetStableEndpointName(context.ReceiveContext.InputAddress);
         var retryAttempt = context.GetRetryAttempt();
         var redeliveryCount = context.GetRedeliveryCount();
         var tags = new TagList
@@ -58,7 +58,7 @@ internal sealed class ConsumerDeliveryMetricsFilter<T>(
         }
         else if (redeliveryCount > 0)
         {
-            MessagingInstrumentation.RedeliveryAttempts.Add(1, tags);
+            MessagingInstrumentation.RedeliveryDeliveries.Add(1, tags);
         }
 
         var started = Stopwatch.GetTimestamp();
@@ -71,8 +71,8 @@ internal sealed class ConsumerDeliveryMetricsFilter<T>(
             tags.Add("error.type", exception.GetType().FullName ?? exception.GetType().Name);
             tags.Add(
                 "messaging.failure.disposition",
-                classifier.IsTransient(exception) ? "transient" : "permanent");
-            MessagingInstrumentation.ConsumerFailures.Add(1, tags);
+                classifier.Classify(exception).ToString().ToLowerInvariant());
+            MessagingInstrumentation.ConsumerAttemptFailures.Add(1, tags);
             throw;
         }
         finally
@@ -84,20 +84,38 @@ internal sealed class ConsumerDeliveryMetricsFilter<T>(
     }
 
     public void Probe(ProbeContext context) =>
-        context.CreateFilterScope("consumerDeliveryMetrics");
+        context.CreateFilterScope("consumerAttemptMetrics");
+
+    private static string GetStableEndpointName(Uri inputAddress)
+    {
+        var endpoint = inputAddress.AbsolutePath
+            .Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .LastOrDefault();
+
+        return endpoint is not null && RabbitMqMessagingOptionsValidator.IsValidEndpointName(endpoint)
+            ? endpoint
+            : "unknown";
+    }
 }
 
 internal sealed partial class OutboxMetricsCollector<TDbContext> : BackgroundService
     where TDbContext : DbContext
 {
+    private static readonly TimeSpan FailureLogInterval = TimeSpan.FromMinutes(1);
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<OutboxMetricsCollector<TDbContext>> _logger;
     private readonly TimeSpan _interval;
-    private readonly KeyValuePair<string, object?>[] _tags;
+    private readonly TimeSpan _queryTimeout;
+    private readonly KeyValuePair<string, object?>[] _collectorTags;
     private readonly ObservableGauge<long> _backlogGauge;
     private readonly ObservableGauge<double> _oldestAgeGauge;
-    private long _backlog;
-    private double _oldestAgeSeconds;
+    private readonly ObservableGauge<int> _healthGauge;
+    private readonly ObservableGauge<double> _lastSuccessAgeGauge;
+    private OutboxSnapshot[] _snapshots = [];
+    private long _lastSuccessUtcTicks;
+    private long _nextFailureLogUtcTicks;
+    private int _healthy;
 
     public OutboxMetricsCollector(
         IServiceScopeFactory scopeFactory,
@@ -107,16 +125,26 @@ internal sealed partial class OutboxMetricsCollector<TDbContext> : BackgroundSer
         _scopeFactory = scopeFactory;
         _logger = logger;
         _interval = options.OutboxMetricsInterval;
-        _tags = [new KeyValuePair<string, object?>("db.context", typeof(TDbContext).Name)];
+        _queryTimeout = options.OutboxMetricsQueryTimeout;
+        _collectorTags = [new KeyValuePair<string, object?>("db.context", typeof(TDbContext).Name)];
         _backlogGauge = MessagingInstrumentation.Meter.CreateObservableGauge(
             "messaging.outbox.backlog",
             ObserveBacklog,
-            description: "Messages waiting in the PostgreSQL bus or consumer outbox.");
+            description: "Pending OutboxMessage rows, split by bounded outbox role.");
         _oldestAgeGauge = MessagingInstrumentation.Meter.CreateObservableGauge(
             "messaging.outbox.oldest.age",
             ObserveOldestAge,
             unit: "s",
-            description: "Age of the oldest message waiting in the PostgreSQL outbox.");
+            description: "Age of the oldest pending OutboxMessage row, split by bounded outbox role.");
+        _healthGauge = MessagingInstrumentation.Meter.CreateObservableGauge(
+            "messaging.outbox.collector.healthy",
+            ObserveHealth,
+            description: "One after a successful collection, zero before first success or after collection failure.");
+        _lastSuccessAgeGauge = MessagingInstrumentation.Meter.CreateObservableGauge(
+            "messaging.outbox.collector.last_success.age",
+            ObserveLastSuccessAge,
+            unit: "s",
+            description: "Seconds since the outbox collector last completed successfully.");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -130,46 +158,126 @@ internal sealed partial class OutboxMetricsCollector<TDbContext> : BackgroundSer
         }
     }
 
-    private async Task CollectAsync(CancellationToken cancellationToken)
+    internal async Task CollectAsync(CancellationToken cancellationToken)
     {
         try
         {
+            using var queryCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            queryCancellation.CancelAfter(_queryTimeout);
+
             await using var scope = _scopeFactory.CreateAsyncScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<TDbContext>();
-            var outboxMessages = dbContext.Set<OutboxMessage>().AsNoTracking();
-            var backlog = await outboxMessages.LongCountAsync(cancellationToken).ConfigureAwait(false);
-            var oldestSentTime = await outboxMessages
-                .Select(message => (DateTime?)message.SentTime)
-                .MinAsync(cancellationToken)
+            var rows = await dbContext.Set<OutboxMessage>()
+                .AsNoTracking()
+                .GroupBy(message =>
+                    message.OutboxId != null
+                        ? OutboxRole.Bus
+                        : message.InboxMessageId != null && message.InboxConsumerId != null
+                            ? OutboxRole.Consumer
+                            : OutboxRole.Unclassified)
+                .Select(group => new OutboxQueryResult(
+                    group.Key,
+                    group.LongCount(),
+                    group.Min(message => message.SentTime)))
+                .ToArrayAsync(queryCancellation.Token)
                 .ConfigureAwait(false);
 
-            Interlocked.Exchange(ref _backlog, backlog);
-            Volatile.Write(
-                ref _oldestAgeSeconds,
-                oldestSentTime is null
-                    ? 0
-                    : Math.Max(0, (DateTime.UtcNow - oldestSentTime.Value).TotalSeconds));
+            var now = DateTime.UtcNow;
+            var snapshots = rows
+                .Select(row => new OutboxSnapshot(
+                    row.Role,
+                    row.Count,
+                    Math.Max(0, (now - row.OldestSentTime).TotalSeconds)))
+                .ToArray();
+
+            Volatile.Write(ref _snapshots, snapshots);
+            Interlocked.Exchange(ref _lastSuccessUtcTicks, now.Ticks);
+            Volatile.Write(ref _healthy, 1);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
         catch (Exception exception)
         {
-            MessagingInstrumentation.OutboxCollectionFailures.Add(1, _tags);
+            Volatile.Write(ref _healthy, 0);
+            MessagingInstrumentation.OutboxCollectionFailures.Add(1, _collectorTags);
+            LogCollectionFailureWithRateLimit(exception);
+        }
+    }
+
+    private IEnumerable<Measurement<long>> ObserveBacklog()
+    {
+        foreach (var snapshot in Volatile.Read(ref _snapshots))
+        {
+            yield return new Measurement<long>(snapshot.Count, CreateRoleTags(snapshot.Role));
+        }
+    }
+
+    private IEnumerable<Measurement<double>> ObserveOldestAge()
+    {
+        foreach (var snapshot in Volatile.Read(ref _snapshots))
+        {
+            yield return new Measurement<double>(snapshot.OldestAgeSeconds, CreateRoleTags(snapshot.Role));
+        }
+    }
+
+    private Measurement<int> ObserveHealth() =>
+        new(Volatile.Read(ref _healthy), _collectorTags);
+
+    private Measurement<double> ObserveLastSuccessAge()
+    {
+        var ticks = Interlocked.Read(ref _lastSuccessUtcTicks);
+        var age = ticks == 0
+            ? double.NaN
+            : Math.Max(0, (DateTime.UtcNow - new DateTime(ticks, DateTimeKind.Utc)).TotalSeconds);
+        return new Measurement<double>(age, _collectorTags);
+    }
+
+    private KeyValuePair<string, object?>[] CreateRoleTags(OutboxRole role) =>
+    [
+        _collectorTags[0],
+        new KeyValuePair<string, object?>("outbox.role", role.ToString().ToLowerInvariant())
+    ];
+
+    private void LogCollectionFailureWithRateLimit(Exception exception)
+    {
+        var nowTicks = DateTime.UtcNow.Ticks;
+        var nextLogTicks = Interlocked.Read(ref _nextFailureLogUtcTicks);
+        if (nextLogTicks > nowTicks)
+        {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(
+                ref _nextFailureLogUtcTicks,
+                nowTicks + FailureLogInterval.Ticks,
+                nextLogTicks) == nextLogTicks)
+        {
             LogCollectionFailure(_logger, typeof(TDbContext).Name, exception);
         }
     }
 
-    private Measurement<long> ObserveBacklog() =>
-        new(Interlocked.Read(ref _backlog), _tags);
+    private enum OutboxRole
+    {
+        Bus = 0,
+        Consumer = 1,
+        Unclassified = 2
+    }
 
-    private Measurement<double> ObserveOldestAge() =>
-        new(Volatile.Read(ref _oldestAgeSeconds), _tags);
+    private sealed record OutboxQueryResult(
+        OutboxRole Role,
+        long Count,
+        DateTime OldestSentTime);
+
+    private sealed record OutboxSnapshot(
+        OutboxRole Role,
+        long Count,
+        double OldestAgeSeconds);
 
     [LoggerMessage(
         EventId = 1001,
         Level = LogLevel.Warning,
-        Message = "Unable to collect messaging outbox metrics for {DbContext}")]
+        Message = "Unable to collect messaging outbox metrics for {DbContext}; last known backlog values remain stale")]
     private static partial void LogCollectionFailure(
         ILogger logger,
         string dbContext,
