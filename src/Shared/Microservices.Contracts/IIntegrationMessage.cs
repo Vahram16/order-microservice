@@ -1,26 +1,20 @@
 namespace Microservices.Contracts;
 
 /// <summary>
-/// Required envelope metadata for application-owned integration messages.
+/// Canonical marker for a contract published between bounded contexts.
+/// Transport identity, correlation, causation, retry state, and broker headers are not payload data.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <see cref="MessageId"/> identifies one logical message and must remain stable across safe replay.
-/// <see cref="CorrelationId"/> identifies the business operation. <see cref="CausationId"/> identifies
-/// the consumed parent message when this message is produced by a consumer.
-/// </para>
-/// <para>
-/// <see cref="ContractVersion"/> starts at one and changes only for a deliberately introduced
-/// contract version. Additive changes to an existing contract do not increment this value.
-/// </para>
-/// </remarks>
-public interface IIntegrationMessage
+public interface IIntegrationMessage;
+
+/// <summary>
+/// A fact owned by the bounded context in which it occurred. The publisher owns the contract.
+/// </summary>
+public interface IIntegrationEvent : IIntegrationMessage
 {
-    Guid MessageId { get; }
-
-    Guid CorrelationId { get; }
-
-    Guid? CausationId { get; }
-
-    int ContractVersion { get; }
+    DateTimeOffset OccurredAtUtc { get; }
 }
+
+/// <summary>
+/// A request for one owning bounded context to perform an action. Commands must have one logical owner.
+/// </summary>
+public interface IIntegrationCommand : IIntegrationMessage;
