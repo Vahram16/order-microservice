@@ -1,324 +1,324 @@
-# Messaging failure-delivery policy
+# Messaging reliability contract
 
-This document is the production contract for services registered through
-`AddRabbitMqWithPostgresOutbox<TDbContext>`. The helper deliberately owns the common receive
-pipeline so automatically configured consumers cannot bypass retry, redelivery, topology,
-idempotency, lifecycle, and telemetry requirements.
+This document describes behavior enforced by production code registered through
+`AddRabbitMqWithPostgresOutbox<TDbContext>`. It is not a roadmap. A behavior is described as a
+guarantee only when code and automated tests enforce it.
 
-## Delivery sequence
+## Verified dependency baseline
 
-Every automatically configured consumer endpoint uses the following bounded sequence:
+The repository centrally pins:
 
-1. The consumer receives one initial delivery.
-2. A failure classified as transient receives the configured short `UseMessageRetry` intervals.
-   These attempts remain in memory and hold the delivery slot, so the intervals must remain short.
-3. After immediate retries are exhausted, a transient failure receives the configured
-   `UseDelayedRedelivery` intervals. Each broker redelivery receives the complete short retry
-   sequence again.
-4. When all retry and redelivery intervals are exhausted, MassTransit moves the message to the
-   endpoint's `_error` queue and publishes its normal fault event.
-5. A permanent or unclassified failure skips retry and redelivery and follows the `_error` path
-   after the first attempt.
+- MassTransit, MassTransit.RabbitMQ, and MassTransit.EntityFrameworkCore 8.5.10;
+- Entity Framework Core 10.0.10;
+- Npgsql.EntityFrameworkCore.PostgreSQL 10.0.3;
+- OpenTelemetry 1.17.0;
+- xUnit 2.9.3 and Microsoft.NET.Test.Sdk 18.3.0;
+- Testcontainers 4.13.0;
+- RabbitMQ 4.2.9 and delayed-message-exchange plugin 4.2.0.
 
-The arrays are bounded to ten positive intervals. Retry intervals may not exceed 30 seconds and
-redelivery intervals may not exceed one day. There is no application requeue loop and application
-code must not catch a failed message and republish it to its own input queue.
+A package upgrade that can change middleware, topology, serializer, outbox, or health behavior must
+rerun the complete reliability suite and update this document where semantics differ.
 
-Publishing is not manually retried. Publishing performed by a consumer is protected by the
-consumer outbox. Publishing performed through the scoped `IPublishEndpoint` or
-`ISendEndpointProvider` in an application transaction is protected by the PostgreSQL bus outbox.
+## Receive pipeline and delivery lifecycle
 
-## Delayed-redelivery decision
+The endpoint pipeline is configured in this order:
 
-The selected scheduler is RabbitMQ's `rabbitmq_delayed_message_exchange` plugin, configured through
-`UseDelayedMessageScheduler`. The repository provides
-`infrastructure/rabbitmq/Containerfile`, which pins:
+1. delayed redelivery;
+2. immediate message retry;
+3. consumer-attempt telemetry;
+4. consumed-parent context capture;
+5. Entity Framework consumer outbox/inbox;
+6. the consumer.
 
-- RabbitMQ 4.2.9 by image digest;
-- delayed-message-exchange 4.2.0 by release version and SHA-256;
-- the management and Prometheus plugins.
+MassTransit filters wrap the next pipe. Consequently delayed redelivery owns the complete immediate
+retry sequence, while the attempt filter is inside both middleware components and sees every actual
+consumer invocation.
 
-The plugin keeps delayed messages broker-backed across application restarts without introducing an
-application scheduler database. Production clusters must install the same compatible plugin before
-consumers are deployed. A missing or incompatible plugin is a deployment failure, not a reason to
-fall back to immediate requeue.
+For a transient failure:
 
-Broker clustering, node placement, disk sizing, backup, disaster recovery, certificate issuance,
-user permissions, and plugin upgrade validation remain platform responsibilities outside the
-application.
+1. the initial broker delivery invokes the consumer;
+2. each configured immediate retry invokes the consumer again in memory;
+3. after the immediate sequence is exhausted, the message is scheduled for broker-backed delayed
+   redelivery;
+4. each delayed delivery receives a new complete immediate retry sequence;
+5. after all configured redeliveries are exhausted, MassTransit transfers the message to the
+   endpoint's `_error` queue.
 
-## Exception classification
+A permanent, cancelled, outcome-unknown, or unclassified failure is not retried by the shared
+classifier. Unknown failures are default-deny.
 
-`IConsumerExceptionClassifier` is default-deny: an exception is retried only when a rule explicitly
-classifies it as transient.
+`MaximumRetryAndRedeliveryDelay` bounds configured middleware delay. The validator calculates:
 
-Shared transient categories are:
-
-- `TimeoutException`;
-- provider database exceptions whose public `IsTransient` property is `true`;
-- `HttpRequestException` without an HTTP status or with 408, 429, 500, 502, 503, or 504;
-- socket and I/O failures;
-- exceptions implementing `ITransientConsumerFailure`.
-
-Shared permanent categories include JSON/serialization failures, authorization/security failures,
-argument and request-validation failures, unsupported operations, exceptions implementing
-`IPermanentConsumerFailure`, and every unknown exception. A type implementing both marker interfaces
-is permanent.
-
-A service can register one or more `IConsumerExceptionRule` implementations. Rules run in
-registration order before shared classification and may classify provider- or domain-specific
-exceptions. A rule must inspect typed provider data or stable error codes. It must not mark every
-exception from a dependency as transient.
-
-Expected domain rejection must not be represented as a generic transient exception. Validation,
-authorization, malformed payloads, unsupported contract versions, and permanent domain errors are
-single-attempt failures.
-
-## Configuration
-
-```json
-{
-  "Messaging": {
-    "RetryIntervals": [ "00:00:00.200", "00:00:01", "00:00:03" ],
-    "RedeliveryIntervals": [ "00:00:15", "00:01:00", "00:05:00" ],
-    "PrefetchCount": 32,
-    "ConcurrentMessageLimit": 8,
-    "StartTimeout": "00:00:30",
-    "StopTimeout": "00:00:30",
-    "ConsumerStopTimeout": "00:00:25",
-    "OutboxQueryDelay": "00:00:01",
-    "DuplicateDetectionWindow": "00:30:00",
-    "OutboxMetricsInterval": "00:00:10",
-    "UseQuorumQueues": true,
-    "QueueMessageTimeToLive": "7.00:00:00",
-    "QueueMaxLength": 100000,
-    "QueueMaxLengthBytes": 1073741824,
-    "QueueDeliveryLimit": 10,
-    "FaultQueueRetention": "14.00:00:00",
-    "FaultQueueMaxLength": 10000,
-    "MaximumMessageBytes": 1048576,
-    "Consumers": {
-      "service-template-submit-order": {
-        "RetryIntervals": [ "00:00:00.500", "00:00:02" ],
-        "RedeliveryIntervals": [ "00:00:30", "00:02:00" ],
-        "PrefetchCount": 8,
-        "ConcurrentMessageLimit": 2,
-        "RateLimit": 20,
-        "RateLimitInterval": "00:00:01",
-        "SingleActiveConsumer": false
-      },
-      "service-template-ordered-command": {
-        "PrefetchCount": 1,
-        "ConcurrentMessageLimit": 1,
-        "SingleActiveConsumer": true
-      }
-    }
-  }
-}
+```text
+(redelivery count + 1) × sum(immediate retry intervals)
++ sum(redelivery intervals)
 ```
 
-The `Consumers` key is the final stable endpoint/queue name. A rename is a topology migration. A
-per-consumer policy inherits omitted values from the global policy. Rate limit and rate interval must
-be configured together. `SingleActiveConsumer` requires prefetch and concurrency to both equal one.
+Consumer execution time, dependency timeouts, and shutdown time are separate bounds and are not
+hidden inside this value.
 
-### Backpressure and ordering
+## Telemetry semantics
 
-Prefetch and concurrency are intentionally independent. Prefetch limits broker deliveries buffered
-by the process; concurrency limits active consumer work. Sensitive downstream dependencies should
-receive a dedicated endpoint override rather than forcing one global bottleneck.
+MassTransit's OpenTelemetry instrumentation remains the primary source for receive, consume, fault,
+and transport spans and measurements. The custom meter contains only signals needed to distinguish
+attempts from complete delivery lifecycles.
 
-Use the built-in rate limiter for a dependency with a documented throughput ceiling. Use the endpoint
-configuration callback for key-based partitioning when independent keys may run concurrently but one
-key must remain serialized.
+| Metric | Exact meaning |
+|---|---|
+| `messaging.consumer.retry.attempts` | One immediate retry invocation. Retries occurring inside a delayed delivery are included. |
+| `messaging.consumer.redelivery.deliveries` | One broker-backed delayed delivery, counted before that delivery's immediate retry sequence. |
+| `messaging.consumer.attempt.failures` | One consumer invocation that threw, even when a later invocation succeeds. |
+| `messaging.consumer.attempt.duration` | Duration of one consumer invocation. It does not include retry or redelivery waiting time. |
+| `messaging.outbox.backlog` | Pending `OutboxMessage` rows, split into bounded `bus` and `consumer` roles. |
+| `messaging.outbox.oldest.age` | Age of the oldest pending `OutboxMessage` for one role. |
+| `messaging.outbox.collector.healthy` | `1` after the latest successful collection; `0` before first success or after collection failure. |
+| `messaging.outbox.collector.last_success.age` | Seconds since the last successful collection. |
+| `messaging.outbox.collection.failures` | Collector query failures. |
 
-RabbitMQ enqueue order does not guarantee completion order when concurrency, retry, or redelivery is
-present. An ordering-sensitive consumer must explicitly use one of these contracts:
+A failed invocation is not a terminally failed message. RabbitMQ `_error` queue depth is the
+authoritative terminal-placement signal. `_skipped` queue depth is a separate routing or contract
+signal. Dashboards and alerts intentionally keep these signals separate.
 
-- prefetch one, concurrency one, and `SingleActiveConsumer=true`; or
-- a documented partition key and partitioner, with ordering guaranteed only inside one partition.
+Application metric labels are bounded to service, stable endpoint name, contract type, exception
+type, failure disposition, DbContext type, and outbox role. Message IDs, correlation IDs, exception
+messages, URLs, customer IDs, order IDs, payload data, and arbitrary endpoint addresses are not
+metric labels.
 
-## Queue topology
+## Queue retention and capacity
 
-Automatically configured receive, `_error`, and `_skipped` queues are durable and non-auto-delete.
-Quorum queues are enabled by default. Receive queues declare:
+Durable business receive queues do not declare `x-message-ttl`. The retired
+`Messaging:QueueMessageTimeToLive` key causes startup validation failure.
 
-- message TTL;
+Business queues use:
+
+- durable, non-auto-delete topology;
+- quorum queues by default;
 - maximum ready-message count;
 - maximum ready-message bytes;
 - `reject-publish` overflow behavior;
-- a broker delivery limit when quorum queues are enabled.
+- quorum delivery limit as a final guard against external requeue loops;
+- backlog depth and oldest-message-age alerts.
 
-Fault queues declare their own retention and maximum count. Their quorum delivery limit is unlimited
-because no consumer automatically requeues them; replay is an explicit operator action.
+RabbitMQ cannot silently discard an expired business message before MassTransit sees it because no
+receive-queue TTL is configured. Per-message expiration or a future parking topology requires a new
+reviewed ADR, deterministic routing test, metrics, ownership, retention, and replay procedure.
 
-`MaximumMessageBytes` is validated against queue capacity. The supplied RabbitMQ image enforces the
-same one-megabyte broker limit in `rabbitmq.conf`. Every deployment that overrides either value must
-keep the application and broker values aligned.
+`_error` and `_skipped` queues have their own bounded retention and maximum length. Those values do
+not apply to business receive queues or delayed-redelivery scheduling.
 
-Queue names, exchange names, bindings, queue type, arguments, and message type identity are durable
-infrastructure. Renaming a queue, changing an incompatible queue argument, moving a contract type, or
-changing an exchange convention requires a reviewed migration with dual-read/dual-publish or drain
-steps. It is not a routine application configuration change.
+Removing an existing queue argument is a topology migration. RabbitMQ rejects redeclaration when an
+existing queue has inequivalent arguments. Deployments must drain or replace queues as described in
+the endpoint migration runbook; they must not repeatedly restart the application against an
+incompatible queue.
 
-Cluster replication factor, availability-zone placement, leader balancing, disk alarms, memory
-watermarks, federation, shovel policy, and backup/restore are defined by the broker platform, not by
-application startup.
+## Approved publishing boundary
 
-## Poison-message ownership and replay
+Production application code publishes through
+`Microservices.Application.Messaging.IIntegrationMessagePublisher`.
 
-The service that owns a receive endpoint owns its `_error` and `_skipped` queues.
+The infrastructure implementation is scoped and uses MassTransit's scoped `IPublishEndpoint`, which
+participates in the configured Entity Framework bus outbox when publication occurs in the same
+service scope and the same configured `TDbContext` transaction.
 
-### Retention and alerting
+The publisher:
 
-- `_error` and `_skipped` queues default to 14 days and 10,000 messages.
-- Any `_error` message is critical and must create an incident routed to the service owner.
-- Any `_skipped` message is a separate critical signal for routing or contract mismatch.
-- Oldest fault-message age above fifteen minutes indicates missing incident ownership.
-- Retention must be shortened when payload classification or regulation requires it; it must never
-  be extended casually as a substitute for incident response.
+- propagates the cancellation token;
+- assigns a MessageId when one is not explicitly supplied;
+- propagates the parent CorrelationId, or creates one from the new MessageId;
+- propagates the consumed parent MessageId as InitiatorId and `x-causation-id`;
+- accepts a bounded set of application headers;
+- rejects attempts to override transport-owned identity headers.
 
-### Redaction
+Publication outside the configured database transaction is still durable transport publication, but
+it is not atomic with arbitrary application state. Another DbContext, another database, HTTP, gRPC,
+email, payment, file, object-storage, and SaaS side effects require dependency-specific idempotency
+and reconciliation.
 
-Application logs, traces, metrics, alerts, and dashboard labels must not contain message bodies,
-credentials, access tokens, payment data, secrets, or unrestricted personal data. Use MessageId,
-CorrelationId, endpoint, contract type, exception type, and approved domain identifiers. Payload
-inspection is restricted to access-controlled broker or incident tooling with an audit trail.
+Architecture tests reject production dependencies on `IBus`, `IBusControl`, raw RabbitMQ clients,
+transport-specific send endpoint providers, broker channels, or broker connections. Infrastructure
+composition and explicitly named test fixtures are the only approved direct-bus locations.
 
-### Safe replay
+## Consumer policy governance and endpoint identity
 
-Replay requires all of the following:
+Use `AddConsumerWithPolicy<TConsumer>(stableEndpointName, policy)` for business consumers.
 
-1. an incident or change ticket with a named owner;
-2. a confirmed root cause and deployed fix;
-3. a consumer version compatible with the stored contract;
-4. preservation of MessageId, CorrelationId, CausationId, contract version, and W3C trace context;
-5. validation of external-side-effect idempotency keys;
-6. a bounded batch size and rate;
-7. observation of success, duplicate suppression, and new `_error`/`_skipped` traffic;
-8. an explicit stop condition and rollback procedure.
+The endpoint name is a stable broker topology identifier, not a formatted CLR class name. Names must
+be lowercase kebab case, 1–128 characters, with no leading, trailing, or repeated hyphens.
 
-Never configure an automatic shovel from `_error` or `_skipped` to the source queue. Never replay by
-creating new identifiers merely to bypass duplicate detection.
+Startup fails when:
 
-## Idempotency and identifiers
+- a configured legacy policy matches no endpoint;
+- a typed policy matches no endpoint;
+- two typed consumers resolve to the same endpoint name;
+- an endpoint has no policy and `AllowValidatedDefaultConsumerPolicy` is false;
+- a critical policy omits explicit prefetch or concurrency;
+- concurrency is zero or exceeds prefetch;
+- a rate limit is incomplete;
+- an ordering-sensitive endpoint is not prefetch one, concurrency one, and single-active-consumer;
+- the configured retry/redelivery delay exceeds the documented maximum.
 
-Application-owned integration contracts implement `IIntegrationMessage`:
+`AllowValidatedDefaultConsumerPolicy` defaults to false. A service may set it to true only as an
+explicit architectural decision for endpoints that are safe under the validated global policy.
 
-```csharp
-public interface IIntegrationMessage
-{
-    Guid MessageId { get; }
-    Guid CorrelationId { get; }
-    Guid? CausationId { get; }
-    int ContractVersion { get; }
-}
-```
-
-The send, publish, and consume filters reject empty identifiers, non-positive versions, and mismatches
-between payload identifiers and transport headers. `MessageId` identifies one logical message and is
-stable across safe replay. `CorrelationId` identifies the business operation. `CausationId`
-identifies the parent message where one exists. OpenTelemetry preserves the independent W3C trace
-relationship.
-
-The PostgreSQL consumer inbox suppresses duplicate delivery for the configured duplicate-detection
-window. The consumer outbox makes database changes and produced messages atomic only when they use
-the same scoped `TDbContext` configured in
-`AddRabbitMqWithPostgresOutbox<TDbContext>`.
-
-The following are outside that database transaction and require their own durable idempotency key,
-provider contract, and reconciliation process:
-
-- another `DbContext` or database;
-- HTTP or gRPC APIs;
-- email, SMS, and push notifications;
-- payment authorization, capture, refund, and payout operations;
-- object storage, file systems, and document generation;
-- search indexes and third-party SaaS operations.
-
-An external idempotency key should normally derive from the stable MessageId plus an operation name,
-not from a retry attempt number.
-
-## Lifecycle and dependency recovery
-
-MassTransit waits for bus startup and applies explicit start, stop, and consumer-stop timeouts.
-During host shutdown the existing service lifecycle readiness check becomes unhealthy before the
-host drains in-flight consumers. `ConsumerStopTimeout` must not exceed `StopTimeout`.
-
-MassTransit's RabbitMQ client recovery handles broker disconnect/reconnect. Npgsql and EF execution
-strategies handle eligible transient database failures. Neither mechanism changes exception
-classification or creates an unbounded message loop.
-
-Readiness includes the MassTransit bus and the service database. A disconnected required dependency
-must make the instance unready so traffic and new work are removed while recovery occurs. Liveness
-must remain process-focused so an external dependency outage does not cause a restart storm.
-
-CI force-closes RabbitMQ client connections and terminates a PostgreSQL backend to verify recovery.
-It also verifies that shutdown waits for an active consumer to complete within the configured drain
-window.
-
-## Observability
-
-The application exports the existing MassTransit OpenTelemetry meter plus the
-`Microservices.Messaging` meter. The shared meter includes:
-
-- `messaging.consumer.retry.attempts`;
-- `messaging.consumer.redelivery.attempts`;
-- `messaging.consumer.failures`;
-- `messaging.consumer.attempt.duration`;
-- `messaging.outbox.backlog`;
-- `messaging.outbox.oldest.age`;
-- `messaging.outbox.collection.failures`.
-
-The custom RabbitMQ image exposes the Prometheus plugin on port 15692. Use the restricted scrape
-configuration in `infrastructure/observability/prometheus/rabbitmq-scrape.yml`; it collects aggregate
-broker metrics and only the queue metric families needed for depth and head-message timestamp.
-Scraping every per-object metric family on a large cluster is prohibited without a cardinality
-review.
-
-Deploy:
-
-- `infrastructure/observability/prometheus/messaging-alerts.yml`;
-- `infrastructure/observability/grafana/messaging-reliability-dashboard.json`.
-
-The dashboard and alerts cover retry and redelivery counts, consumer failures and p95 latency,
-`_error` and `_skipped` depth, oldest queued-message age, outbox backlog and age, metrics-collection
-failure, broker scrape failure, and connection close/open churn. Environment owners must route
-`owner=service-owner` alerts by endpoint ownership and `owner=platform` alerts to the broker team.
-Thresholds are checked-in starting values and must be capacity-tested before production rollout.
+An endpoint rename is a broker migration. The old and new queue may need temporary coexistence,
+controlled producer deployment ordering, old-queue draining, rollback capability, and explicit
+obsolete-topology removal.
 
 ## Contract governance
 
-Integration contract evolution follows these rules:
+`IIntegrationMessage` is the canonical marker. `IIntegrationEvent` represents a fact owned by the
+publishing bounded context and includes `OccurredAtUtc`. `IIntegrationCommand` represents a request
+with one logical owning bounded context.
 
-1. Prefer additive optional fields with safe defaults.
-2. Do not rename or remove serialized fields from a deployed version.
-3. Do not change a field's meaning, type, units, timezone, or identifier semantics in place.
-4. Introduce a new contract type/version for an incompatible change and run a migration period.
-5. Preserve MessageId, CorrelationId, CausationId, and trace context across adapters and versions.
-6. Keep `ContractVersion` stable for additive changes to the same contract; increment it only for a
-   deliberately introduced version that the consumer explicitly supports.
-7. Keep payloads below `MaximumMessageBytes`; large documents belong in controlled storage with an
-   integrity-checked reference.
-8. Do not publish credentials, tokens, raw payment data, secrets, or unnecessary personal data.
-9. Classify every field and document retention before introducing sensitive data.
-10. Treat queue renames, message namespace/type moves, and incompatible serializer changes as
-    migrations with rollback plans.
+Transport identity, correlation, causation, retry state, trace state, and broker headers are not
+payload fields. Contracts remain independent from EF Core entities, DbContexts, aggregates,
+controllers, consumers, and transport infrastructure.
 
-## Behavioral verification
+Contract rules:
 
-`MessagingFailureDeliveryBehaviorTests` runs against real RabbitMQ and PostgreSQL resources in CI.
-It verifies:
+- the publishing bounded context owns an event contract;
+- a receiver must reference that contract rather than redefining the same message;
+- names use past tense for events and imperative intent for commands;
+- identifiers use stable domain-neutral scalar types;
+- timestamps are UTC `DateTimeOffset` values;
+- optional additions must have safe defaults;
+- absent collections deserialize to an explicitly handled empty state rather than relying on mutable
+  shared instances;
+- existing field names, types, units, nullability meaning, and semantics are not changed in place;
+- additive compatible changes keep the same message identity;
+- breaking changes use a distinct CLR namespace/type identity such as `.V2`, with a coexistence and
+  migration period;
+- a mutable integer payload version is not used as the sole breaking-version mechanism.
 
-- a transient failure succeeds after configured immediate retries;
-- a permanent failure receives one attempt;
-- retry/redelivery exhaustion reaches `_error`;
-- delayed redelivery observes the configured increasing intervals;
-- duplicate delivery does not repeat database changes;
-- transaction rollback publishes no messages;
-- a successful commit publishes exactly once through the bus outbox;
-- RabbitMQ connection recovery after forced disconnect;
-- PostgreSQL recovery after backend termination;
-- graceful shutdown drains an active consumer.
+The transport serializer is configured explicitly for camel-case names, strict numeric handling,
+case-sensitive properties, no comments or trailing commas, ignored unknown additive fields, and
+omission of null fields. Historical-payload tests verify supported additive compatibility.
 
-The in-memory MassTransit harness is not a substitute for these tests because it cannot prove broker
-queue topology, the delayed-exchange plugin, PostgreSQL inbox/outbox atomicity, or transport recovery.
+## Transient failure classification
+
+The shared classifier is conservative.
+
+Supported transient examples include:
+
+- PostgreSQL connection class `08`, transaction rollback class `40`, connection-slot exhaustion
+  `53300`, lock-not-available `55P03`, and administrative shutdown codes `57P01`–`57P03`;
+- HTTP 408, 429, 502, 503, and 504;
+- selected socket connection, network, timeout, and retryable availability errors;
+- an explicitly registered dependency rule using stable provider data;
+- an explicitly marked `ITransientConsumerFailure` whose operation is safe and idempotent.
+
+Permanent examples include validation and argument errors, JSON or malformed data, unsupported
+operations or contract versions, authentication and authorization failures, invalid certificates,
+invalid endpoints or configuration, deterministic mapping failures, PostgreSQL integrity,
+authentication, syntax, and schema classes, and explicit `IPermanentConsumerFailure`.
+
+`TimeoutException`, arbitrary `IOException`, statusless `HttpRequestException`, and generic HTTP 500
+are not shared transient categories. They require a dependency-specific rule because they can
+represent invalid configuration, deterministic defects, cancellation, or an operation with unknown
+remote outcome.
+
+`OperationCanceledException` is classified as cancellation, not transient failure. An
+`IOutcomeUnknownConsumerFailure` is permanent by default; retry is allowed only through a specific
+rule that proves an idempotency key or reconciliation contract.
+
+Permanent classification takes precedence when a wrapped or aggregate exception contains both
+transient and permanent evidence.
+
+## Outbox monitoring
+
+For MassTransit 8.5.10, pending publish work is represented by `OutboxMessage` rows:
+
+- `OutboxId IS NOT NULL` identifies bus-outbox messages;
+- `OutboxId IS NULL` with both inbox identifiers populated identifies consumer-produced messages.
+
+Delivered `OutboxState` retention rows and completed `InboxState` records are not counted as pending
+messages.
+
+The collector executes two indexable aggregate queries for exact count and oldest `SentTime`. The
+ServiceTemplate migration adds partial indexes for the two role predicates. Index creation is
+`CONCURRENTLY` and transaction suppression is intentional so a populated outbox table does not block
+normal writes during deployment.
+
+A failed concurrent index build can leave an invalid index. Before rerunning the migration, inspect
+`pg_index.indisvalid`; drop the invalid index or use the approved concurrent reindex procedure.
+
+Collector failures do not crash the service and do not overwrite last-known backlog values with
+zero. The collector exposes independent health, staleness, failure metrics, rate-limited logs, query
+timeout handling, cancellation, and automatic recovery. `PeriodicTimer` prevents overlapping
+executions.
+
+## Startup, readiness, liveness, and shutdown
+
+The process waits for MassTransit startup up to `StartTimeout`. A required RabbitMQ connection or
+required delayed-exchange capability that cannot be established causes startup failure within the
+configured bound.
+
+Liveness remains process-focused. Temporary RabbitMQ, PostgreSQL, or collector outages must not
+cause a liveness restart loop.
+
+Readiness includes required service dependencies, MassTransit bus state through its registered
+health check, and the outbox collector's latest query result. Outbox backlog quantity is an alerting
+and capacity signal, not a readiness failure by itself.
+
+The default timeouts are:
+
+- start: 30 seconds;
+- host/MassTransit stop: 30 seconds;
+- consumer stop: 25 seconds.
+
+`ConsumerStopTimeout` must not exceed `StopTimeout`. Deployment termination grace must exceed the
+application stop timeout plus load-balancer drain margin. In-flight consumers either complete within
+the drain window or their unacknowledged delivery is returned safely for redelivery by RabbitMQ.
+Consumers and application services must propagate `ConsumeContext.CancellationToken`.
+
+## Recovery and replay
+
+Every receive endpoint owner owns its `_error` and `_skipped` queues.
+
+Replay requires:
+
+1. an incident/change record and named owner;
+2. root cause confirmation and deployed remediation;
+3. compatibility verification against the stored message identity;
+4. preservation of MessageId, CorrelationId, causation, and trace context;
+5. verification of external-side-effect idempotency;
+6. a bounded batch and rate;
+7. observation of database state, produced messages, duplicates, queue depth, and new failures;
+8. an explicit stop and rollback condition.
+
+Automatic shovels from `_error` or `_skipped` back to the source queue are prohibited. Replay must not
+invent identifiers to bypass duplicate detection.
+
+See `docs/runbooks/messaging-operations.md` for queue investigation, backlog, dependency outage,
+endpoint rename, breaking contract, capacity, and replay procedures.
+
+## Automated evidence
+
+The CI suite builds the custom RabbitMQ image and uses real RabbitMQ and PostgreSQL for broker- and
+database-specific guarantees. It asserts state rather than merely asserting no exception.
+
+Coverage includes:
+
+- success;
+- one and multiple immediate retries followed by success;
+- delayed redelivery followed by success;
+- retry/redelivery exhaustion and exact `_error` placement;
+- permanent failure with no retry;
+- skipped-message placement;
+- exact custom metric increments;
+- duplicate transport delivery and protected database side effects;
+- bus-outbox rollback and commit behavior;
+- correlation and causation propagation;
+- business queue arguments and absence of receive TTL;
+- RabbitMQ unavailable at startup;
+- missing delayed-exchange capability;
+- committed outbox recovery after broker/process interruption;
+- collector database failure, stale-value behavior, and recovery;
+- graceful consumer drain;
+- consumer-policy validation and deterministic endpoint naming;
+- contract serialization compatibility and distinct breaking identities;
+- architecture boundary violations with actionable failure messages.
+
+CI retains RabbitMQ image, broker status, plugin, application, build, and test diagnostics when a run
+fails. The in-memory MassTransit harness is not accepted as evidence for RabbitMQ topology,
+delayed-exchange behavior, PostgreSQL atomicity, broker recovery, or queue placement.
