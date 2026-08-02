@@ -160,7 +160,11 @@ public sealed class MessagingFailureDeliveryBehaviorTests(MessagingReliabilityFi
         var committed = ReliabilityMessageFactory.OutboxProduced();
 
         await fixture.ExecuteBusOutboxTransactionAsync(Guid.NewGuid(), rolledBack, commit: false);
-        await fixture.AssertNoCompletionAsync(rolledBack.MessageId);
+        var rolledBackCompletion = fixture.Probe.CompletionTask(rolledBack.MessageId);
+        var completedFirst = await Task.WhenAny(
+            rolledBackCompletion,
+            Task.Delay(TimeSpan.FromMilliseconds(750)));
+        Assert.NotSame(rolledBackCompletion, completedFirst);
 
         await fixture.ExecuteBusOutboxTransactionAsync(Guid.NewGuid(), committed, commit: true);
         await fixture.Probe.WaitForCompletionAsync(committed.MessageId);
@@ -193,8 +197,8 @@ public sealed class MessagingFailureDeliveryBehaviorTests(MessagingReliabilityFi
 
         Assert.DoesNotContain("x-message-ttl", arguments.Keys);
         Assert.Equal("reject-publish", arguments["x-overflow"]?.ToString());
-        Assert.Equal(1_000L, Convert.ToInt64(arguments["x-max-length"]));
-        Assert.Equal(10_485_760L, Convert.ToInt64(arguments["x-max-length-bytes"]));
+        Assert.Equal(1_000L, Assert.IsType<long>(arguments["x-max-length"]));
+        Assert.Equal(10_485_760L, Assert.IsType<long>(arguments["x-max-length-bytes"]));
     }
 
     [Fact]
