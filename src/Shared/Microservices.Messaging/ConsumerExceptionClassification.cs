@@ -2,19 +2,26 @@ using System.Data.Common;
 using System.Net;
 using System.Net.Sockets;
 using System.Security;
+using System.Security.Authentication;
 using System.Text.Json;
 
 namespace Microservices.Messaging;
 
-/// <summary>Marks a failure as transient for message retry and redelivery.</summary>
+/// <summary>Marks a failure as transient only when the operation is safe and idempotent to retry.</summary>
 public interface ITransientConsumerFailure;
 
 /// <summary>Marks a failure as permanent and immediately faultable.</summary>
 public interface IPermanentConsumerFailure;
 
 /// <summary>
-/// Extension point for service-specific exception classification. Rules are evaluated in
-/// registration order before the shared defaults.
+/// Marks a failure where the remote side may have completed the operation. It is not retryable by
+/// itself; a dependency-specific rule may classify it as transient only when idempotency is proven.
+/// </summary>
+public interface IOutcomeUnknownConsumerFailure;
+
+/// <summary>
+/// Extension point for dependency-specific exception classification. Rules must use stable provider
+/// data such as SQLSTATE, HTTP status, socket error, or broker error codes.
 /// </summary>
 public interface IConsumerExceptionRule
 {
@@ -25,81 +32,226 @@ public enum ConsumerExceptionDisposition
 {
     Unclassified = 0,
     Transient = 1,
-    Permanent = 2
+    Permanent = 2,
+    Cancelled = 3
 }
 
 public interface IConsumerExceptionClassifier
 {
+    ConsumerExceptionDisposition Classify(Exception exception);
+
     bool IsTransient(Exception exception);
 }
 
 internal sealed class ConsumerExceptionClassifier(
     IEnumerable<IConsumerExceptionRule> rules) : IConsumerExceptionClassifier
 {
-    public bool IsTransient(Exception exception)
+    private readonly IConsumerExceptionRule[] _rules = rules.ToArray();
+
+    public bool IsTransient(Exception exception) =>
+        Classify(exception) == ConsumerExceptionDisposition.Transient;
+
+    public ConsumerExceptionDisposition Classify(Exception exception)
     {
         ArgumentNullException.ThrowIfNull(exception);
 
-        var current = Unwrap(exception);
-        foreach (var rule in rules)
+        var sawTransient = false;
+        foreach (var current in Enumerate(exception))
         {
-            var disposition = rule.Classify(current);
-            if (disposition != ConsumerExceptionDisposition.Unclassified)
+            var disposition = ClassifySingle(current);
+            switch (disposition)
             {
-                return disposition == ConsumerExceptionDisposition.Transient;
+                case ConsumerExceptionDisposition.Cancelled:
+                case ConsumerExceptionDisposition.Permanent:
+                    return disposition;
+                case ConsumerExceptionDisposition.Transient:
+                    sawTransient = true;
+                    break;
+                case ConsumerExceptionDisposition.Unclassified:
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        $"Unsupported consumer exception disposition '{disposition}'.");
             }
         }
 
-        if (current is IPermanentConsumerFailure)
+        return sawTransient
+            ? ConsumerExceptionDisposition.Transient
+            : ConsumerExceptionDisposition.Permanent;
+    }
+
+    private ConsumerExceptionDisposition ClassifySingle(Exception exception)
+    {
+        foreach (var rule in _rules)
         {
-            return false;
+            var disposition = rule.Classify(exception);
+            if (disposition != ConsumerExceptionDisposition.Unclassified)
+            {
+                return disposition;
+            }
         }
 
-        if (current is ITransientConsumerFailure)
+        if (exception is OperationCanceledException)
         {
-            return true;
+            return ConsumerExceptionDisposition.Cancelled;
         }
 
-        return current switch
+        if (exception is IPermanentConsumerFailure)
         {
-            TimeoutException => true,
-            DbException databaseException => IsTransientDatabaseFailure(databaseException),
-            HttpRequestException httpException => IsTransientHttpFailure(httpException),
-            SocketException => true,
-            IOException => true,
+            return ConsumerExceptionDisposition.Permanent;
+        }
 
-            JsonException => false,
-            UnauthorizedAccessException => false,
-            SecurityException => false,
-            ArgumentException => false,
-            NotSupportedException => false,
-            _ => false
+        if (exception is IOutcomeUnknownConsumerFailure)
+        {
+            return ConsumerExceptionDisposition.Permanent;
+        }
+
+        if (exception is ITransientConsumerFailure)
+        {
+            return ConsumerExceptionDisposition.Transient;
+        }
+
+        return exception switch
+        {
+            DbException databaseException => ClassifyDatabase(databaseException),
+            HttpRequestException httpException => ClassifyHttp(httpException),
+            SocketException socketException => ClassifySocket(socketException),
+
+            JsonException => ConsumerExceptionDisposition.Permanent,
+            UnauthorizedAccessException => ConsumerExceptionDisposition.Permanent,
+            SecurityException => ConsumerExceptionDisposition.Permanent,
+            AuthenticationException => ConsumerExceptionDisposition.Permanent,
+            ArgumentException => ConsumerExceptionDisposition.Permanent,
+            FormatException => ConsumerExceptionDisposition.Permanent,
+            InvalidCastException => ConsumerExceptionDisposition.Permanent,
+            InvalidDataException => ConsumerExceptionDisposition.Permanent,
+            NotSupportedException => ConsumerExceptionDisposition.Permanent,
+            UriFormatException => ConsumerExceptionDisposition.Permanent,
+
+            // TimeoutException and IOException are intentionally not broad retry categories.
+            // A dependency-specific rule or a classified inner SocketException must prove transience.
+            TimeoutException => ConsumerExceptionDisposition.Unclassified,
+            IOException => ConsumerExceptionDisposition.Unclassified,
+            _ => ConsumerExceptionDisposition.Unclassified
         };
     }
 
-    private static bool IsTransientDatabaseFailure(DbException exception)
+    private static ConsumerExceptionDisposition ClassifyDatabase(DbException exception)
     {
-        var isTransientProperty = exception.GetType().GetProperty("IsTransient");
-        return isTransientProperty?.PropertyType == typeof(bool) &&
-               isTransientProperty.GetValue(exception) is true;
-    }
-
-    private static bool IsTransientHttpFailure(HttpRequestException exception) =>
-        exception.StatusCode is null or
-            HttpStatusCode.RequestTimeout or
-            HttpStatusCode.TooManyRequests or
-            HttpStatusCode.InternalServerError or
-            HttpStatusCode.BadGateway or
-            HttpStatusCode.ServiceUnavailable or
-            HttpStatusCode.GatewayTimeout;
-
-    private static Exception Unwrap(Exception exception)
-    {
-        while (exception is AggregateException { InnerExceptions.Count: 1 } aggregate)
+        var sqlState = exception.SqlState;
+        if (string.IsNullOrWhiteSpace(sqlState))
         {
-            exception = aggregate.InnerExceptions[0];
+            return ConsumerExceptionDisposition.Unclassified;
         }
 
-        return exception;
+        if (sqlState.StartsWith("08", StringComparison.Ordinal) ||
+            sqlState.StartsWith("40", StringComparison.Ordinal) ||
+            sqlState is "53300" or "55P03" or "57P01" or "57P02" or "57P03")
+        {
+            return ConsumerExceptionDisposition.Transient;
+        }
+
+        // PostgreSQL authentication, authorization, integrity, syntax, schema, and configuration
+        // errors are deterministic until code or configuration changes.
+        if (sqlState.StartsWith("22", StringComparison.Ordinal) ||
+            sqlState.StartsWith("23", StringComparison.Ordinal) ||
+            sqlState.StartsWith("28", StringComparison.Ordinal) ||
+            sqlState.StartsWith("2F", StringComparison.Ordinal) ||
+            sqlState.StartsWith("3D", StringComparison.Ordinal) ||
+            sqlState.StartsWith("42", StringComparison.Ordinal))
+        {
+            return ConsumerExceptionDisposition.Permanent;
+        }
+
+        return ConsumerExceptionDisposition.Unclassified;
+    }
+
+    private static ConsumerExceptionDisposition ClassifyHttp(HttpRequestException exception)
+    {
+        if (exception.StatusCode is null)
+        {
+            return ConsumerExceptionDisposition.Unclassified;
+        }
+
+        return exception.StatusCode switch
+        {
+            HttpStatusCode.RequestTimeout or
+            HttpStatusCode.TooManyRequests or
+            HttpStatusCode.BadGateway or
+            HttpStatusCode.ServiceUnavailable or
+            HttpStatusCode.GatewayTimeout => ConsumerExceptionDisposition.Transient,
+
+            HttpStatusCode.BadRequest or
+            HttpStatusCode.Unauthorized or
+            HttpStatusCode.Forbidden or
+            HttpStatusCode.NotFound or
+            HttpStatusCode.MethodNotAllowed or
+            HttpStatusCode.NotAcceptable or
+            HttpStatusCode.Conflict or
+            HttpStatusCode.Gone or
+            HttpStatusCode.PreconditionFailed or
+            HttpStatusCode.UnprocessableEntity => ConsumerExceptionDisposition.Permanent,
+
+            // A generic 500 can represent a deterministic server-side defect or an operation with
+            // unknown outcome. The shared classifier therefore requires a dependency-specific rule.
+            _ => ConsumerExceptionDisposition.Unclassified
+        };
+    }
+
+    private static ConsumerExceptionDisposition ClassifySocket(SocketException exception) =>
+        exception.SocketErrorCode switch
+        {
+            SocketError.TimedOut or
+            SocketError.ConnectionAborted or
+            SocketError.ConnectionReset or
+            SocketError.ConnectionRefused or
+            SocketError.HostDown or
+            SocketError.HostUnreachable or
+            SocketError.NetworkDown or
+            SocketError.NetworkReset or
+            SocketError.NetworkUnreachable or
+            SocketError.TryAgain or
+            SocketError.WouldBlock => ConsumerExceptionDisposition.Transient,
+
+            SocketError.AccessDenied or
+            SocketError.AddressAlreadyInUse or
+            SocketError.AddressNotAvailable or
+            SocketError.HostNotFound or
+            SocketError.InvalidArgument or
+            SocketError.NoData or
+            SocketError.ProtocolNotSupported or
+            SocketError.SocketNotSupported => ConsumerExceptionDisposition.Permanent,
+
+            _ => ConsumerExceptionDisposition.Unclassified
+        };
+
+    private static IEnumerable<Exception> Enumerate(Exception exception)
+    {
+        var pending = new Stack<Exception>();
+        var visited = new HashSet<Exception>(ReferenceEqualityComparer.Instance);
+        pending.Push(exception);
+
+        while (pending.Count != 0)
+        {
+            var current = pending.Pop();
+            if (!visited.Add(current))
+            {
+                continue;
+            }
+
+            yield return current;
+
+            if (current is AggregateException aggregate)
+            {
+                for (var index = aggregate.InnerExceptions.Count - 1; index >= 0; index--)
+                {
+                    pending.Push(aggregate.InnerExceptions[index]);
+                }
+            }
+            else if (current.InnerException is not null)
+            {
+                pending.Push(current.InnerException);
+            }
+        }
     }
 }
