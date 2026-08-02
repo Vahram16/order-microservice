@@ -78,10 +78,10 @@ public sealed class RabbitMqMessagingOptions
     public int MaximumMessageBytes { get; init; } = 1_048_576;
 
     /// <summary>
-    /// Allows an endpoint without a typed or explicitly configured policy to use the validated
-    /// global defaults. Keep this disabled for services with business consumers.
+    /// Explicitly approves the fully validated global policy for endpoints without a typed override.
+    /// Set to false in services where every business consumer must declare its own policy.
     /// </summary>
-    public bool AllowValidatedDefaultConsumerPolicy { get; init; }
+    public bool AllowValidatedDefaultConsumerPolicy { get; init; } = true;
 
     /// <summary>
     /// Backward-compatible, endpoint-name keyed overrides. Every entry is validated against the
