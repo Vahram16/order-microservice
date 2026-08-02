@@ -14,6 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../Microservices.Application/Microservices.Application.csproj" />
     <ProjectReference Include="../Microservices.Contracts/Microservices.Contracts.csproj" />
   </ItemGroup>
 
