@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microservices.Messaging;
 
 namespace Microservices.Messaging.Tests;
@@ -15,12 +16,13 @@ public sealed class MessagingFailureDeliveryBehaviorTests(MessagingReliabilityFi
     public async Task SuccessfulConsumptionRecordsOneInvocationAndNoFailureSignals()
     {
         var message = ReliabilityMessageFactory.Success();
-        var baseline = fixture.Metrics.Snapshot(fixture.Endpoint<SuccessConsumer>());
+        var endpoint = fixture.Endpoint<SuccessConsumer>();
+        var baseline = fixture.Metrics.Snapshot(endpoint);
 
         await fixture.PublishAsync(message);
         await fixture.Probe.WaitForCompletionAsync(message.MessageId);
 
-        var delta = fixture.Metrics.Delta(baseline, fixture.Endpoint<SuccessConsumer>());
+        var delta = await WaitForMetricDeltaAsync(baseline, endpoint, expectedAttemptDurations: 1);
         Assert.Equal(1, fixture.Probe.AttemptCount(message.MessageId));
         Assert.Equal(1, delta.AttemptDurations);
         Assert.Equal(0, delta.AttemptFailures);
@@ -39,7 +41,7 @@ public sealed class MessagingFailureDeliveryBehaviorTests(MessagingReliabilityFi
         await fixture.PublishAsync(message);
         await fixture.Probe.WaitForCompletionAsync(message.MessageId);
 
-        var delta = fixture.Metrics.Delta(baseline, endpoint);
+        var delta = await WaitForMetricDeltaAsync(baseline, endpoint, expectedAttemptDurations: 2);
         Assert.Equal(2, fixture.Probe.AttemptCount(message.MessageId));
         Assert.Equal(2, delta.AttemptDurations);
         Assert.Equal(1, delta.AttemptFailures);
@@ -57,7 +59,7 @@ public sealed class MessagingFailureDeliveryBehaviorTests(MessagingReliabilityFi
         await fixture.PublishAsync(message);
         await fixture.Probe.WaitForCompletionAsync(message.MessageId);
 
-        var delta = fixture.Metrics.Delta(baseline, endpoint);
+        var delta = await WaitForMetricDeltaAsync(baseline, endpoint, expectedAttemptDurations: 3);
         Assert.Equal(3, fixture.Probe.AttemptCount(message.MessageId));
         Assert.Equal(3, delta.AttemptDurations);
         Assert.Equal(2, delta.AttemptFailures);
@@ -75,7 +77,7 @@ public sealed class MessagingFailureDeliveryBehaviorTests(MessagingReliabilityFi
         await fixture.PublishAsync(message);
         await fixture.Probe.WaitForCompletionAsync(message.MessageId);
 
-        var delta = fixture.Metrics.Delta(baseline, endpoint);
+        var delta = await WaitForMetricDeltaAsync(baseline, endpoint, expectedAttemptDurations: 3);
         Assert.Equal(3, fixture.Probe.AttemptCount(message.MessageId));
         Assert.Equal(3, delta.AttemptDurations);
         Assert.Equal(2, delta.AttemptFailures);
@@ -94,7 +96,7 @@ public sealed class MessagingFailureDeliveryBehaviorTests(MessagingReliabilityFi
         await fixture.PublishAsync(message);
         await fixture.RabbitMq.WaitForQueueDepthAsync($"{endpoint}_error", initialErrorDepth + 1);
 
-        var delta = fixture.Metrics.Delta(baseline, endpoint);
+        var delta = await WaitForMetricDeltaAsync(baseline, endpoint, expectedAttemptDurations: 6);
         Assert.Equal(6, fixture.Probe.AttemptCount(message.MessageId));
         Assert.Equal(6, delta.AttemptDurations);
         Assert.Equal(6, delta.AttemptFailures);
@@ -113,7 +115,7 @@ public sealed class MessagingFailureDeliveryBehaviorTests(MessagingReliabilityFi
         await fixture.PublishAsync(message);
         await fixture.RabbitMq.WaitForQueueDepthAsync($"{endpoint}_error", initialErrorDepth + 1);
 
-        var delta = fixture.Metrics.Delta(baseline, endpoint);
+        var delta = await WaitForMetricDeltaAsync(baseline, endpoint, expectedAttemptDurations: 1);
         Assert.Equal(1, fixture.Probe.AttemptCount(message.MessageId));
         Assert.Equal(1, delta.AttemptDurations);
         Assert.Equal(1, delta.AttemptFailures);
@@ -204,4 +206,27 @@ public sealed class MessagingFailureDeliveryBehaviorTests(MessagingReliabilityFi
     [Fact]
     public Task GracefulShutdownCompletesInFlightConsumer() =>
         fixture.VerifyGracefulDrainAsync();
+
+    private async Task<MessagingMetricSnapshot> WaitForMetricDeltaAsync(
+        MessagingMetricSnapshot baseline,
+        string endpoint,
+        long expectedAttemptDurations)
+    {
+        var timeout = Stopwatch.StartNew();
+        while (timeout.Elapsed < TimeSpan.FromSeconds(10))
+        {
+            var delta = fixture.Metrics.Delta(baseline, endpoint);
+            if (delta.AttemptDurations >= expectedAttemptDurations)
+            {
+                return delta;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(20));
+        }
+
+        var finalDelta = fixture.Metrics.Delta(baseline, endpoint);
+        throw new TimeoutException(
+            $"Endpoint '{endpoint}' recorded {finalDelta.AttemptDurations} of " +
+            $"{expectedAttemptDurations} expected consumer attempt durations.");
+    }
 }
