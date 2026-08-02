@@ -178,8 +178,7 @@ public sealed class MessagingContainerFailureModeTests
         Assert.False(collector.IsHealthy);
 
         await postgres.StartAsync();
-        await collector.CollectAsync(CancellationToken.None);
-        Assert.True(collector.IsHealthy);
+        await WaitForCollectorRecoveryAsync(collector);
     }
 
     private static IContainer BuildProductionRabbitMqContainer() =>
@@ -270,6 +269,24 @@ public sealed class MessagingContainerFailureModeTests
         }
 
         throw new TimeoutException("Pending outbox messages were not delivered after recovery.");
+    }
+
+    private static async Task WaitForCollectorRecoveryAsync(
+        OutboxMetricsCollector<ReliabilityDbContext> collector)
+    {
+        var timeout = Stopwatch.StartNew();
+        while (timeout.Elapsed < TimeSpan.FromSeconds(15))
+        {
+            await collector.CollectAsync(CancellationToken.None);
+            if (collector.IsHealthy)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+        }
+
+        throw new TimeoutException("Outbox collector did not recover after PostgreSQL restarted.");
     }
 
     private static async Task StopIgnoringBrokerFailureAsync(IHost host)
