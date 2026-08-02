@@ -138,31 +138,34 @@ internal sealed class ConsumerExceptionClassifier(
     private static ConsumerExceptionDisposition ClassifyDatabase(DbException exception)
     {
         var sqlState = exception.SqlState;
-        if (string.IsNullOrWhiteSpace(sqlState))
+        if (!string.IsNullOrWhiteSpace(sqlState))
         {
-            return ConsumerExceptionDisposition.Unclassified;
+            if (sqlState.StartsWith("08", StringComparison.Ordinal) ||
+                sqlState.StartsWith("40", StringComparison.Ordinal) ||
+                sqlState is "53300" or "55P03" or "57P01" or "57P02" or "57P03")
+            {
+                return ConsumerExceptionDisposition.Transient;
+            }
+
+            // PostgreSQL data, integrity, authentication, authorization, syntax, schema, and
+            // configuration failures are deterministic until code or configuration changes.
+            if (sqlState.StartsWith("22", StringComparison.Ordinal) ||
+                sqlState.StartsWith("23", StringComparison.Ordinal) ||
+                sqlState.StartsWith("28", StringComparison.Ordinal) ||
+                sqlState.StartsWith("2F", StringComparison.Ordinal) ||
+                sqlState.StartsWith("3D", StringComparison.Ordinal) ||
+                sqlState.StartsWith("42", StringComparison.Ordinal))
+            {
+                return ConsumerExceptionDisposition.Permanent;
+            }
         }
 
-        if (sqlState.StartsWith("08", StringComparison.Ordinal) ||
-            sqlState.StartsWith("40", StringComparison.Ordinal) ||
-            sqlState is "53300" or "55P03" or "57P01" or "57P02" or "57P03")
-        {
-            return ConsumerExceptionDisposition.Transient;
-        }
-
-        // PostgreSQL authentication, authorization, integrity, syntax, schema, and configuration
-        // errors are deterministic until code or configuration changes.
-        if (sqlState.StartsWith("22", StringComparison.Ordinal) ||
-            sqlState.StartsWith("23", StringComparison.Ordinal) ||
-            sqlState.StartsWith("28", StringComparison.Ordinal) ||
-            sqlState.StartsWith("2F", StringComparison.Ordinal) ||
-            sqlState.StartsWith("3D", StringComparison.Ordinal) ||
-            sqlState.StartsWith("42", StringComparison.Ordinal))
-        {
-            return ConsumerExceptionDisposition.Permanent;
-        }
-
-        return ConsumerExceptionDisposition.Unclassified;
+        // DbException.IsTransient is provider-owned. Npgsql uses it for network errors and timeouts
+        // that do not carry a PostgreSQL SQLSTATE. It is evaluated only after deterministic
+        // SQLSTATE classes so a provider cannot override explicit permanent evidence.
+        return exception.IsTransient
+            ? ConsumerExceptionDisposition.Transient
+            : ConsumerExceptionDisposition.Unclassified;
     }
 
     private static ConsumerExceptionDisposition ClassifyHttp(HttpRequestException exception)
