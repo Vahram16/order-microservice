@@ -79,9 +79,9 @@ public sealed class RabbitMqMessagingOptions
 
     /// <summary>
     /// Explicitly approves the fully validated global policy for endpoints without a typed override.
-    /// Set to false in services where every business consumer must declare its own policy.
+    /// The default is false so adding a consumer cannot silently inherit operational behavior.
     /// </summary>
-    public bool AllowValidatedDefaultConsumerPolicy { get; init; } = true;
+    public bool AllowValidatedDefaultConsumerPolicy { get; init; }
 
     /// <summary>
     /// Backward-compatible, endpoint-name keyed overrides. Every entry is validated against the
