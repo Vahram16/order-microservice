@@ -5,4 +5,8 @@
     <PackageReference Include="MediatR" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../Microservices.Contracts/Microservices.Contracts.csproj" />
+  </ItemGroup>
+
 </Project>
