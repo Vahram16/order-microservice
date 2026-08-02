@@ -42,7 +42,10 @@ public sealed class MessagingContainerFailureModeTests
             .WithEnvironment("RABBITMQ_DEFAULT_USER", "guest")
             .WithEnvironment("RABBITMQ_DEFAULT_PASS", "guest")
             .WithPortBinding(5672, true)
-            .WithWaitStrategy(Wait.ForUnixContainer().UntilExternalTcpPortIsAvailable(5672))
+            .WithWaitStrategy(
+                Wait.ForUnixContainer().UntilMessageIsLogged(
+                    "Server startup complete",
+                    wait => wait.WithTimeout(TimeSpan.FromMinutes(1))))
             .Build();
         await rabbit.StartAsync();
 
@@ -92,10 +95,14 @@ public sealed class MessagingContainerFailureModeTests
             await using var scope = firstHost.Services.CreateAsyncScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<ReliabilityDbContext>();
             var publisher = scope.ServiceProvider.GetRequiredService<IIntegrationMessagePublisher>();
-            await using var transaction = await dbContext.Database.BeginTransactionAsync();
-            await publisher.PublishAsync(message);
-            await dbContext.SaveChangesAsync();
-            await transaction.CommitAsync();
+            var strategy = dbContext.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await dbContext.Database.BeginTransactionAsync();
+                await publisher.PublishAsync(message);
+                await dbContext.SaveChangesAsync();
+                await transaction.CommitAsync();
+            });
 
             Assert.True(await dbContext.Set<OutboxMessage>().AnyAsync());
             await StopIgnoringBrokerFailureAsync(firstHost);
@@ -142,10 +149,14 @@ public sealed class MessagingContainerFailureModeTests
         {
             var dbContext = scope.ServiceProvider.GetRequiredService<ReliabilityDbContext>();
             var publisher = scope.ServiceProvider.GetRequiredService<IIntegrationMessagePublisher>();
-            await using var transaction = await dbContext.Database.BeginTransactionAsync();
-            await publisher.PublishAsync(pendingMessage);
-            await dbContext.SaveChangesAsync();
-            await transaction.CommitAsync();
+            var strategy = dbContext.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await dbContext.Database.BeginTransactionAsync();
+                await publisher.PublishAsync(pendingMessage);
+                await dbContext.SaveChangesAsync();
+                await transaction.CommitAsync();
+            });
         }
 
         var collector = host.Services.GetRequiredService<OutboxMetricsCollector<ReliabilityDbContext>>();
@@ -177,7 +188,10 @@ public sealed class MessagingContainerFailureModeTests
             .WithEnvironment("RABBITMQ_DEFAULT_PASS", "guest")
             .WithEnvironment("RABBITMQ_ERLANG_COOKIE", $"reliability-{Guid.NewGuid():N}")
             .WithPortBinding(5672, true)
-            .WithWaitStrategy(Wait.ForUnixContainer().UntilExternalTcpPortIsAvailable(5672))
+            .WithWaitStrategy(
+                Wait.ForUnixContainer().UntilMessageIsLogged(
+                    "Server startup complete",
+                    wait => wait.WithTimeout(TimeSpan.FromMinutes(1))))
             .Build();
 
     private static IHost BuildHost(
