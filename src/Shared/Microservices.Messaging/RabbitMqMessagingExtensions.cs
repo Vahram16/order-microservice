@@ -160,13 +160,18 @@ public static class RabbitMqMessagingExtensions
                 rabbit.SendTopology.ConfigureDeadLetterSettings = settings =>
                     ConfigureFaultQueue(settings, options);
 
-                // RabbitMQ delayed-message exchange is a required production capability. Missing
-                // plugin support is a deployment failure and must not silently change semantics.
                 rabbit.UseDelayedMessageScheduler();
                 rabbit.ConfigureEndpoints(context);
                 policyRegistry.ValidateAllPoliciesMatched();
             });
         });
+
+        // Registered after MassTransit so host startup first establishes the governed bus and then
+        // verifies the broker extension required by every delayed-redelivery endpoint.
+        services.AddHostedService(_ => new RabbitMqDelayedExchangeCapabilityProbe(
+            options,
+            rabbitHostAddress,
+            endpointNamePrefix));
 
         return services;
     }
