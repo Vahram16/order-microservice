@@ -1,4 +1,5 @@
 using Microservices.Messaging;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace Microservices.Messaging.Tests;
@@ -7,6 +8,24 @@ public sealed class RabbitMqMessagingPolicyOptionsTests
 {
     private const string SecureConnectionString =
         "amqps://guest:secret@rabbitmq.example:5671/";
+
+    [Fact]
+    public void RemovedReceiveQueueTtlConfigurationFailsStartupValidation()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Messaging:QueueMessageTimeToLive"] = "1.00:00:00"
+            })
+            .Build();
+
+        var exception = Assert.Throws<OptionsValidationException>(() =>
+            RabbitMqMessagingOptionsValidator.RejectRemovedConfiguration(configuration));
+
+        Assert.Contains(
+            exception.Failures,
+            failure => failure.Contains("x-message-ttl", StringComparison.Ordinal));
+    }
 
     [Fact]
     public void ValidationRejectsIncompleteConsumerRateLimit()
@@ -19,10 +38,7 @@ public sealed class RabbitMqMessagingPolicyOptionsTests
                 RateLimit = 10
             });
 
-        var exception = Assert.Throws<OptionsValidationException>(() =>
-            RabbitMqMessagingOptionsValidator.ValidateAndGetHostAddress(
-                options,
-                SecureConnectionString));
+        var exception = ValidateFailure(options);
 
         Assert.Contains(
             exception.Failures,
@@ -32,38 +48,35 @@ public sealed class RabbitMqMessagingPolicyOptionsTests
     }
 
     [Fact]
-    public void ValidationRejectsSingleActiveConsumerWithoutSerialLimits()
+    public void ValidationRejectsOrderingPolicyWithoutSerialBrokerSemantics()
     {
         var options = CreateOptions();
         options.Consumers.Add(
             "orders-ordered-command",
             new ConsumerDeliveryPolicyOptions
             {
-                SingleActiveConsumer = true,
-                PrefetchCount = 2,
+                RequiresOrderedDelivery = true,
+                SingleActiveConsumer = false,
+                PrefetchCount = 1,
                 ConcurrentMessageLimit = 1
             });
 
-        var exception = Assert.Throws<OptionsValidationException>(() =>
-            RabbitMqMessagingOptionsValidator.ValidateAndGetHostAddress(
-                options,
-                SecureConnectionString));
+        var exception = ValidateFailure(options);
 
         Assert.Contains(
             exception.Failures,
-            failure => failure.Contains(
-                "PrefetchCount=1 and ConcurrentMessageLimit=1",
-                StringComparison.Ordinal));
+            failure => failure.Contains("ordering-sensitive", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void ValidationAcceptsSingleActiveConsumerWithSerialLimits()
+    public void ValidationAcceptsOrderingPolicyWithSerialLimits()
     {
         var options = CreateOptions();
         options.Consumers.Add(
             "orders-ordered-command",
             new ConsumerDeliveryPolicyOptions
             {
+                RequiresOrderedDelivery = true,
                 SingleActiveConsumer = true,
                 PrefetchCount = 1,
                 ConcurrentMessageLimit = 1
@@ -77,16 +90,75 @@ public sealed class RabbitMqMessagingPolicyOptionsTests
     }
 
     [Fact]
+    public void CriticalConsumerMustDeclareConcurrencyExplicitly()
+    {
+        var options = CreateOptions();
+        options.Consumers.Add(
+            "orders-critical-command",
+            new ConsumerDeliveryPolicyOptions
+            {
+                IsCritical = true
+            });
+
+        var exception = ValidateFailure(options);
+
+        Assert.Contains(
+            exception.Failures,
+            failure => failure.Contains("must explicitly configure", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("Orders-Consumer")]
+    [InlineData("orders--consumer")]
+    [InlineData("orders_consumer")]
+    [InlineData("-orders-consumer")]
+    public void ValidationRejectsInvalidStableEndpointName(string endpointName)
+    {
+        var options = CreateOptions();
+        options.Consumers.Add(endpointName, new ConsumerDeliveryPolicyOptions());
+
+        var exception = ValidateFailure(options);
+
+        Assert.Contains(
+            exception.Failures,
+            failure => failure.Contains("lowercase kebab-case", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ValidationRejectsRetryAndRedeliveryDelayAboveConfiguredMaximum()
+    {
+        var options = new RabbitMqMessagingOptions
+        {
+            MaximumRetryAndRedeliveryDelay = TimeSpan.FromSeconds(5),
+            RetryIntervals = [TimeSpan.FromSeconds(2)],
+            RedeliveryIntervals = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2)]
+        };
+
+        var exception = ValidateFailure(options);
+
+        Assert.Contains(
+            exception.Failures,
+            failure => failure.Contains("exceeding", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DelayCalculationIncludesRetrySequenceForEveryRedelivery()
+    {
+        var total = RabbitMqMessagingOptionsValidator.CalculateRetryAndRedeliveryDelay(
+            [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2)],
+            [TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10)]);
+
+        Assert.Equal(TimeSpan.FromSeconds(24), total);
+    }
+
+    [Fact]
     public void ValidationRejectsPayloadLimitAboveQueueByteLimit()
     {
         var options = CreateOptions(
             queueMaxLengthBytes: 1_024,
             maximumMessageBytes: 2_048);
 
-        var exception = Assert.Throws<OptionsValidationException>(() =>
-            RabbitMqMessagingOptionsValidator.ValidateAndGetHostAddress(
-                options,
-                SecureConnectionString));
+        var exception = ValidateFailure(options);
 
         Assert.Contains(
             exception.Failures,
@@ -105,10 +177,7 @@ public sealed class RabbitMqMessagingPolicyOptionsTests
             stopTimeout: TimeSpan.FromSeconds(10),
             consumerStopTimeout: TimeSpan.FromSeconds(11));
 
-        var exception = Assert.Throws<OptionsValidationException>(() =>
-            RabbitMqMessagingOptionsValidator.ValidateAndGetHostAddress(
-                options,
-                SecureConnectionString));
+        var exception = ValidateFailure(options);
 
         Assert.Contains(
             exception.Failures,
@@ -119,6 +188,12 @@ public sealed class RabbitMqMessagingPolicyOptionsTests
                     nameof(RabbitMqMessagingOptions.StopTimeout),
                     StringComparison.Ordinal));
     }
+
+    private static OptionsValidationException ValidateFailure(RabbitMqMessagingOptions options) =>
+        Assert.Throws<OptionsValidationException>(() =>
+            RabbitMqMessagingOptionsValidator.ValidateAndGetHostAddress(
+                options,
+                SecureConnectionString));
 
     private static RabbitMqMessagingOptions CreateOptions(
         long queueMaxLengthBytes = 1_073_741_824,
