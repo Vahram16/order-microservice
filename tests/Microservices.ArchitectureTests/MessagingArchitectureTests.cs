@@ -230,7 +230,7 @@ internal static class MessagingDependencyRules
                     fullName.StartsWith(prefix, StringComparison.Ordinal)),
             approvedAlternative);
 
-    private static IReadOnlyList<string> FindDependencies(
+    private static string[] FindDependencies(
         IEnumerable<Type> types,
         Func<Type, bool> isForbidden,
         string approvedAlternative)
