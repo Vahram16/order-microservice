@@ -21,12 +21,7 @@ internal static class RabbitMqMessagingOptionsValidator
         throw new OptionsValidationException(
             RabbitMqMessagingOptions.SectionName,
             typeof(RabbitMqMessagingOptions),
-            [
-                $"'{key}' is no longer supported. Durable business receive queues must not use " +
-                "x-message-ttl because RabbitMQ can discard an expired message before MassTransit " +
-                "can route it to an _error or _skipped queue. Remove the setting and use queue " +
-                "capacity and backlog-age alerts instead."
-            ]);
+            [$"'{key}' is no longer supported. Durable business receive queues must not use x-message-ttl."]);
     }
 
     public static Uri? ValidateAndGetHostAddress(
@@ -67,7 +62,6 @@ internal static class RabbitMqMessagingOptionsValidator
         ValidatePositive(options.OutboxQueryDelay, nameof(options.OutboxQueryDelay), failures);
         ValidatePositive(options.DuplicateDetectionWindow, nameof(options.DuplicateDetectionWindow), failures);
         ValidatePositive(options.OutboxMetricsInterval, nameof(options.OutboxMetricsInterval), failures);
-        ValidatePositive(options.OutboxMetricsQueryTimeout, nameof(options.OutboxMetricsQueryTimeout), failures);
         if (options.DuplicateDetectionWindow < options.OutboxQueryDelay)
         {
             failures.Add(
@@ -77,13 +71,6 @@ internal static class RabbitMqMessagingOptionsValidator
 
         ValidateIntervals(options.RetryIntervals, nameof(options.RetryIntervals), TimeSpan.FromSeconds(30), failures);
         ValidateIntervals(options.RedeliveryIntervals, nameof(options.RedeliveryIntervals), TimeSpan.FromDays(1), failures);
-        ValidatePositive(options.MaximumRetryAndRedeliveryDelay, nameof(options.MaximumRetryAndRedeliveryDelay), failures);
-        ValidateMaximumDeliveryDelay(
-            options.RetryIntervals,
-            options.RedeliveryIntervals,
-            options.MaximumRetryAndRedeliveryDelay,
-            "global policy",
-            failures);
         ValidatePositive(options.StartTimeout, nameof(options.StartTimeout), failures);
         ValidatePositive(options.StopTimeout, nameof(options.StopTimeout), failures);
         ValidatePositive(options.ConsumerStopTimeout, nameof(options.ConsumerStopTimeout), failures);
@@ -123,7 +110,8 @@ internal static class RabbitMqMessagingOptionsValidator
             ValidateConsumerPolicy(
                 consumer.Key,
                 consumer.Value,
-                options,
+                options.PrefetchCount,
+                options.ConcurrentMessageLimit,
                 failures);
         }
 
@@ -154,16 +142,17 @@ internal static class RabbitMqMessagingOptionsValidator
         return hostAddress;
     }
 
-    internal static void ValidateConsumerPolicy(
+    private static void ValidateConsumerPolicy(
         string endpointName,
         ConsumerDeliveryPolicyOptions policy,
-        RabbitMqMessagingOptions global,
+        ushort globalPrefetchCount,
+        ushort globalConcurrentMessageLimit,
         List<string> failures)
     {
         if (!IsValidEndpointName(endpointName))
         {
             failures.Add(
-                $"'{RabbitMqMessagingOptions.SectionName}:Consumers:{endpointName}' must use 1-128 characters of stable lowercase kebab-case text.");
+                $"'{RabbitMqMessagingOptions.SectionName}:Consumers:{endpointName}' must use 1-128 characters of lowercase kebab-case text.");
             return;
         }
 
@@ -178,17 +167,8 @@ internal static class RabbitMqMessagingOptionsValidator
             ValidateIntervals(policy.RedeliveryIntervals, $"{prefix}:{nameof(policy.RedeliveryIntervals)}", TimeSpan.FromDays(1), failures);
         }
 
-        var retries = policy.RetryIntervals ?? global.RetryIntervals;
-        var redeliveries = policy.RedeliveryIntervals ?? global.RedeliveryIntervals;
-        ValidateMaximumDeliveryDelay(
-            retries,
-            redeliveries,
-            global.MaximumRetryAndRedeliveryDelay,
-            $"consumer '{endpointName}'",
-            failures);
-
-        var prefetch = policy.PrefetchCount ?? global.PrefetchCount;
-        var concurrency = policy.ConcurrentMessageLimit ?? global.ConcurrentMessageLimit;
+        var prefetch = policy.PrefetchCount ?? globalPrefetchCount;
+        var concurrency = policy.ConcurrentMessageLimit ?? globalConcurrentMessageLimit;
         if (prefetch == 0)
         {
             failures.Add($"'{RabbitMqMessagingOptions.SectionName}:{prefix}:{nameof(policy.PrefetchCount)}' must be greater than zero.");
@@ -215,30 +195,6 @@ internal static class RabbitMqMessagingOptionsValidator
             failures.Add(
                 $"'{RabbitMqMessagingOptions.SectionName}:{prefix}' must use PrefetchCount=1 and ConcurrentMessageLimit=1 when SingleActiveConsumer is enabled.");
         }
-
-        if (policy.RequiresOrderedDelivery &&
-            (!policy.SingleActiveConsumer || prefetch != 1 || concurrency != 1))
-        {
-            failures.Add(
-                $"'{RabbitMqMessagingOptions.SectionName}:{prefix}' is ordering-sensitive and must enable SingleActiveConsumer with PrefetchCount=1 and ConcurrentMessageLimit=1.");
-        }
-
-        if (policy.IsCritical &&
-            (policy.PrefetchCount is null || policy.ConcurrentMessageLimit is null))
-        {
-            failures.Add(
-                $"'{RabbitMqMessagingOptions.SectionName}:{prefix}' is critical and must explicitly configure PrefetchCount and ConcurrentMessageLimit.");
-        }
-    }
-
-    internal static TimeSpan CalculateRetryAndRedeliveryDelay(
-        IReadOnlyCollection<TimeSpan> retryIntervals,
-        IReadOnlyCollection<TimeSpan> redeliveryIntervals)
-    {
-        var retryTicks = retryIntervals.Sum(static interval => interval.Ticks);
-        var redeliveryTicks = redeliveryIntervals.Sum(static interval => interval.Ticks);
-        return TimeSpan.FromTicks(
-            checked((redeliveryIntervals.Count + 1L) * retryTicks + redeliveryTicks));
     }
 
     internal static bool IsValidEndpointName(string endpointName) =>
@@ -249,28 +205,6 @@ internal static class RabbitMqMessagingOptionsValidator
         !endpointName.Contains("--", StringComparison.Ordinal) &&
         endpointName.All(static character =>
             character == '-' || char.IsAsciiLetterLower(character) || char.IsAsciiDigit(character));
-
-    private static void ValidateMaximumDeliveryDelay(
-        TimeSpan[]? retryIntervals,
-        TimeSpan[]? redeliveryIntervals,
-        TimeSpan maximum,
-        string policyName,
-        List<string> failures)
-    {
-        if (retryIntervals is null || retryIntervals.Length == 0 ||
-            redeliveryIntervals is null || redeliveryIntervals.Length == 0)
-        {
-            return;
-        }
-
-        var total = CalculateRetryAndRedeliveryDelay(retryIntervals, redeliveryIntervals);
-        if (total > maximum)
-        {
-            failures.Add(
-                $"Messaging {policyName} introduces {total:c} of retry/redelivery delay, exceeding " +
-                $"'{nameof(RabbitMqMessagingOptions.MaximumRetryAndRedeliveryDelay)}' ({maximum:c}).");
-        }
-    }
 
     private static void ValidateIntervals(
         TimeSpan[]? intervals,
