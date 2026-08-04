@@ -1,27 +1,20 @@
-using System.Data.Common;
-using System.Net;
-using System.Net.Sockets;
-using System.Security;
-using System.Security.Authentication;
-using System.Text.Json;
-
 namespace Microservices.Messaging;
 
-/// <summary>Marks a failure as transient only when the operation is safe and idempotent to retry.</summary>
+/// <summary>Marks a failure as transient when the owning operation is safe to retry.</summary>
 public interface ITransientConsumerFailure;
 
 /// <summary>Marks a failure as permanent and immediately faultable.</summary>
 public interface IPermanentConsumerFailure;
 
 /// <summary>
-/// Marks a failure where the remote side may have completed the operation. It is not retryable by
-/// itself; a dependency-specific rule may classify it as transient only when idempotency is proven.
+/// Marks a failure whose outcome is unknown. It is permanent unless a dependency-specific rule can
+/// prove that replay is safe and idempotent.
 /// </summary>
 public interface IOutcomeUnknownConsumerFailure;
 
 /// <summary>
-/// Extension point for dependency-specific exception classification. Rules must use stable provider
-/// data such as SQLSTATE, HTTP status, socket error, or broker error codes.
+/// Extension point for service-owned dependency rules. Shared messaging infrastructure deliberately
+/// does not guess retry safety from broad HTTP, socket, timeout, or database exception categories.
 /// </summary>
 public interface IConsumerExceptionRule
 {
@@ -82,6 +75,16 @@ internal sealed class ConsumerExceptionClassifier(
 
     private ConsumerExceptionDisposition ClassifySingle(Exception exception)
     {
+        if (exception is OperationCanceledException)
+        {
+            return ConsumerExceptionDisposition.Cancelled;
+        }
+
+        if (exception is IPermanentConsumerFailure or IOutcomeUnknownConsumerFailure)
+        {
+            return ConsumerExceptionDisposition.Permanent;
+        }
+
         foreach (var rule in _rules)
         {
             var disposition = rule.Classify(exception);
@@ -91,141 +94,10 @@ internal sealed class ConsumerExceptionClassifier(
             }
         }
 
-        if (exception is OperationCanceledException)
-        {
-            return ConsumerExceptionDisposition.Cancelled;
-        }
-
-        if (exception is IPermanentConsumerFailure)
-        {
-            return ConsumerExceptionDisposition.Permanent;
-        }
-
-        if (exception is IOutcomeUnknownConsumerFailure)
-        {
-            return ConsumerExceptionDisposition.Permanent;
-        }
-
-        if (exception is ITransientConsumerFailure)
-        {
-            return ConsumerExceptionDisposition.Transient;
-        }
-
-        return exception switch
-        {
-            DbException databaseException => ClassifyDatabase(databaseException),
-            HttpRequestException httpException => ClassifyHttp(httpException),
-            SocketException socketException => ClassifySocket(socketException),
-
-            JsonException => ConsumerExceptionDisposition.Permanent,
-            UnauthorizedAccessException => ConsumerExceptionDisposition.Permanent,
-            SecurityException => ConsumerExceptionDisposition.Permanent,
-            AuthenticationException => ConsumerExceptionDisposition.Permanent,
-            ArgumentException => ConsumerExceptionDisposition.Permanent,
-            FormatException => ConsumerExceptionDisposition.Permanent,
-            InvalidCastException => ConsumerExceptionDisposition.Permanent,
-            InvalidDataException => ConsumerExceptionDisposition.Permanent,
-            NotSupportedException => ConsumerExceptionDisposition.Permanent,
-
-            // TimeoutException and IOException are intentionally not broad retry categories.
-            // A dependency-specific rule or a classified inner SocketException must prove transience.
-            TimeoutException => ConsumerExceptionDisposition.Unclassified,
-            IOException => ConsumerExceptionDisposition.Unclassified,
-            _ => ConsumerExceptionDisposition.Unclassified
-        };
-    }
-
-    private static ConsumerExceptionDisposition ClassifyDatabase(DbException exception)
-    {
-        var sqlState = exception.SqlState;
-        if (!string.IsNullOrWhiteSpace(sqlState))
-        {
-            if (sqlState.StartsWith("08", StringComparison.Ordinal) ||
-                sqlState.StartsWith("40", StringComparison.Ordinal) ||
-                sqlState is "53300" or "55P03" or "57P01" or "57P02" or "57P03")
-            {
-                return ConsumerExceptionDisposition.Transient;
-            }
-
-            // PostgreSQL data, integrity, authentication, authorization, syntax, schema, and
-            // configuration failures are deterministic until code or configuration changes.
-            if (sqlState.StartsWith("22", StringComparison.Ordinal) ||
-                sqlState.StartsWith("23", StringComparison.Ordinal) ||
-                sqlState.StartsWith("28", StringComparison.Ordinal) ||
-                sqlState.StartsWith("2F", StringComparison.Ordinal) ||
-                sqlState.StartsWith("3D", StringComparison.Ordinal) ||
-                sqlState.StartsWith("42", StringComparison.Ordinal))
-            {
-                return ConsumerExceptionDisposition.Permanent;
-            }
-        }
-
-        // DbException.IsTransient is provider-owned. Npgsql uses it for network errors and timeouts
-        // that do not carry a PostgreSQL SQLSTATE. It is evaluated only after deterministic
-        // SQLSTATE classes so a provider cannot override explicit permanent evidence.
-        return exception.IsTransient
+        return exception is ITransientConsumerFailure
             ? ConsumerExceptionDisposition.Transient
             : ConsumerExceptionDisposition.Unclassified;
     }
-
-    private static ConsumerExceptionDisposition ClassifyHttp(HttpRequestException exception)
-    {
-        if (exception.StatusCode is null)
-        {
-            return ConsumerExceptionDisposition.Unclassified;
-        }
-
-        return exception.StatusCode switch
-        {
-            HttpStatusCode.RequestTimeout or
-            HttpStatusCode.TooManyRequests or
-            HttpStatusCode.BadGateway or
-            HttpStatusCode.ServiceUnavailable or
-            HttpStatusCode.GatewayTimeout => ConsumerExceptionDisposition.Transient,
-
-            HttpStatusCode.BadRequest or
-            HttpStatusCode.Unauthorized or
-            HttpStatusCode.Forbidden or
-            HttpStatusCode.NotFound or
-            HttpStatusCode.MethodNotAllowed or
-            HttpStatusCode.NotAcceptable or
-            HttpStatusCode.Conflict or
-            HttpStatusCode.Gone or
-            HttpStatusCode.PreconditionFailed or
-            HttpStatusCode.UnprocessableEntity => ConsumerExceptionDisposition.Permanent,
-
-            // A generic 500 can represent a deterministic server-side defect or an operation with
-            // unknown outcome. The shared classifier therefore requires a dependency-specific rule.
-            _ => ConsumerExceptionDisposition.Unclassified
-        };
-    }
-
-    private static ConsumerExceptionDisposition ClassifySocket(SocketException exception) =>
-        exception.SocketErrorCode switch
-        {
-            SocketError.TimedOut or
-            SocketError.ConnectionAborted or
-            SocketError.ConnectionReset or
-            SocketError.ConnectionRefused or
-            SocketError.HostDown or
-            SocketError.HostUnreachable or
-            SocketError.NetworkDown or
-            SocketError.NetworkReset or
-            SocketError.NetworkUnreachable or
-            SocketError.TryAgain or
-            SocketError.WouldBlock => ConsumerExceptionDisposition.Transient,
-
-            SocketError.AccessDenied or
-            SocketError.AddressAlreadyInUse or
-            SocketError.AddressNotAvailable or
-            SocketError.HostNotFound or
-            SocketError.InvalidArgument or
-            SocketError.NoData or
-            SocketError.ProtocolNotSupported or
-            SocketError.SocketNotSupported => ConsumerExceptionDisposition.Permanent,
-
-            _ => ConsumerExceptionDisposition.Unclassified
-        };
 
     private static IEnumerable<Exception> Enumerate(Exception exception)
     {
