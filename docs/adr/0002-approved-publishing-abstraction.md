@@ -1,4 +1,4 @@
-# ADR 0002: Separate event publication and command sending boundaries
+# ADR 0002: Event and command boundaries with stable endpoint topology
 
 - Status: Accepted
 - Date: 2026-08-02
@@ -6,33 +6,36 @@
 
 ## Context
 
-Application code that injects `IBus`, `IPublishEndpoint`, `ISendEndpointProvider`, or raw RabbitMQ
-clients can bypass the scoped transactional outbox and couple business behavior to transport details.
-Events and commands also have different routing intent: events fan out to interested subscribers,
-while a command targets one owning endpoint.
+Events and commands have different routing intent. Events describe facts and may fan out to many
+subscribers. Commands request an action from one owning bounded context.
+
+Direct application dependencies on MassTransit or RabbitMQ expose transport details and can bypass
+the scoped bus outbox. Endpoint names and queue arguments are durable broker topology; deriving them
+only from CLR consumer names makes ordinary refactoring an accidental topology change.
 
 ## Decision
 
 Production application code uses two transport-independent boundaries:
 
-- `IIntegrationEventPublisher` publishes `IIntegrationEvent` contracts through scoped MassTransit
-  `IPublishEndpoint`;
-- `IIntegrationCommandSender<TCommand>` sends one `IIntegrationCommand` through scoped MassTransit
-  `ISendEndpointProvider` to the command's explicitly registered owning endpoint.
+- `IIntegrationEventPublisher` publishes `IIntegrationEvent` contracts by message type;
+- `IIntegrationCommandSender<TCommand>` sends one `IIntegrationCommand` to its explicitly registered
+  owning endpoint.
 
-A producer registers each command route once in infrastructure composition with
+A producer registers each command destination once in infrastructure composition with
 `AddIntegrationCommandRoute<TCommand>(endpointName)`. Application handlers never receive or construct
-broker addresses. Duplicate command-route registration fails immediately.
+broker addresses. Duplicate route registration for the same command type fails immediately.
 
-MassTransit owns normal consume-context propagation, correlation conventions, conversation identity,
-and bus-outbox participation. Explicit message, correlation, causation, or application headers are
-used only when a concrete workflow requires them.
-
-Direct bus access remains available inside infrastructure composition and test infrastructure.
+Business consumers use explicit stable lowercase kebab-case endpoint names. A consumer-class rename
+must not rename its broker endpoint. Architecture tests prevent production application and domain
+code from depending directly on bus, send, publish, or RabbitMQ transport types. Direct transport
+access remains allowed in infrastructure composition and transport-focused tests.
 
 ## Consequences
 
-The application API makes event fan-out and command point-to-point intent explicit. Sending a command
-creates deliberate destination coupling, so the endpoint name is stable infrastructure configuration
-and changing it is a topology migration. No central command-routing registry or queue-name parameter
-is exposed to application code.
+Event publishers are unaware of subscriber endpoints. Command producers intentionally depend on the
+stable identity of the command owner's endpoint, but that dependency is isolated in infrastructure
+composition.
+
+Changing a command destination, endpoint name, queue type, or immutable queue argument is a topology
+migration. Deployment planning must cover producer and consumer ordering, old queue draining,
+temporary coexistence when required, rollback, and obsolete topology removal.
