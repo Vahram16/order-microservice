@@ -20,13 +20,11 @@ public sealed class RabbitMqMessagingOptions
     public TimeSpan OutboxQueryDelay { get; init; } = TimeSpan.FromSeconds(1);
     public TimeSpan DuplicateDetectionWindow { get; init; } = TimeSpan.FromMinutes(30);
     public TimeSpan OutboxMetricsInterval { get; init; } = TimeSpan.FromSeconds(10);
-    public TimeSpan OutboxMetricsQueryTimeout { get; init; } = TimeSpan.FromSeconds(5);
 
     /// <summary>Short, in-memory retry intervals. Keep these bounded and brief.</summary>
     /// <remarks>
-    /// This property has a setter because configuration collection binding appends to initialized
-    /// arrays. The messaging binder replaces a configured array atomically so operator values can
-    /// never be combined with defaults and silently multiply the retry lifecycle.
+    /// Setters are required so configured arrays can replace defaults instead of being appended by
+    /// configuration binding.
     /// </remarks>
     public TimeSpan[] RetryIntervals { get; set; } =
     [
@@ -37,7 +35,7 @@ public sealed class RabbitMqMessagingOptions
 
     /// <summary>
     /// Broker-backed delayed redelivery intervals after immediate retries are exhausted.
-    /// RabbitMQ's delayed-message exchange plugin is required.
+    /// RabbitMQ's delayed-message exchange plugin is required by the deployed broker image.
     /// </summary>
     public TimeSpan[] RedeliveryIntervals { get; set; } =
     [
@@ -45,12 +43,6 @@ public sealed class RabbitMqMessagingOptions
         TimeSpan.FromMinutes(1),
         TimeSpan.FromMinutes(5)
     ];
-
-    /// <summary>
-    /// Maximum aggregate wait introduced by retry and delayed-redelivery middleware. Consumer
-    /// execution time is not included and must be bounded by the owning application where needed.
-    /// </summary>
-    public TimeSpan MaximumRetryAndRedeliveryDelay { get; init; } = TimeSpan.FromMinutes(30);
 
     public ushort PrefetchCount { get; init; } = 32;
     public ushort ConcurrentMessageLimit { get; init; } = 8;
@@ -83,15 +75,8 @@ public sealed class RabbitMqMessagingOptions
     public int MaximumMessageBytes { get; init; } = 1_048_576;
 
     /// <summary>
-    /// Explicitly approves the fully validated global policy for endpoints without a typed override.
-    /// The default is false so adding a consumer cannot silently inherit operational behavior.
-    /// </summary>
-    public bool AllowValidatedDefaultConsumerPolicy { get; init; }
-
-    /// <summary>
-    /// Backward-compatible, endpoint-name keyed overrides. Every entry is validated against the
-    /// endpoints actually configured at startup; stale or misspelled entries fail bus creation.
-    /// Prefer <c>AddConsumerWithPolicy&lt;TConsumer&gt;</c> for new consumers.
+    /// Optional endpoint-name keyed overrides for operational tuning. Services that need richer
+    /// consumer-specific behavior should use MassTransit <c>ConsumerDefinition&lt;TConsumer&gt;</c>.
     /// </summary>
     public Dictionary<string, ConsumerDeliveryPolicyOptions> Consumers { get; init; } =
         new(StringComparer.Ordinal);
@@ -114,10 +99,4 @@ public sealed class ConsumerDeliveryPolicyOptions
     /// configure prefetch and concurrency as one.
     /// </summary>
     public bool SingleActiveConsumer { get; init; }
-
-    /// <summary>Marks a business-critical consumer that must never inherit a default policy.</summary>
-    public bool IsCritical { get; init; }
-
-    /// <summary>Requires serial processing and single-active-consumer broker semantics.</summary>
-    public bool RequiresOrderedDelivery { get; init; }
 }
