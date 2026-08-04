@@ -10,6 +10,7 @@ The baseline provides:
 
 - MassTransit over RabbitMQ;
 - PostgreSQL Entity Framework bus outbox and consumer inbox/outbox;
+- explicit event publication and command sending boundaries;
 - bounded immediate retry followed by bounded broker-backed delayed redelivery;
 - default-deny exception classification;
 - durable quorum queues by default;
@@ -18,15 +19,32 @@ The baseline provides:
 - lightweight OpenTelemetry and outbox backlog signals;
 - bounded startup and graceful consumer shutdown.
 
-## Publishing boundary
+## Event and command boundaries
 
-Application code publishes integration contracts through
-`IIntegrationMessagePublisher`. Its implementation is deliberately thin and delegates to scoped
-MassTransit `IPublishEndpoint`, preserving bus-outbox participation.
+Application code uses two transport-independent APIs:
+
+- `IIntegrationEventPublisher` publishes an `IIntegrationEvent` through scoped MassTransit
+  `IPublishEndpoint`, allowing every interested endpoint to receive it;
+- `IIntegrationCommandSender<TCommand>` sends an `IIntegrationCommand` to one explicitly configured
+  owning endpoint through scoped MassTransit `ISendEndpointProvider`.
+
+A producer registers a command destination once in infrastructure composition:
+
+```csharp
+services.AddIntegrationCommandRoute<ReserveInventory>("inventory-reserve");
+```
+
+The consuming service uses the same stable endpoint name for the single command owner. Application
+handlers inject `IIntegrationCommandSender<ReserveInventory>` and never construct queue or exchange
+addresses. Duplicate route registration for the same command type fails immediately.
 
 MassTransit owns normal consume-context propagation, correlation conventions, conversation identity,
-and transport behavior. Callers may explicitly provide message, correlation, causation, or bounded
-application headers only when a concrete workflow requires them.
+and bus-outbox participation for both operations. Callers may explicitly provide message,
+correlation, causation, or bounded application headers only when a concrete workflow requires them.
+
+RabbitMQ itself does not understand commands or events. Both operations publish AMQP messages;
+MassTransit selects either message-type fan-out topology for events or the configured endpoint
+exchange for commands.
 
 Transport identity, retry state, tracing data, and broker headers remain outside business payloads.
 
@@ -67,6 +85,10 @@ requires a controlled migration because RabbitMQ rejects inequivalent redeclarat
 Consumers use explicit stable lowercase kebab-case endpoint names through standard MassTransit
 registration. Renaming a CLR consumer type must not rename its broker endpoint.
 
+For events, endpoint identity is owned only by the subscriber. For commands, the producer also maps
+the command type to the single owner's stable endpoint because point-to-point sending intentionally
+requires a destination. Changing that destination is a topology migration.
+
 Optional endpoint-name configuration overrides support simple operational tuning. They are not a
 mandatory policy registry. Rich consumer-specific behavior belongs in `ConsumerDefinition<T>` near
 the owning service.
@@ -104,6 +126,8 @@ raw RabbitMQ connection solely to probe the plugin.
 
 The integration suite uses real RabbitMQ and PostgreSQL to verify externally meaningful behavior:
 
+- event publication reaches every subscribed endpoint;
+- command sending reaches only the explicitly configured owning endpoint;
 - successful consumption;
 - bounded immediate retry;
 - delayed redelivery;
