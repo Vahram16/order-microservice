@@ -192,14 +192,12 @@ knowledge; they are published by message type to all subscribers. RabbitMQ itsel
 publishes—MassTransit chooses fan-out topology for events and the configured endpoint exchange for
 commands.
 
-MassTransit owns normal consume-context propagation and standard transport behavior. Services use
-explicit stable endpoint names and `ConsumerDefinition<TConsumer>` when a consumer needs behavior
-that differs materially from the shared defaults. Dependency-specific retry safety is expressed by
-service-owned `IConsumerExceptionRule` implementations rather than a global exception catalogue.
+The messaging documentation is intentionally split by purpose:
 
-See `docs/messaging-failure-delivery-policy.md` for the enforced baseline and `docs/adr/` for the
-architectural decisions. Deployment-specific dashboards, alerts, indexes, and operational procedures
-should be introduced when a real service workload and SLO justify them.
+- `docs/adr/0001` through `0005` record the durable architectural decisions;
+- `docs/messaging-failure-delivery-policy.md` is the practical registration, deployment,
+  observability, and failure-handling guide;
+- `infrastructure/observability/README.md` describes the deployable monitoring assets.
 
 ## Run locally with Aspire
 
