@@ -33,7 +33,7 @@ src/
       ServiceTemplate.Api/          resource API composition root and vertical-slice template
       ServiceTemplate.Migrator/     run-once schema migration
   Shared/
-    Microservices.Application/      CQRS contracts, validation, and approved publish boundary
+    Microservices.Application/      CQRS contracts, validation, and approved messaging boundaries
     Microservices.Contracts/        framework-free integration contracts
     Microservices.Messaging/        MassTransit/RabbitMQ and EF inbox/outbox
     Microservices.Persistence.Postgres/
@@ -168,7 +168,9 @@ baseline:
 
 - PostgreSQL bus outbox and consumer inbox/outbox;
 - bounded, default-deny immediate retry and broker-backed delayed redelivery;
-- a thin application-owned `IIntegrationMessagePublisher` backed by scoped `IPublishEndpoint`;
+- `IIntegrationEventPublisher` backed by scoped `IPublishEndpoint` for event fan-out;
+- typed `IIntegrationCommandSender<TCommand>` backed by scoped `ISendEndpointProvider` for one owning
+  command endpoint;
 - framework-free integration contracts with explicit serializer compatibility rules;
 - durable quorum business queues with count and byte limits, `reject-publish` overflow, and no
   receive-queue TTL;
@@ -177,6 +179,18 @@ baseline:
 - bounded startup and graceful shutdown;
 - architecture tests that prohibit application and domain transport leakage;
 - real RabbitMQ/PostgreSQL tests for externally meaningful reliability behavior.
+
+A producer registers each command destination once in infrastructure composition, while application
+handlers remain transport-independent:
+
+```csharp
+builder.Services.AddIntegrationCommandRoute<ReserveInventory>("inventory-reserve");
+```
+
+The owning consumer uses the same stable endpoint name. Events do not require producer-side endpoint
+knowledge; they are published by message type to all subscribers. RabbitMQ itself sees both as AMQP
+publishes—MassTransit chooses fan-out topology for events and the configured endpoint exchange for
+commands.
 
 MassTransit owns normal consume-context propagation and standard transport behavior. Services use
 explicit stable endpoint names and `ConsumerDefinition<TConsumer>` when a consumer needs behavior
@@ -253,9 +267,9 @@ The CI pipeline:
 
 - restores, builds, and tests every .NET project with analyzers enforced;
 - builds and starts the pinned RabbitMQ image with delayed redelivery and Prometheus support;
-- uses real RabbitMQ and PostgreSQL to verify retry, delayed redelivery, `_error` and `_skipped`
-  routing, duplicate suppression, outbox commit/rollback and recovery, broker/database recovery,
-  queue topology, and graceful shutdown;
+- uses real RabbitMQ and PostgreSQL to verify event fan-out, command point-to-point routing, retry,
+  delayed redelivery, `_error` and `_skipped` routing, duplicate suppression, outbox commit/rollback
+  and recovery, broker/database recovery, queue topology, and graceful shutdown;
 - scans production assemblies for prohibited bus, broker, persistence, contract, and test-helper
   dependencies;
 - validates integration-contract serialization compatibility and stable endpoint configuration;
