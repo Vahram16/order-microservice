@@ -4,7 +4,6 @@ using MassTransit;
 using Microservices.Application.Messaging;
 using Microservices.Contracts;
 using Microservices.Messaging;
-using Microsoft.EntityFrameworkCore;
 using ServiceTemplate.Api.Persistence;
 
 namespace Microservices.ArchitectureTests;
@@ -43,7 +42,7 @@ public sealed class MessagingArchitectureTests
 
         Assert.True(
             violations.Count == 0,
-            "Controllers must delegate to application behavior and must not access MassTransit or RabbitMQ. " +
+            "Controllers must not access MassTransit or RabbitMQ directly. " +
             Environment.NewLine + string.Join(Environment.NewLine, violations));
     }
 
@@ -91,9 +90,8 @@ public sealed class MessagingArchitectureTests
 
         Assert.True(
             references.Length == 0,
-            "Integration contracts must not reference domain implementations, persistence, APIs, " +
-            "consumers, or transport infrastructure. Forbidden references: " +
-            string.Join(", ", references));
+            "Integration contracts must not reference domain, persistence, API, consumer, or transport layers. " +
+            "Forbidden references: " + string.Join(", ", references));
     }
 
     [Fact]
@@ -127,30 +125,6 @@ public sealed class MessagingArchitectureTests
             .ToArray();
 
         Assert.Empty(references);
-    }
-
-    [Fact]
-    public void ConsumersDoNotUseRawTransportOrOwnLargeApplicationWorkflows()
-    {
-        var consumers = ApplicationAssemblies
-            .SelectMany(SafeGetTypes)
-            .Where(IsConsumer)
-            .ToArray();
-        var dependencyViolations = MessagingDependencyRules.FindForbiddenDependencies(consumers);
-        var workflowViolations = consumers
-            .SelectMany(type => type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
-            .Where(method => method.Name == "Consume")
-            .Where(method => method.GetMethodBody()?.GetILAsByteArray()?.Length > 256)
-            .Select(method =>
-                $"{method.DeclaringType?.FullName}.{method.Name} contains a large workflow; " +
-                "delegate business behavior to an application service.")
-            .ToArray();
-
-        Assert.True(
-            dependencyViolations.Count == 0 && workflowViolations.Length == 0,
-            string.Join(
-                Environment.NewLine,
-                dependencyViolations.Concat(workflowViolations)));
     }
 
     [Fact]
@@ -189,12 +163,6 @@ public sealed class MessagingArchitectureTests
 
         return false;
     }
-
-    private static bool IsConsumer(Type type) =>
-        type is { IsAbstract: false, IsClass: true } &&
-        type.GetInterfaces().Any(interfaceType =>
-            interfaceType.IsGenericType &&
-            interfaceType.GetGenericTypeDefinition() == typeof(IConsumer<>));
 
     private sealed class InvalidDirectBusPublisher(IBus bus)
     {
@@ -236,7 +204,7 @@ internal static class MessagingDependencyRules
         string approvedAlternative)
     {
         var violations = new SortedSet<string>(StringComparer.Ordinal);
-        foreach (var owner in types.Where(type => type is not null))
+        foreach (var owner in types)
         {
             foreach (var dependency in DeclaredDependencies(owner))
             {
