@@ -39,7 +39,7 @@ public static class RabbitMqMessagingExtensions
 
         services.AddSingleton(options);
         services.AddSingleton<IConsumerExceptionClassifier, ConsumerExceptionClassifier>();
-        services.AddScoped<IIntegrationMessagePublisher, MassTransitIntegrationMessagePublisher>();
+        services.AddScoped<IIntegrationEventPublisher, MassTransitIntegrationEventPublisher>();
         services.AddSingleton<OutboxMetricsCollector<TDbContext>>();
         services.AddHostedService(provider =>
             provider.GetRequiredService<OutboxMetricsCollector<TDbContext>>());
@@ -158,6 +158,40 @@ public static class RabbitMqMessagingExtensions
                 rabbit.ConfigureEndpoints(context);
             });
         });
+
+        return services;
+    }
+
+    /// <summary>
+    /// Maps one integration command type to its single owning receive endpoint. Application code
+    /// injects <see cref="IIntegrationCommandSender{TCommand}"/> and never handles broker addresses.
+    /// </summary>
+    public static IServiceCollection AddIntegrationCommandRoute<TCommand>(
+        this IServiceCollection services,
+        string endpointName)
+        where TCommand : class, IIntegrationCommand
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        if (!RabbitMqMessagingOptionsValidator.IsValidEndpointName(endpointName))
+        {
+            throw new ArgumentException(
+                "Command endpoint name must use 1-128 characters of lowercase kebab-case text.",
+                nameof(endpointName));
+        }
+
+        var senderType = typeof(IIntegrationCommandSender<TCommand>);
+        if (services.Any(descriptor => descriptor.ServiceType == senderType))
+        {
+            throw new InvalidOperationException(
+                $"A command route for '{typeof(TCommand).FullName}' is already registered.");
+        }
+
+        var destinationAddress = new Uri($"exchange:{endpointName}");
+        services.AddScoped<IIntegrationCommandSender<TCommand>>(provider =>
+            new MassTransitIntegrationCommandSender<TCommand>(
+                provider.GetRequiredService<ISendEndpointProvider>(),
+                destinationAddress));
 
         return services;
     }
