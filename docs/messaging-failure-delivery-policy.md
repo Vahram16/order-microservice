@@ -5,9 +5,9 @@ This guide describes how to use and operate the shared RabbitMQ/MassTransit base
 
 - [ADR 0001: Transactional messaging with bus and consumer outboxes](adr/0001-transactional-bus-and-consumer-outbox.md)
 - [ADR 0002: Event and command boundaries with stable endpoint topology](adr/0002-approved-publishing-abstraction.md)
-- [ADR 0004: Bounded retry, delayed redelivery, and failure classification](adr/0004-retry-and-delayed-redelivery-policy.md)
-- [ADR 0006: Queue durability, capacity, and failure retention](adr/0006-queue-capacity-retention-and-parking.md)
-- [ADR 0007: Integration contract ownership and versioning](adr/0007-contract-ownership-and-versioning.md)
+- [ADR 0003: Bounded retry, delayed redelivery, and failure classification](adr/0003-retry-redelivery-and-failure-classification.md)
+- [ADR 0004: Queue durability, capacity, and failure retention](adr/0004-queue-durability-capacity-and-failure-retention.md)
+- [ADR 0005: Integration contract ownership and versioning](adr/0005-integration-contract-ownership-and-versioning.md)
 
 ## Register the baseline
 
