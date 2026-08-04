@@ -1,6 +1,4 @@
 using System.Data.Common;
-using System.Diagnostics;
-using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -145,9 +143,7 @@ public sealed class TransportRecoveryTests(MessagingReliabilityFixture fixture)
         Environment.GetEnvironmentVariable(name) is { Length: > 0 } value
             ? value
             : throw new InvalidOperationException(
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"Environment variable '{name}' is required."));
+                $"Environment variable '{name}' is required.");
 
     private sealed class TestPostgresTransientRule : IConsumerExceptionRule
     {
