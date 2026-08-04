@@ -255,7 +255,7 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
         string rabbitMq,
         string prefix,
         TProbe probe,
-        IReadOnlyDictionary<Type, string> endpoints)
+        Dictionary<Type, string> endpoints)
         where TProbe : class
     {
         var values = new Dictionary<string, string?>
@@ -302,7 +302,7 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
 
     private static void AddConsumerPolicies(
         Dictionary<string, string?> values,
-        IReadOnlyDictionary<Type, string> endpoints)
+        Dictionary<Type, string> endpoints)
     {
         foreach (var endpoint in endpoints)
         {
@@ -327,7 +327,7 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
 
     private static void RegisterConsumers(
         IBusRegistrationConfigurator registrations,
-        IReadOnlyDictionary<Type, string> endpoints)
+        Dictionary<Type, string> endpoints)
     {
         foreach (var endpoint in endpoints)
         {
