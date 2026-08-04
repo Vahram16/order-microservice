@@ -1,145 +1,152 @@
-# Messaging reliability baseline
+# Messaging reliability operations guide
 
-This document describes the shared behavior provided by
-`AddRabbitMqWithPostgresOutbox<TDbContext>`. The shared package defines a safe baseline; individual
-services own business-specific delivery policy.
+This guide describes how to use and operate the shared RabbitMQ/MassTransit baseline provided by
+`AddRabbitMqWithPostgresOutbox<TDbContext>`. Durable architectural choices are recorded separately:
 
-## Core guarantees
+- [ADR 0001: Transactional messaging with bus and consumer outboxes](adr/0001-transactional-bus-and-consumer-outbox.md)
+- [ADR 0002: Event and command boundaries with stable endpoint topology](adr/0002-approved-publishing-abstraction.md)
+- [ADR 0004: Bounded retry, delayed redelivery, and failure classification](adr/0004-retry-and-delayed-redelivery-policy.md)
+- [ADR 0006: Queue durability, capacity, and failure retention](adr/0006-queue-capacity-retention-and-parking.md)
+- [ADR 0007: Integration contract ownership and versioning](adr/0007-contract-ownership-and-versioning.md)
 
-The baseline provides:
+## Register the baseline
 
-- MassTransit over RabbitMQ;
-- PostgreSQL Entity Framework bus outbox and consumer inbox/outbox;
-- explicit event publication and command sending boundaries;
-- bounded immediate retry followed by bounded broker-backed delayed redelivery;
-- default-deny exception classification;
-- durable quorum queues by default;
-- bounded queue count and byte capacity with `reject-publish` overflow;
-- independently retained `_error` and `_skipped` queues;
-- lightweight OpenTelemetry and outbox backlog signals;
-- bounded startup and graceful consumer shutdown.
-
-## Event and command boundaries
-
-Application code uses two transport-independent APIs:
-
-- `IIntegrationEventPublisher` publishes an `IIntegrationEvent` through scoped MassTransit
-  `IPublishEndpoint`, allowing every interested endpoint to receive it;
-- `IIntegrationCommandSender<TCommand>` sends an `IIntegrationCommand` to one explicitly configured
-  owning endpoint through scoped MassTransit `ISendEndpointProvider`.
-
-A producer registers a command destination once in infrastructure composition:
+Each service registers its own DbContext, consumers, and stable endpoint prefix:
 
 ```csharp
-services.AddIntegrationCommandRoute<ReserveInventory>("inventory-reserve");
+builder.Services.AddRabbitMqWithPostgresOutbox<ServiceDbContext>(
+    builder.Configuration,
+    "inventory",
+    registration =>
+    {
+        var consumer = registration.AddConsumer<ReserveInventoryConsumer>();
+        consumer.Endpoint(endpoint => endpoint.Name = "inventory-reserve");
+    });
 ```
 
-The consuming service uses the same stable endpoint name for the single command owner. Application
-handlers inject `IIntegrationCommandSender<ReserveInventory>` and never construct queue or exchange
-addresses. Duplicate route registration for the same command type fails immediately.
+The DbContext model must include the MassTransit inbox and outbox entities:
 
-MassTransit owns normal consume-context propagation, correlation conventions, conversation identity,
-and bus-outbox participation for both operations. Callers may explicitly provide message,
-correlation, causation, or bounded application headers only when a concrete workflow requires them.
+```csharp
+modelBuilder.AddMassTransitOutboxEntities();
+```
 
-RabbitMQ itself does not understand commands or events. Both operations publish AMQP messages;
-MassTransit selects either message-type fan-out topology for events or the configured endpoint
-exchange for commands.
+Run service-owned schema migrations before application replicas start.
 
-Transport identity, retry state, tracing data, and broker headers remain outside business payloads.
+## Publish events and send commands
 
-## Retry ownership
+Events fan out by contract type:
 
-The shared policy retries only exceptions explicitly classified as transient. Unknown,
-permanent, outcome-unknown, and cancelled failures are not retried.
+```csharp
+await eventPublisher.PublishAsync(new OrderSubmitted(...), cancellationToken: cancellationToken);
+```
 
-The shared classifier understands explicit marker interfaces and registered
-`IConsumerExceptionRule` implementations. It intentionally does not guess retry safety from broad
-HTTP, socket, timeout, or database exception categories.
+Commands target one owning endpoint. Register the route in producer infrastructure composition:
 
-Each service owns narrow dependency rules because retry safety depends on operation idempotency and
-side effects. Services with materially different retry, redelivery, concurrency, or rate-limit needs
-should configure the consumer through MassTransit `ConsumerDefinition<TConsumer>` or a narrow
-endpoint override.
+```csharp
+builder.Services.AddIntegrationCommandRoute<ReserveInventory>("inventory-reserve");
+```
 
-## Queue topology
+Application code injects the typed sender and never handles a queue or exchange address:
 
-Durable business receive queues do not use `x-message-ttl`. Expiring a message from a receive queue
-can remove business work before MassTransit can place it in `_error` or `_skipped`.
+```csharp
+await commandSender.SendAsync(new ReserveInventory(...), cancellationToken: cancellationToken);
+```
 
-Business queues use:
+Both APIs use the scoped bus outbox. Publishing or sending does not make the message durable by
+itself; the configured DbContext work must be saved and its transaction committed. A rollback must
+produce no broker message.
 
-- durable, non-auto-delete topology;
-- quorum queues by default;
-- bounded message count and bytes;
-- `reject-publish` overflow;
-- a bounded delivery limit.
+Use explicit message, correlation, causation, or application headers only for a concrete workflow.
+Transport identity, retry state, tracing data, and broker headers do not belong in business payloads.
 
-Error and skipped queues have separate retention and capacity.
+## Endpoint and topology rules
 
-RabbitMQ queue arguments are durable topology. Changing a queue name, type, or immutable argument
-requires a controlled migration because RabbitMQ rejects inequivalent redeclaration.
+- Give every durable consumer an explicit stable lowercase kebab-case endpoint name.
+- Keep a command route identical to the owning consumer endpoint name.
+- Treat endpoint renames, queue-type changes, and immutable queue-argument changes as migrations.
+- Deploy and verify owning command topology before producers begin sending to a new destination.
+- Use endpoint-name overrides only for simple operational tuning.
+- Use `ConsumerDefinition<TConsumer>` for other consumer-specific behavior, but do not add a second
+  retry or delayed-redelivery middleware stack.
 
-## Endpoint identity
+A topology migration plan should cover deployment order, old queue draining, temporary old/new
+coexistence when required, rollback, and obsolete topology removal.
 
-Consumers use explicit stable lowercase kebab-case endpoint names through standard MassTransit
-registration. Renaming a CLR consumer type must not rename its broker endpoint.
+## Retry and failure classification
 
-For events, endpoint identity is owned only by the subscriber. For commands, the producer also maps
-the command type to the single owner's stable endpoint because point-to-point sending intentionally
-requires a destination. Changing that destination is a topology migration.
+The shared policy applies short bounded immediate retries followed by bounded broker-backed delayed
+redelivery. Only explicitly transient failures are retried.
 
-Optional endpoint-name configuration overrides support simple operational tuning. They are not a
-mandatory policy registry. Rich consumer-specific behavior belongs in `ConsumerDefinition<T>` near
-the owning service.
+Use the shared markers when the application owns the exception type:
 
-## Contracts
+- `ITransientConsumerFailure`
+- `IPermanentConsumerFailure`
+- `IOutcomeUnknownConsumerFailure`
 
-`IIntegrationMessage` is the canonical marker. Events implement `IIntegrationEvent`; commands
-implement `IIntegrationCommand`.
+Use a narrow singleton `IConsumerExceptionRule` for dependency exceptions that the application does
+not own. Classify a dependency failure as transient only when provider evidence is stable and the
+operation is safe to replay. Unknown, permanent, outcome-unknown, and cancelled failures are not
+retried by default.
 
-Contracts remain independent from domain implementations, Entity Framework, APIs, consumers, and
-transport libraries. Additive optional changes may retain the same identity. Breaking changes use a
-distinct CLR type or namespace such as `.V2` and coexist during migration.
+Review HTTP, database, and client-library retry policies together with message retry so the combined
+attempt count remains bounded and intentional.
 
-Serializer settings are explicit and historical payload tests cover supported compatibility.
+## Queue and failure handling
 
-## Observability and health
+Business receive queues are durable quorum queues by default and intentionally have no
+`x-message-ttl`. They use bounded message count and bytes with `reject-publish` overflow. Error and
+skipped queues have separate bounded retention and capacity.
 
-MassTransit OpenTelemetry remains the primary transport and consumer signal. The shared package adds
-lightweight consumer retry/failure/duration metrics and PostgreSQL outbox backlog/age metrics.
+Operational response:
 
-A metrics collection failure is observable but does not control application readiness. Business
-readiness is based on dependencies required to serve or process work, not on whether an observability
-query succeeded.
+- `_error` contains messages whose consumer execution ended terminally;
+- `_skipped` contains messages delivered to an endpoint with no matching consumer;
+- sustained queue-capacity rejection indicates consumer throughput or dependency health problems;
+- replay from failure queues is an operator-owned action and must preserve idempotency.
 
-Performance indexes, dashboard complexity, and alert thresholds are introduced only after a real
-service workload and SLO justify them.
+Do not add a generic parking queue or business-message expiration without a dedicated design for DLX
+routing, retention, ownership, observability, and replay.
 
-## Delayed exchange capability
+## Broker and deployment requirements
 
-Delayed redelivery requires the RabbitMQ delayed-message exchange plugin. The deployment image and
-infrastructure smoke tests own capability verification. Application startup does not create a second
-raw RabbitMQ connection solely to probe the plugin.
+- Use the repository RabbitMQ image or another image that includes the delayed-message exchange
+  plugin required by delayed redelivery.
+- Configure production TLS and secret-managed credentials.
+- Keep broker message-size configuration aligned with the application deployment configuration.
+- Verify the delayed-exchange plugin and RabbitMQ Prometheus endpoint during deployment smoke tests.
+- Do not probe plugin availability by opening a second application-owned RabbitMQ connection.
 
-## Automated evidence
+## Observability
 
-The integration suite uses real RabbitMQ and PostgreSQL to verify externally meaningful behavior:
+MassTransit OpenTelemetry is the primary transport signal. The shared package also emits consumer
+retry, redelivery, failure, and attempt-duration metrics plus PostgreSQL outbox backlog, oldest-age,
+and collection-failure signals.
 
-- event publication reaches every subscribed endpoint;
-- command sending reaches only the explicitly configured owning endpoint;
-- successful consumption;
-- bounded immediate retry;
-- delayed redelivery;
-- exhausted and permanent failures reaching `_error`;
-- unsupported messages reaching `_skipped`;
-- duplicate transport IDs not repeating protected database effects;
-- bus-outbox commit and rollback behavior;
-- committed outbox recovery after broker interruption;
-- RabbitMQ client recovery;
-- service-owned PostgreSQL transient classification;
+Monitor at least:
+
+- RabbitMQ availability and connection churn;
+- `_error` and `_skipped` queue depth;
+- sustained consumer retry/redelivery rate;
+- outbox backlog and oldest pending-message age;
+- queue capacity and publish rejection;
+- consumer throughput and processing latency.
+
+Metrics-collection failure is observable but does not control application readiness. Alert thresholds
+should be tuned against real workload and SLO evidence.
+
+## Validation evidence
+
+The automated suite uses real RabbitMQ and PostgreSQL to verify:
+
+- event fan-out and command point-to-point routing;
+- bus-outbox commit, rollback, drain, and interruption recovery;
+- consumer duplicate suppression around protected database effects;
+- bounded immediate retry and delayed redelivery;
+- terminal `_error` and `_skipped` routing;
+- RabbitMQ and PostgreSQL recovery behavior;
 - queue capacity and absence of business receive TTL;
-- graceful in-flight consumer drain.
+- bounded startup and graceful in-flight consumer shutdown;
+- architecture boundaries that prevent application and domain transport leakage.
 
-Architecture tests enforce transport-independent contracts and prevent application/domain layers
-from directly depending on RabbitMQ or MassTransit bus abstractions.
+Service-specific consumers should add tests for their own idempotency, dependency classification,
+ordering, concurrency, and contract compatibility requirements.
