@@ -1,8 +1,8 @@
 groups:
-  - name: messaging-consumer-attempts
+  - name: messaging-reliability
     interval: 30s
     rules:
-      - alert: MessagingImmediateRetriesSustained
+      - alert: MessagingConsumerRetriesSustained
         expr: >-
           sum by (service_name, messaging_destination_name)
             (rate(messaging_consumer_retry_attempts_total[10m])) > 0.1
@@ -11,64 +11,11 @@ groups:
           severity: warning
           owner: service-owner
         annotations:
-          summary: Immediate consumer retries are sustained
+          summary: Consumer retries are sustained
           description: >-
             {{ $labels.service_name }} endpoint {{ $labels.messaging_destination_name }}
-            is executing {{ printf "%.2f" $value }} immediate retries/second. This is an
-            attempt-level signal and does not mean messages reached the final error queue.
+            is retrying continuously. Investigate the owning dependency and consumer logs.
 
-      - alert: MessagingDelayedRedeliveryDetected
-        expr: >-
-          sum by (service_name, messaging_destination_name)
-            (increase(messaging_consumer_redelivery_deliveries_total[10m])) > 0
-        for: 2m
-        labels:
-          severity: warning
-          owner: service-owner
-        annotations:
-          summary: Broker-backed delayed redelivery is occurring
-          description: >-
-            {{ $labels.service_name }} endpoint {{ $labels.messaging_destination_name }}
-            exhausted at least one immediate retry sequence and received a later broker delivery.
-            This metric deliberately does not count delayed redelivery as an immediate retry.
-
-      - alert: MessagingConsumerAttemptFailuresSustained
-        expr: >-
-          sum by (service_name, messaging_destination_name, messaging_failure_disposition)
-            (rate(messaging_consumer_attempt_failures_total[10m])) > 0.1
-        for: 10m
-        labels:
-          severity: warning
-          owner: service-owner
-        annotations:
-          summary: Individual consumer invocations are failing
-          description: >-
-            {{ $labels.service_name }} endpoint {{ $labels.messaging_destination_name }}
-            has {{ printf "%.2f" $value }} failed invocations/second classified as
-            {{ $labels.messaging_failure_disposition }}. Check the separate _error queue alert
-            before treating these attempts as terminal message failures.
-
-      - alert: MessagingConsumerAttemptLatencyHigh
-        expr: >-
-          histogram_quantile(
-            0.95,
-            sum by (le, service_name, messaging_destination_name)
-              (rate(messaging_consumer_attempt_duration_seconds_bucket[10m]))
-          ) > 5
-        for: 10m
-        labels:
-          severity: warning
-          owner: service-owner
-        annotations:
-          summary: Consumer invocation p95 latency is high
-          description: >-
-            {{ $labels.service_name }} endpoint {{ $labels.messaging_destination_name }}
-            has p95 invocation latency of {{ printf "%.2f" $value }} seconds. The histogram
-            covers one invocation, not the complete retry and redelivery lifecycle.
-
-  - name: messaging-final-placement
-    interval: 30s
-    rules:
       - alert: MessagingErrorQueueNotEmpty
         expr: >-
           sum by (vhost, queue)
@@ -78,11 +25,10 @@ groups:
           severity: critical
           owner: service-owner
         annotations:
-          summary: A message reached final MassTransit error placement
+          summary: A MassTransit error queue is not empty
           description: >-
             RabbitMQ queue {{ $labels.vhost }}/{{ $labels.queue }} contains
-            {{ printf "%.0f" $value }} terminally failed messages. This is the authoritative
-            final-placement signal; follow the error-queue investigation and bounded replay runbook.
+            {{ printf "%.0f" $value }} terminally failed messages.
 
       - alert: MessagingSkippedQueueNotEmpty
         expr: >-
@@ -93,57 +39,14 @@ groups:
           severity: critical
           owner: service-owner
         annotations:
-          summary: A message reached a MassTransit skipped queue
+          summary: A MassTransit skipped queue is not empty
           description: >-
             RabbitMQ queue {{ $labels.vhost }}/{{ $labels.queue }} contains
-            {{ printf "%.0f" $value }} skipped messages. Investigate message identity,
-            routing, endpoint topology, and contract deployment ordering separately from faults.
+            {{ printf "%.0f" $value }} messages with no matching consumer.
 
-      - alert: MessagingBusinessQueueOldestMessageHigh
-        expr: >-
-          (
-            time() - rabbitmq_detailed_queue_head_message_timestamp{
-              queue!~".*_(error|skipped)$"
-            }
-          ) > 300
-          and on (vhost, queue)
-          rabbitmq_detailed_queue_messages{queue!~".*_(error|skipped)$"} > 0
-        for: 10m
-        labels:
-          severity: warning
-          owner: service-owner
-        annotations:
-          summary: Durable business queue backlog is stale
-          description: >-
-            RabbitMQ queue {{ $labels.vhost }}/{{ $labels.queue }} has an oldest message age
-            of {{ printf "%.0f" $value }} seconds. Business receive queues do not expire messages;
-            investigate capacity or consumer health before the reject-publish limit is reached.
-
-      - alert: MessagingFaultQueueUnowned
-        expr: >-
-          (
-            time() - rabbitmq_detailed_queue_head_message_timestamp{
-              queue=~".*_(error|skipped)$"
-            }
-          ) > 900
-          and on (vhost, queue)
-          rabbitmq_detailed_queue_messages{queue=~".*_(error|skipped)$"} > 0
-        for: 10m
-        labels:
-          severity: critical
-          owner: service-owner
-        annotations:
-          summary: Fault queue message has remained unowned
-          description: >-
-            RabbitMQ queue {{ $labels.vhost }}/{{ $labels.queue }} has an oldest message age
-            above fifteen minutes. Confirm incident ownership before retention removes evidence.
-
-  - name: messaging-outbox
-    interval: 30s
-    rules:
       - alert: MessagingOutboxBacklogHigh
         expr: >-
-          max by (service_name, db_context, outbox_role)
+          max by (service_name, db_context)
             (messaging_outbox_backlog) > 100
         for: 5m
         labels:
@@ -152,13 +55,12 @@ groups:
         annotations:
           summary: PostgreSQL outbox backlog is high
           description: >-
-            {{ $labels.service_name }} context {{ $labels.db_context }} role
-            {{ $labels.outbox_role }} has {{ printf "%.0f" $value }} pending OutboxMessage rows.
-            Delivered OutboxState retention records are not included.
+            {{ $labels.service_name }} context {{ $labels.db_context }} has
+            {{ printf "%.0f" $value }} pending outbox messages.
 
-      - alert: MessagingOutboxOldestPendingHigh
+      - alert: MessagingOutboxOldestMessageHigh
         expr: >-
-          max by (service_name, db_context, outbox_role)
+          max by (service_name, db_context)
             (messaging_outbox_oldest_age_seconds) > 60
         for: 5m
         labels:
@@ -167,38 +69,8 @@ groups:
         annotations:
           summary: PostgreSQL outbox delivery is stale
           description: >-
-            {{ $labels.service_name }} context {{ $labels.db_context }} role
-            {{ $labels.outbox_role }} has an oldest pending message age of
-            {{ printf "%.0f" $value }} seconds.
-
-      - alert: MessagingOutboxCollectorUnhealthy
-        expr: >-
-          min by (service_name, db_context)
-            (messaging_outbox_collector_healthy) == 0
-        for: 2m
-        labels:
-          severity: critical
-          owner: service-owner
-        annotations:
-          summary: Outbox monitoring collector is unhealthy
-          description: >-
-            {{ $labels.service_name }} cannot reliably query outbox state for
-            {{ $labels.db_context }}. Last-known backlog values are intentionally retained and
-            must not be interpreted as current zero backlog.
-
-      - alert: MessagingOutboxCollectorStale
-        expr: >-
-          max by (service_name, db_context)
-            (messaging_outbox_collector_last_success_age_seconds) > 60
-        for: 2m
-        labels:
-          severity: warning
-          owner: service-owner
-        annotations:
-          summary: Outbox monitoring data is stale
-          description: >-
-            {{ $labels.service_name }} context {{ $labels.db_context }} has not completed an
-            outbox collection for {{ printf "%.0f" $value }} seconds.
+            {{ $labels.service_name }} context {{ $labels.db_context }} has an oldest pending
+            message age of {{ printf "%.0f" $value }} seconds.
 
       - alert: MessagingOutboxCollectionFailuresDetected
         expr: >-
@@ -211,9 +83,9 @@ groups:
         annotations:
           summary: Outbox metrics collection failed
           description: >-
-            {{ $labels.service_name }} encountered {{ printf "%.0f" $value }} collector failures
-            for {{ $labels.db_context }} in ten minutes. Check database availability, migration
-            state, schema compatibility, and query timeout logs.
+            {{ $labels.service_name }} encountered outbox collection failures for
+            {{ $labels.db_context }}. This is an observability failure and does not control
+            application readiness.
 
   - name: rabbitmq-connectivity
     interval: 30s
@@ -228,29 +100,16 @@ groups:
           summary: RabbitMQ metrics endpoint is unavailable
           description: >-
             Prometheus cannot scrape RabbitMQ target {{ $labels.instance }} for two minutes.
-            Correlate with application readiness and broker cluster health; liveness should remain
-            independent so a temporary broker outage does not create a pod restart loop.
 
-      - alert: RabbitMqConnectionsClosingRapidly
-        expr: increase(rabbitmq_connections_closed_total[5m]) > 3
+      - alert: RabbitMqConnectionChurn
+        expr: >-
+          increase(rabbitmq_connections_closed_total[5m]) > 3
+          or increase(rabbitmq_connections_opened_total[5m]) > 3
         for: 5m
         labels:
           severity: warning
           owner: platform
         annotations:
-          summary: RabbitMQ connections are closing repeatedly
+          summary: RabbitMQ connections are changing rapidly
           description: >-
-            RabbitMQ closed {{ printf "%.0f" $value }} connections in five minutes.
             Investigate broker, network, TLS, and client recovery logs.
-
-      - alert: RabbitMqConnectionsOpeningRapidly
-        expr: increase(rabbitmq_connections_opened_total[5m]) > 3
-        for: 5m
-        labels:
-          severity: warning
-          owner: platform
-        annotations:
-          summary: RabbitMQ connections are reopening repeatedly
-          description: >-
-            RabbitMQ opened {{ printf "%.0f" $value }} connections in five minutes,
-            indicating reconnect churn or unstable clients.
