@@ -42,6 +42,10 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
         RegisterEndpoint<PermanentConsumer>("permanent");
         RegisterEndpoint<DuplicateConsumer>("duplicate");
         RegisterEndpoint<OutboxProducedConsumer>("outbox-produced");
+        RegisterEndpoint<FirstRoutedEventConsumer>("event-first");
+        RegisterEndpoint<SecondRoutedEventConsumer>("event-second");
+        RegisterEndpoint<PrimaryRoutedCommandConsumer>("command-primary");
+        RegisterEndpoint<SecondaryRoutedCommandConsumer>("command-secondary");
 
         RabbitMq = RabbitMqManagementClient.CreateFromEnvironment();
         _host = BuildHost(_postgres, _rabbitMq, _prefix, Probe, _endpoints);
@@ -88,6 +92,22 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
             }).ConfigureAwait(false);
     }
 
+    public async Task PublishEventAsync<TEvent>(TEvent message)
+        where TEvent : class, Microservices.Contracts.IIntegrationEvent
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var publisher = scope.ServiceProvider.GetRequiredService<IIntegrationEventPublisher>();
+        await publisher.PublishAsync(message).ConfigureAwait(false);
+    }
+
+    public async Task SendCommandAsync<TCommand>(TCommand command)
+        where TCommand : class, Microservices.Contracts.IIntegrationCommand
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var sender = scope.ServiceProvider.GetRequiredService<IIntegrationCommandSender<TCommand>>();
+        await sender.SendAsync(command).ConfigureAwait(false);
+    }
+
     public async Task SendToEndpointAsync<TMessage>(string endpointName, TMessage message)
         where TMessage : class
     {
@@ -106,7 +126,7 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
     {
         await using var scope = Services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<ReliabilityDbContext>();
-        var publisher = scope.ServiceProvider.GetRequiredService<IIntegrationMessagePublisher>();
+        var publisher = scope.ServiceProvider.GetRequiredService<IIntegrationEventPublisher>();
         var strategy = dbContext.Database.CreateExecutionStrategy();
 
         await strategy.ExecuteAsync(async () =>
@@ -159,6 +179,28 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
 
         throw new TimeoutException(
             $"Effect '{id}' did not remain at count {expectedCount}.");
+    }
+
+    public async Task WaitForStableCompletionCountAsync(Guid id, int expectedCount)
+    {
+        var deadline = Stopwatch.StartNew();
+        var stableSince = Stopwatch.StartNew();
+        while (deadline.Elapsed < TimeSpan.FromSeconds(10))
+        {
+            if (Probe.CompletionCount(id) != expectedCount)
+            {
+                stableSince.Restart();
+            }
+            else if (stableSince.Elapsed >= TimeSpan.FromMilliseconds(500))
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(50)).ConfigureAwait(false);
+        }
+
+        throw new TimeoutException(
+            $"Message '{id}' did not remain at completion count {expectedCount}.");
     }
 
     public async Task WaitForOutboxToDrainAsync()
@@ -248,6 +290,13 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
             prefix,
             registrations => RegisterConsumers(registrations, endpoints));
 
+        if (endpoints.TryGetValue(
+                typeof(PrimaryRoutedCommandConsumer),
+                out var commandEndpoint))
+        {
+            builder.Services.AddIntegrationCommandRoute<RoutedCommand>(commandEndpoint);
+        }
+
         return builder.Build();
     }
 
@@ -305,6 +354,14 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
             Register<DuplicateConsumer>(registrations, endpointName);
         else if (consumerType == typeof(OutboxProducedConsumer))
             Register<OutboxProducedConsumer>(registrations, endpointName);
+        else if (consumerType == typeof(FirstRoutedEventConsumer))
+            Register<FirstRoutedEventConsumer>(registrations, endpointName);
+        else if (consumerType == typeof(SecondRoutedEventConsumer))
+            Register<SecondRoutedEventConsumer>(registrations, endpointName);
+        else if (consumerType == typeof(PrimaryRoutedCommandConsumer))
+            Register<PrimaryRoutedCommandConsumer>(registrations, endpointName);
+        else if (consumerType == typeof(SecondaryRoutedCommandConsumer))
+            Register<SecondaryRoutedCommandConsumer>(registrations, endpointName);
         else if (consumerType == typeof(DrainConsumer))
             Register<DrainConsumer>(registrations, endpointName);
         else
