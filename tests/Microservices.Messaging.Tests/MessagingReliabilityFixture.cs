@@ -96,16 +96,20 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
         where TEvent : class, Microservices.Contracts.IIntegrationEvent
     {
         await using var scope = Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ReliabilityDbContext>();
         var publisher = scope.ServiceProvider.GetRequiredService<IIntegrationEventPublisher>();
         await publisher.PublishAsync(message).ConfigureAwait(false);
+        await dbContext.SaveChangesAsync().ConfigureAwait(false);
     }
 
     public async Task SendCommandAsync<TCommand>(TCommand command)
         where TCommand : class, Microservices.Contracts.IIntegrationCommand
     {
         await using var scope = Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ReliabilityDbContext>();
         var sender = scope.ServiceProvider.GetRequiredService<IIntegrationCommandSender<TCommand>>();
         await sender.SendAsync(command).ConfigureAwait(false);
+        await dbContext.SaveChangesAsync().ConfigureAwait(false);
     }
 
     public async Task SendToEndpointAsync<TMessage>(string endpointName, TMessage message)
