@@ -148,6 +148,50 @@ public sealed class OutboxProducedConsumer(DeliveryProbe probe)
     }
 }
 
+public sealed class FirstRoutedEventConsumer(DeliveryProbe probe)
+    : IConsumer<RoutedEvent>
+{
+    public Task Consume(ConsumeContext<RoutedEvent> context)
+    {
+        probe.RecordAttempt(context.Message.MessageId);
+        probe.Complete(context.Message.MessageId);
+        return Task.CompletedTask;
+    }
+}
+
+public sealed class SecondRoutedEventConsumer(DeliveryProbe probe)
+    : IConsumer<RoutedEvent>
+{
+    public Task Consume(ConsumeContext<RoutedEvent> context)
+    {
+        probe.RecordAttempt(context.Message.MessageId);
+        probe.Complete(context.Message.MessageId);
+        return Task.CompletedTask;
+    }
+}
+
+public sealed class PrimaryRoutedCommandConsumer(DeliveryProbe probe)
+    : IConsumer<RoutedCommand>
+{
+    public Task Consume(ConsumeContext<RoutedCommand> context)
+    {
+        probe.RecordAttempt(context.Message.MessageId);
+        probe.Complete(context.Message.MessageId);
+        return Task.CompletedTask;
+    }
+}
+
+public sealed class SecondaryRoutedCommandConsumer(DeliveryProbe probe)
+    : IConsumer<RoutedCommand>
+{
+    public Task Consume(ConsumeContext<RoutedCommand> context)
+    {
+        probe.RecordAttempt(context.Message.MessageId);
+        probe.Complete(context.Message.MessageId);
+        return Task.CompletedTask;
+    }
+}
+
 public sealed class DrainConsumer(DrainGate gate) : IConsumer<DrainMessage>
 {
     public async Task Consume(ConsumeContext<DrainMessage> context)
@@ -186,7 +230,15 @@ public sealed record PermanentMessage(Guid MessageId) : IIntegrationMessage;
 
 public sealed record DuplicateMessage(Guid MessageId) : IIntegrationMessage;
 
-public sealed record OutboxProducedMessage(Guid MessageId) : IIntegrationMessage;
+public sealed record OutboxProducedMessage(
+    Guid MessageId,
+    DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
+
+public sealed record RoutedEvent(
+    Guid MessageId,
+    DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
+
+public sealed record RoutedCommand(Guid MessageId) : IIntegrationCommand;
 
 public sealed record UnsupportedTestMessage(Guid MessageId);
 
@@ -206,5 +258,11 @@ internal static class ReliabilityMessageFactory
 
     public static DuplicateMessage Duplicate() => new(NewId.NextGuid());
 
-    public static OutboxProducedMessage OutboxProduced() => new(NewId.NextGuid());
+    public static OutboxProducedMessage OutboxProduced() =>
+        new(NewId.NextGuid(), DateTimeOffset.UtcNow);
+
+    public static RoutedEvent RoutedEvent() =>
+        new(NewId.NextGuid(), DateTimeOffset.UtcNow);
+
+    public static RoutedCommand RoutedCommand() => new(NewId.NextGuid());
 }
