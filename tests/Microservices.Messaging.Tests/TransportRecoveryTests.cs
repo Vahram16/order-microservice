@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
@@ -32,7 +33,7 @@ public sealed class TransportRecoveryTests(MessagingReliabilityFixture fixture)
     }
 
     [Fact]
-    public async Task PostgreSqlBackendTerminationIsRetriedAndConsumerRecovers()
+    public async Task PostgreSqlBackendTerminationUsesServiceOwnedRetryRuleAndRecovers()
     {
         var prefix = $"postgres-recovery-{Guid.NewGuid():N}"[..46];
         var endpoint = $"{prefix}-terminated-backend";
@@ -74,20 +75,18 @@ public sealed class TransportRecoveryTests(MessagingReliabilityFixture fixture)
             ["Messaging:ConsumerStopTimeout"] = "00:00:08",
             ["Messaging:OutboxQueryDelay"] = "00:00:00.050",
             ["Messaging:OutboxMetricsInterval"] = "00:00:00.250",
-            ["Messaging:OutboxMetricsQueryTimeout"] = "00:00:02",
             ["Messaging:DuplicateDetectionWindow"] = "00:05:00",
             ["Messaging:FaultQueueRetention"] = "00:30:00",
             ["Messaging:QueueMaxLength"] = "1000",
             ["Messaging:QueueMaxLengthBytes"] = "10485760",
             ["Messaging:MaximumMessageBytes"] = "1048576",
-            ["Messaging:FaultQueueMaxLength"] = "1000",
-            ["Messaging:MaximumRetryAndRedeliveryDelay"] = "00:00:10",
-            ["Messaging:AllowValidatedDefaultConsumerPolicy"] = "false"
+            ["Messaging:FaultQueueMaxLength"] = "1000"
         };
 
         var builder = Host.CreateApplicationBuilder();
         builder.Configuration.AddInMemoryCollection(values);
         builder.Services.AddSingleton(probe);
+        builder.Services.AddSingleton<IConsumerExceptionRule, TestPostgresTransientRule>();
         builder.Services.AddDbContext<ReliabilityDbContext>(options =>
             options.UseNpgsql(
                 RequiredEnvironmentVariable("MESSAGING_TEST_POSTGRES_CONNECTION_STRING"),
@@ -95,16 +94,11 @@ public sealed class TransportRecoveryTests(MessagingReliabilityFixture fixture)
         builder.Services.AddRabbitMqWithPostgresOutbox<ReliabilityDbContext>(
             builder.Configuration,
             prefix,
-            registration => registration.AddConsumerWithPolicy<DatabaseTerminationConsumer>(
-                endpoint,
-                new ConsumerDeliveryPolicyOptions
-                {
-                    RetryIntervals = [TimeSpan.FromMilliseconds(100)],
-                    RedeliveryIntervals = [TimeSpan.FromMilliseconds(500)],
-                    PrefetchCount = 1,
-                    ConcurrentMessageLimit = 1,
-                    IsCritical = true
-                }));
+            registration =>
+            {
+                var consumer = registration.AddConsumer<DatabaseTerminationConsumer>();
+                consumer.Endpoint(configuration => configuration.Name = endpoint);
+            });
         return builder.Build();
     }
 
@@ -154,6 +148,14 @@ public sealed class TransportRecoveryTests(MessagingReliabilityFixture fixture)
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"Environment variable '{name}' is required."));
+
+    private sealed class TestPostgresTransientRule : IConsumerExceptionRule
+    {
+        public ConsumerExceptionDisposition Classify(Exception exception) =>
+            exception is DbException { IsTransient: true }
+                ? ConsumerExceptionDisposition.Transient
+                : ConsumerExceptionDisposition.Unclassified;
+    }
 }
 
 public sealed record DatabaseTerminationMessage(Guid MessageId);
