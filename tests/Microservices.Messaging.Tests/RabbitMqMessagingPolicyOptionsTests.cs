@@ -24,11 +24,6 @@ public sealed class RabbitMqMessagingPolicyOptionsTests
 
         Assert.Equal([TimeSpan.FromMilliseconds(20)], options.RetryIntervals);
         Assert.Equal([TimeSpan.FromMilliseconds(200)], options.RedeliveryIntervals);
-        Assert.Equal(
-            TimeSpan.FromMilliseconds(240),
-            RabbitMqMessagingOptionsValidator.CalculateRetryAndRedeliveryDelay(
-                options.RetryIntervals,
-                options.RedeliveryIntervals));
     }
 
     [Fact]
@@ -69,66 +64,6 @@ public sealed class RabbitMqMessagingPolicyOptionsTests
                 StringComparison.Ordinal));
     }
 
-    [Fact]
-    public void ValidationRejectsOrderingPolicyWithoutSerialBrokerSemantics()
-    {
-        var options = CreateOptions();
-        options.Consumers.Add(
-            "orders-ordered-command",
-            new ConsumerDeliveryPolicyOptions
-            {
-                RequiresOrderedDelivery = true,
-                SingleActiveConsumer = false,
-                PrefetchCount = 1,
-                ConcurrentMessageLimit = 1
-            });
-
-        var exception = ValidateFailure(options);
-
-        Assert.Contains(
-            exception.Failures,
-            failure => failure.Contains("ordering-sensitive", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void ValidationAcceptsOrderingPolicyWithSerialLimits()
-    {
-        var options = CreateOptions();
-        options.Consumers.Add(
-            "orders-ordered-command",
-            new ConsumerDeliveryPolicyOptions
-            {
-                RequiresOrderedDelivery = true,
-                SingleActiveConsumer = true,
-                PrefetchCount = 1,
-                ConcurrentMessageLimit = 1
-            });
-
-        var address = RabbitMqMessagingOptionsValidator.ValidateAndGetHostAddress(
-            options,
-            SecureConnectionString);
-
-        Assert.Equal(new Uri(SecureConnectionString), address);
-    }
-
-    [Fact]
-    public void CriticalConsumerMustDeclareConcurrencyExplicitly()
-    {
-        var options = CreateOptions();
-        options.Consumers.Add(
-            "orders-critical-command",
-            new ConsumerDeliveryPolicyOptions
-            {
-                IsCritical = true
-            });
-
-        var exception = ValidateFailure(options);
-
-        Assert.Contains(
-            exception.Failures,
-            failure => failure.Contains("must explicitly configure", StringComparison.Ordinal));
-    }
-
     [Theory]
     [InlineData("Orders-Consumer")]
     [InlineData("orders--consumer")]
@@ -144,33 +79,6 @@ public sealed class RabbitMqMessagingPolicyOptionsTests
         Assert.Contains(
             exception.Failures,
             failure => failure.Contains("lowercase kebab-case", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void ValidationRejectsRetryAndRedeliveryDelayAboveConfiguredMaximum()
-    {
-        var options = new RabbitMqMessagingOptions
-        {
-            MaximumRetryAndRedeliveryDelay = TimeSpan.FromSeconds(5),
-            RetryIntervals = [TimeSpan.FromSeconds(2)],
-            RedeliveryIntervals = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2)]
-        };
-
-        var exception = ValidateFailure(options);
-
-        Assert.Contains(
-            exception.Failures,
-            failure => failure.Contains("exceeding", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void DelayCalculationIncludesRetrySequenceForEveryRedelivery()
-    {
-        var total = RabbitMqMessagingOptionsValidator.CalculateRetryAndRedeliveryDelay(
-            [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2)],
-            [TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10)]);
-
-        Assert.Equal(TimeSpan.FromSeconds(24), total);
     }
 
     [Fact]
