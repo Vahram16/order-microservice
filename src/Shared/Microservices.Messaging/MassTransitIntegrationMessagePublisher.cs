@@ -1,4 +1,3 @@
-using System.Threading;
 using MassTransit;
 using Microservices.Application.Messaging;
 using Microservices.Contracts;
@@ -56,9 +55,12 @@ internal static class IntegrationTransportHeaders
     }
 }
 
+/// <summary>
+/// Thin application-owned publishing boundary. MassTransit remains responsible for normal consume
+/// context propagation, conversation identity, correlation conventions, and outbox participation.
+/// </summary>
 internal sealed class MassTransitIntegrationMessagePublisher(
-    IPublishEndpoint publishEndpoint,
-    IntegrationConsumeContextAccessor contextAccessor) : IIntegrationMessagePublisher
+    IPublishEndpoint publishEndpoint) : IIntegrationMessagePublisher
 {
     public Task PublishAsync<TMessage>(
         TMessage message,
@@ -69,22 +71,23 @@ internal sealed class MassTransitIntegrationMessagePublisher(
         ArgumentNullException.ThrowIfNull(message);
         IntegrationTransportHeaders.ValidateApplicationHeaders(metadata?.Headers);
 
-        var parent = contextAccessor.Current;
-        var messageId = metadata?.MessageId ?? NewId.NextGuid();
-        var correlationId = metadata?.CorrelationId ?? parent?.CorrelationId ?? messageId;
-        var causationId = metadata?.CausationId ?? parent?.MessageId;
-
         return publishEndpoint.Publish(
             message,
             context =>
             {
-                context.MessageId = messageId;
-                context.CorrelationId = correlationId;
-                context.InitiatorId = causationId;
-
-                if (causationId is not null)
+                if (metadata?.MessageId is { } messageId)
                 {
-                    context.Headers.Set(IntegrationTransportHeaders.CausationId, causationId.Value);
+                    context.MessageId = messageId;
+                }
+
+                if (metadata?.CorrelationId is { } correlationId)
+                {
+                    context.CorrelationId = correlationId;
+                }
+
+                if (metadata?.CausationId is { } causationId)
+                {
+                    context.Headers.Set(IntegrationTransportHeaders.CausationId, causationId);
                 }
 
                 if (metadata?.Headers is not null)
@@ -97,55 +100,4 @@ internal sealed class MassTransitIntegrationMessagePublisher(
             },
             cancellationToken);
     }
-}
-
-internal sealed class IntegrationConsumeContextAccessor
-{
-    private readonly AsyncLocal<IntegrationConsumeMetadata?> _current = new();
-
-    public IntegrationConsumeMetadata? Current => _current.Value;
-
-    public IDisposable Push(IntegrationConsumeMetadata metadata)
-    {
-        var previous = _current.Value;
-        _current.Value = metadata;
-        return new RestoreScope(this, previous);
-    }
-
-    private sealed class RestoreScope(
-        IntegrationConsumeContextAccessor owner,
-        IntegrationConsumeMetadata? previous) : IDisposable
-    {
-        private bool _disposed;
-
-        public void Dispose()
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            owner._current.Value = previous;
-            _disposed = true;
-        }
-    }
-}
-
-internal sealed record IntegrationConsumeMetadata(
-    Guid? MessageId,
-    Guid? CorrelationId);
-
-internal sealed class IntegrationConsumeContextFilter<T>(
-    IntegrationConsumeContextAccessor accessor) : IFilter<ConsumeContext<T>>
-    where T : class
-{
-    public async Task Send(ConsumeContext<T> context, IPipe<ConsumeContext<T>> next)
-    {
-        using var scope = accessor.Push(
-            new IntegrationConsumeMetadata(context.MessageId, context.CorrelationId));
-        await next.Send(context).ConfigureAwait(false);
-    }
-
-    public void Probe(ProbeContext context) =>
-        context.CreateFilterScope("integrationConsumeContext");
 }
