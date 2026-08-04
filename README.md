@@ -33,7 +33,7 @@ src/
       ServiceTemplate.Api/          resource API composition root and vertical-slice template
       ServiceTemplate.Migrator/     run-once schema migration
   Shared/
-    Microservices.Application/      CQRS contracts and validation pipeline
+    Microservices.Application/      CQRS contracts, validation, and approved messaging boundaries
     Microservices.Contracts/        framework-free integration contracts
     Microservices.Messaging/        MassTransit/RabbitMQ and EF inbox/outbox
     Microservices.Persistence.Postgres/
@@ -163,22 +163,41 @@ replace those checks.
 
 ## Messaging reliability
 
-Every service using `AddRabbitMqWithPostgresOutbox<TDbContext>` receives the shared production
-failure-delivery policy:
+Every service using `AddRabbitMqWithPostgresOutbox<TDbContext>` receives a pragmatic production
+baseline:
 
-- bounded, transient-only immediate retry;
-- bounded RabbitMQ delayed redelivery with increasing intervals;
-- permanent-failure rejection and MassTransit `_error` routing;
 - PostgreSQL bus outbox and consumer inbox/outbox;
-- enforced MessageId, CorrelationId, CausationId, and contract-version conventions;
-- per-consumer prefetch, concurrency, rate limiting, and explicit ordering controls;
-- durable quorum queues with TTL, length, byte, overflow, and delivery limits;
-- graceful startup, readiness, recovery, and consumer draining;
-- OpenTelemetry, RabbitMQ Prometheus metrics, alerts, and a Grafana dashboard.
+- bounded, default-deny immediate retry and broker-backed delayed redelivery;
+- `IIntegrationEventPublisher` backed by scoped `IPublishEndpoint` for event fan-out;
+- typed `IIntegrationCommandSender<TCommand>` backed by scoped `ISendEndpointProvider` for one owning
+  command endpoint;
+- framework-free integration contracts with explicit serializer compatibility rules;
+- durable quorum business queues with count and byte limits, `reject-publish` overflow, and no
+  receive-queue TTL;
+- independently retained MassTransit `_error` and `_skipped` queues;
+- lightweight consumer and outbox metrics;
+- bounded startup and graceful shutdown;
+- architecture tests that prohibit application and domain transport leakage;
+- real RabbitMQ/PostgreSQL tests for externally meaningful reliability behavior.
 
-The full exception, poison-message, idempotency, topology, replay, lifecycle, and contract-governance
-rules are in `docs/messaging-failure-delivery-policy.md`. Deployment instructions for the dashboard,
-Prometheus rules, and restricted RabbitMQ scrape are in `infrastructure/observability/README.md`.
+A producer registers each command destination once in infrastructure composition, while application
+handlers remain transport-independent:
+
+```csharp
+builder.Services.AddIntegrationCommandRoute<ReserveInventory>("inventory-reserve");
+```
+
+The owning consumer uses the same stable endpoint name. Events do not require producer-side endpoint
+knowledge; they are published by message type to all subscribers. RabbitMQ itself sees both as AMQP
+publishes—MassTransit chooses fan-out topology for events and the configured endpoint exchange for
+commands.
+
+The messaging documentation is intentionally split by purpose:
+
+- `docs/adr/0001` through `0005` record the durable architectural decisions;
+- `docs/messaging-failure-delivery-policy.md` is the practical registration, deployment,
+  observability, and failure-handling guide;
+- `infrastructure/observability/README.md` describes the deployable monitoring assets.
 
 ## Run locally with Aspire
 
@@ -246,10 +265,15 @@ The CI pipeline:
 
 - restores, builds, and tests every .NET project with analyzers enforced;
 - builds and starts the pinned RabbitMQ image with delayed redelivery and Prometheus support;
-- runs RabbitMQ/PostgreSQL behavioral tests for retry, redelivery, `_error` routing, deduplication,
-  outbox commit/rollback, broker/database recovery, and graceful draining;
-- validates integration-message identity and messaging configuration constraints;
+- uses real RabbitMQ and PostgreSQL to verify event fan-out, command point-to-point routing, retry,
+  delayed redelivery, `_error` and `_skipped` routing, duplicate suppression, outbox commit/rollback
+  and recovery, broker/database recovery, queue topology, and graceful shutdown;
+- scans production assemblies for prohibited bus, broker, persistence, contract, and test-helper
+  dependencies;
+- validates integration-contract serialization compatibility and stable endpoint configuration;
 - validates the Grafana dashboard JSON and Prometheus scrape/rule files with `promtool`;
+- retains build, test, PostgreSQL, RabbitMQ, plugin, and topology diagnostics when reliability tests
+  fail;
 - builds `infrastructure/keycloak/Containerfile`;
 - starts the pinned Keycloak image with the development realm import;
 - checks OIDC discovery and PKCE support;
@@ -275,7 +299,8 @@ dotnet ef migrations add <Name> \
 ```
 
 Deploy `ServiceTemplate.Migrator` as a run-once task before API replicas. API processes must not
-apply schema migrations during startup.
+apply schema migrations during startup. Add workload-specific outbox monitoring indexes only after
+representative query plans and production requirements justify them.
 
 ## Production Keycloak boundary
 

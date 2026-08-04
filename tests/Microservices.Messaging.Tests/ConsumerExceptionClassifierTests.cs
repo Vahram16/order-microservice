@@ -1,6 +1,3 @@
-using System.Data.Common;
-using System.Net;
-using System.Text.Json;
 using Microservices.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -8,73 +5,96 @@ namespace Microservices.Messaging.Tests;
 
 public sealed class ConsumerExceptionClassifierTests
 {
-    [Theory]
-    [MemberData(nameof(TransientExceptions))]
-    public void SharedTransientFailuresAreRetryable(Exception exception)
+    [Fact]
+    public void ExplicitTransientMarkerIsRetryable()
     {
         var classifier = CreateClassifier();
 
-        Assert.True(classifier.IsTransient(exception));
-    }
-
-    [Theory]
-    [MemberData(nameof(PermanentExceptions))]
-    public void SharedPermanentFailuresAreNotRetryable(Exception exception)
-    {
-        var classifier = CreateClassifier();
-
-        Assert.False(classifier.IsTransient(exception));
+        Assert.Equal(
+            ConsumerExceptionDisposition.Transient,
+            classifier.Classify(new MarkedTransientException()));
     }
 
     [Fact]
-    public void ServiceRuleOverridesSharedDefaults()
-    {
-        var services = new ServiceCollection();
-        services.AddSingleton<IConsumerExceptionRule>(new TestRule());
-        services.AddSingleton<IConsumerExceptionClassifier, ConsumerExceptionClassifier>();
-
-        using var provider = services.BuildServiceProvider();
-        var classifier = provider.GetRequiredService<IConsumerExceptionClassifier>();
-
-        Assert.True(classifier.IsTransient(new ServiceSpecificException()));
-    }
-
-    [Fact]
-    public void PermanentMarkerTakesPrecedenceOverTransientMarker()
+    public void UnknownFailureIsPermanentByDefault()
     {
         var classifier = CreateClassifier();
 
-        Assert.False(classifier.IsTransient(new ConflictingMarkedException()));
+        Assert.Equal(
+            ConsumerExceptionDisposition.Permanent,
+            classifier.Classify(new InvalidOperationException("unknown")));
     }
 
-    public static TheoryData<Exception> TransientExceptions() =>
-        new()
-        {
-            new TimeoutException(),
-            new HttpRequestException(),
-            new HttpRequestException("timeout", null, HttpStatusCode.RequestTimeout),
-            new HttpRequestException("throttled", null, HttpStatusCode.TooManyRequests),
-            new HttpRequestException("unavailable", null, HttpStatusCode.ServiceUnavailable),
-            new IOException(),
-            new TransientTestDbException(),
-            new MarkedTransientException()
-        };
+    [Fact]
+    public void CancellationIsSeparateAndNeverRetried()
+    {
+        var classifier = CreateClassifier();
 
-    public static TheoryData<Exception> PermanentExceptions() =>
-        new()
-        {
-            new JsonException(),
-            new UnauthorizedAccessException(),
-            new ArgumentException(),
-            new InvalidOperationException(),
-            new HttpRequestException("bad request", null, HttpStatusCode.BadRequest),
-            new PermanentTestDbException(),
-            new MarkedPermanentException()
-        };
+        Assert.Equal(
+            ConsumerExceptionDisposition.Cancelled,
+            classifier.Classify(new OperationCanceledException()));
+    }
 
-    private static IConsumerExceptionClassifier CreateClassifier()
+    [Fact]
+    public void ServiceOwnedRuleClassifiesDependencySpecificFailures()
+    {
+        var classifier = CreateClassifier(new TestRule());
+
+        Assert.True(classifier.IsTransient(new ServiceSpecificException("dependency-temporary")));
+        Assert.False(classifier.IsTransient(new ServiceSpecificException("dependency-invalid")));
+    }
+
+    [Fact]
+    public void WrappedDependencyFailureIsEvaluatedByServiceRule()
+    {
+        var classifier = CreateClassifier(new TestRule());
+        var exception = new InvalidOperationException(
+            "provider wrapper",
+            new ServiceSpecificException("dependency-temporary"));
+
+        Assert.Equal(ConsumerExceptionDisposition.Transient, classifier.Classify(exception));
+    }
+
+    [Fact]
+    public void PermanentFailureTakesPrecedenceOverTransientFailure()
+    {
+        var classifier = CreateClassifier();
+        var exception = new AggregateException(
+            new MarkedTransientException(),
+            new MarkedPermanentException());
+
+        Assert.Equal(ConsumerExceptionDisposition.Permanent, classifier.Classify(exception));
+    }
+
+    [Fact]
+    public void OutcomeUnknownIsPermanentWithoutExplicitSafeReplayRule()
+    {
+        var classifier = CreateClassifier();
+
+        Assert.Equal(
+            ConsumerExceptionDisposition.Permanent,
+            classifier.Classify(new OutcomeUnknownException()));
+    }
+
+    [Fact]
+    public void OutcomeUnknownCanBeRetriedWhenServiceRuleProvesSafeReplay()
+    {
+        var classifier = CreateClassifier(new SafeReplayRule());
+
+        Assert.Equal(
+            ConsumerExceptionDisposition.Transient,
+            classifier.Classify(new OutcomeUnknownException()));
+    }
+
+    private static IConsumerExceptionClassifier CreateClassifier(
+        IConsumerExceptionRule? rule = null)
     {
         var services = new ServiceCollection();
+        if (rule is not null)
+        {
+            services.AddSingleton<IConsumerExceptionRule>(rule);
+        }
+
         services.AddSingleton<IConsumerExceptionClassifier, ConsumerExceptionClassifier>();
         using var provider = services.BuildServiceProvider();
         return provider.GetRequiredService<IConsumerExceptionClassifier>();
@@ -83,28 +103,29 @@ public sealed class ConsumerExceptionClassifierTests
     private sealed class TestRule : IConsumerExceptionRule
     {
         public ConsumerExceptionDisposition Classify(Exception exception) =>
-            exception is ServiceSpecificException
+            exception is ServiceSpecificException { Code: "dependency-temporary" }
+                ? ConsumerExceptionDisposition.Transient
+                : exception is ServiceSpecificException
+                    ? ConsumerExceptionDisposition.Permanent
+                    : ConsumerExceptionDisposition.Unclassified;
+    }
+
+    private sealed class SafeReplayRule : IConsumerExceptionRule
+    {
+        public ConsumerExceptionDisposition Classify(Exception exception) =>
+            exception is OutcomeUnknownException
                 ? ConsumerExceptionDisposition.Transient
                 : ConsumerExceptionDisposition.Unclassified;
     }
 
-    private sealed class ServiceSpecificException : Exception;
-
-    private sealed class TransientTestDbException : DbException
+    private sealed class ServiceSpecificException(string code) : Exception
     {
-        public override bool IsTransient => true;
-    }
-
-    private sealed class PermanentTestDbException : DbException
-    {
-        public override bool IsTransient => false;
+        public string Code { get; } = code;
     }
 
     private sealed class MarkedTransientException : Exception, ITransientConsumerFailure;
 
     private sealed class MarkedPermanentException : Exception, IPermanentConsumerFailure;
 
-    private sealed class ConflictingMarkedException : Exception,
-        ITransientConsumerFailure,
-        IPermanentConsumerFailure;
+    private sealed class OutcomeUnknownException : Exception, IOutcomeUnknownConsumerFailure;
 }

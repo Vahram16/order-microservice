@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace Microservices.Messaging;
@@ -8,6 +9,20 @@ internal static class RabbitMqMessagingOptionsValidator
     private const string AmqpScheme = "amqp";
     private const string RabbitMqScheme = "rabbitmq";
     private const string RabbitMqSecureScheme = "rabbitmqs";
+
+    public static void RejectRemovedConfiguration(IConfiguration configuration)
+    {
+        var key = $"{RabbitMqMessagingOptions.SectionName}:{RabbitMqMessagingOptions.RemovedReceiveQueueTtlSetting}";
+        if (configuration[key] is null)
+        {
+            return;
+        }
+
+        throw new OptionsValidationException(
+            RabbitMqMessagingOptions.SectionName,
+            typeof(RabbitMqMessagingOptions),
+            [$"'{key}' is no longer supported. Durable business receive queues must not use x-message-ttl."]);
+    }
 
     public static Uri? ValidateAndGetHostAddress(
         RabbitMqMessagingOptions options,
@@ -59,7 +74,6 @@ internal static class RabbitMqMessagingOptionsValidator
         ValidatePositive(options.StartTimeout, nameof(options.StartTimeout), failures);
         ValidatePositive(options.StopTimeout, nameof(options.StopTimeout), failures);
         ValidatePositive(options.ConsumerStopTimeout, nameof(options.ConsumerStopTimeout), failures);
-        ValidatePositive(options.QueueMessageTimeToLive, nameof(options.QueueMessageTimeToLive), failures);
         ValidatePositive(options.FaultQueueRetention, nameof(options.FaultQueueRetention), failures);
 
         if (options.ConsumerStopTimeout > options.StopTimeout)
@@ -135,9 +149,10 @@ internal static class RabbitMqMessagingOptionsValidator
         ushort globalConcurrentMessageLimit,
         List<string> failures)
     {
-        if (string.IsNullOrWhiteSpace(endpointName))
+        if (!IsValidEndpointName(endpointName))
         {
-            failures.Add($"'{RabbitMqMessagingOptions.SectionName}:Consumers' cannot contain a blank endpoint name.");
+            failures.Add(
+                $"'{RabbitMqMessagingOptions.SectionName}:Consumers:{endpointName}' must use 1-128 characters of lowercase kebab-case text.");
             return;
         }
 
@@ -181,6 +196,15 @@ internal static class RabbitMqMessagingOptionsValidator
                 $"'{RabbitMqMessagingOptions.SectionName}:{prefix}' must use PrefetchCount=1 and ConcurrentMessageLimit=1 when SingleActiveConsumer is enabled.");
         }
     }
+
+    internal static bool IsValidEndpointName(string endpointName) =>
+        !string.IsNullOrWhiteSpace(endpointName) &&
+        endpointName.Length <= 128 &&
+        endpointName[0] != '-' &&
+        endpointName[^1] != '-' &&
+        !endpointName.Contains("--", StringComparison.Ordinal) &&
+        endpointName.All(static character =>
+            character == '-' || char.IsAsciiLetterLower(character) || char.IsAsciiDigit(character));
 
     private static void ValidateIntervals(
         TimeSpan[]? intervals,

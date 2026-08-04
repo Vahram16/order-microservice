@@ -158,7 +158,10 @@ jobs:
               --configuration Release \
               --no-restore \
               --logger "trx" \
-              --results-directory TestResults 2>&1 \
+              --results-directory TestResults \
+              --blame-hang \
+              --blame-hang-timeout 3m \
+              --blame-hang-dump-type mini 2>&1 \
               | tee -a Logs/test.log
           done < <(find tests -name '*.csproj' -type f | sort)
 
@@ -194,6 +197,6 @@ jobs:
           name: ci-diagnostics
           path: |
             Logs/*.log
-            TestResults/**/*.trx
+            TestResults/**/*
           if-no-files-found: ignore
           retention-days: 14

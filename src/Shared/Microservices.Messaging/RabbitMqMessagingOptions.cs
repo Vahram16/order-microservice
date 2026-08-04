@@ -8,6 +8,7 @@ public sealed class RabbitMqMessagingOptions
 {
     public const string SectionName = "Messaging";
     public const string ConnectionStringName = "rabbitmq";
+    internal const string RemovedReceiveQueueTtlSetting = "QueueMessageTimeToLive";
 
     public string Host { get; init; } = string.Empty;
     public string VirtualHost { get; init; } = "/";
@@ -21,7 +22,11 @@ public sealed class RabbitMqMessagingOptions
     public TimeSpan OutboxMetricsInterval { get; init; } = TimeSpan.FromSeconds(10);
 
     /// <summary>Short, in-memory retry intervals. Keep these bounded and brief.</summary>
-    public TimeSpan[] RetryIntervals { get; init; } =
+    /// <remarks>
+    /// Setters are required so configured arrays can replace defaults instead of being appended by
+    /// configuration binding.
+    /// </remarks>
+    public TimeSpan[] RetryIntervals { get; set; } =
     [
         TimeSpan.FromMilliseconds(200),
         TimeSpan.FromSeconds(1),
@@ -30,9 +35,9 @@ public sealed class RabbitMqMessagingOptions
 
     /// <summary>
     /// Broker-backed delayed redelivery intervals after immediate retries are exhausted.
-    /// RabbitMQ's delayed-message exchange plugin is required.
+    /// RabbitMQ's delayed-message exchange plugin is required by the deployed broker image.
     /// </summary>
-    public TimeSpan[] RedeliveryIntervals { get; init; } =
+    public TimeSpan[] RedeliveryIntervals { get; set; } =
     [
         TimeSpan.FromSeconds(15),
         TimeSpan.FromMinutes(1),
@@ -48,9 +53,6 @@ public sealed class RabbitMqMessagingOptions
     /// <summary>Creates durable quorum receive queues for production-safe replication.</summary>
     public bool UseQuorumQueues { get; init; } = true;
 
-    /// <summary>Maximum time an unconsumed message can remain on a receive queue.</summary>
-    public TimeSpan QueueMessageTimeToLive { get; init; } = TimeSpan.FromDays(7);
-
     /// <summary>Maximum number of ready messages retained by each receive queue.</summary>
     public long QueueMaxLength { get; init; } = 100_000;
 
@@ -63,7 +65,7 @@ public sealed class RabbitMqMessagingOptions
     /// </summary>
     public int QueueDeliveryLimit { get; init; } = 10;
 
-    /// <summary>Retention applied to MassTransit error and skipped queues.</summary>
+    /// <summary>Retention applied only to MassTransit error and skipped queues.</summary>
     public TimeSpan FaultQueueRetention { get; init; } = TimeSpan.FromDays(14);
 
     /// <summary>Maximum number of messages retained in each error or skipped queue.</summary>
@@ -73,8 +75,8 @@ public sealed class RabbitMqMessagingOptions
     public int MaximumMessageBytes { get; init; } = 1_048_576;
 
     /// <summary>
-    /// Optional endpoint-name keyed overrides. Keys are the final stable queue names produced by
-    /// the configured endpoint name formatter, for example service-template-submit-order.
+    /// Optional endpoint-name keyed overrides for operational tuning. Services that need richer
+    /// consumer-specific behavior should use MassTransit <c>ConsumerDefinition&lt;TConsumer&gt;</c>.
     /// </summary>
     public Dictionary<string, ConsumerDeliveryPolicyOptions> Consumers { get; init; } =
         new(StringComparer.Ordinal);

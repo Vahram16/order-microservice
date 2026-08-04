@@ -1,20 +1,21 @@
-using System.Data.Common;
-using System.Net;
-using System.Net.Sockets;
-using System.Security;
-using System.Text.Json;
-
 namespace Microservices.Messaging;
 
-/// <summary>Marks a failure as transient for message retry and redelivery.</summary>
+/// <summary>Marks a failure as transient when the owning operation is safe to retry.</summary>
 public interface ITransientConsumerFailure;
 
 /// <summary>Marks a failure as permanent and immediately faultable.</summary>
 public interface IPermanentConsumerFailure;
 
 /// <summary>
-/// Extension point for service-specific exception classification. Rules are evaluated in
-/// registration order before the shared defaults.
+/// Marks a failure whose outcome is unknown. It is permanent unless a dependency-specific rule can
+/// prove that replay is safe and idempotent.
+/// </summary>
+public interface IOutcomeUnknownConsumerFailure;
+
+/// <summary>
+/// Extension point for service-owned dependency rules. Shared messaging infrastructure deliberately
+/// does not guess retry safety from broad HTTP, socket, timeout, or database exception categories.
+/// Rules are registered as singleton dependencies because the classifier is singleton.
 /// </summary>
 public interface IConsumerExceptionRule
 {
@@ -25,81 +26,113 @@ public enum ConsumerExceptionDisposition
 {
     Unclassified = 0,
     Transient = 1,
-    Permanent = 2
+    Permanent = 2,
+    Cancelled = 3
 }
 
 public interface IConsumerExceptionClassifier
 {
+    ConsumerExceptionDisposition Classify(Exception exception);
+
     bool IsTransient(Exception exception);
 }
 
 internal sealed class ConsumerExceptionClassifier(
     IEnumerable<IConsumerExceptionRule> rules) : IConsumerExceptionClassifier
 {
-    public bool IsTransient(Exception exception)
+    private readonly IConsumerExceptionRule[] _rules = rules.ToArray();
+
+    public bool IsTransient(Exception exception) =>
+        Classify(exception) == ConsumerExceptionDisposition.Transient;
+
+    public ConsumerExceptionDisposition Classify(Exception exception)
     {
         ArgumentNullException.ThrowIfNull(exception);
 
-        var current = Unwrap(exception);
-        foreach (var rule in rules)
+        var sawTransient = false;
+        foreach (var current in Enumerate(exception))
         {
-            var disposition = rule.Classify(current);
-            if (disposition != ConsumerExceptionDisposition.Unclassified)
+            var disposition = ClassifySingle(current);
+            switch (disposition)
             {
-                return disposition == ConsumerExceptionDisposition.Transient;
+                case ConsumerExceptionDisposition.Cancelled:
+                case ConsumerExceptionDisposition.Permanent:
+                    return disposition;
+                case ConsumerExceptionDisposition.Transient:
+                    sawTransient = true;
+                    break;
+                case ConsumerExceptionDisposition.Unclassified:
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        $"Unsupported consumer exception disposition '{disposition}'.");
             }
         }
 
-        if (current is IPermanentConsumerFailure)
-        {
-            return false;
-        }
-
-        if (current is ITransientConsumerFailure)
-        {
-            return true;
-        }
-
-        return current switch
-        {
-            TimeoutException => true,
-            DbException databaseException => IsTransientDatabaseFailure(databaseException),
-            HttpRequestException httpException => IsTransientHttpFailure(httpException),
-            SocketException => true,
-            IOException => true,
-
-            JsonException => false,
-            UnauthorizedAccessException => false,
-            SecurityException => false,
-            ArgumentException => false,
-            NotSupportedException => false,
-            _ => false
-        };
+        return sawTransient
+            ? ConsumerExceptionDisposition.Transient
+            : ConsumerExceptionDisposition.Permanent;
     }
 
-    private static bool IsTransientDatabaseFailure(DbException exception)
+    private ConsumerExceptionDisposition ClassifySingle(Exception exception)
     {
-        var isTransientProperty = exception.GetType().GetProperty("IsTransient");
-        return isTransientProperty?.PropertyType == typeof(bool) &&
-               isTransientProperty.GetValue(exception) is true;
-    }
-
-    private static bool IsTransientHttpFailure(HttpRequestException exception) =>
-        exception.StatusCode is null or
-            HttpStatusCode.RequestTimeout or
-            HttpStatusCode.TooManyRequests or
-            HttpStatusCode.InternalServerError or
-            HttpStatusCode.BadGateway or
-            HttpStatusCode.ServiceUnavailable or
-            HttpStatusCode.GatewayTimeout;
-
-    private static Exception Unwrap(Exception exception)
-    {
-        while (exception is AggregateException { InnerExceptions.Count: 1 } aggregate)
+        if (exception is OperationCanceledException)
         {
-            exception = aggregate.InnerExceptions[0];
+            return ConsumerExceptionDisposition.Cancelled;
         }
 
-        return exception;
+        // Explicit permanent evidence cannot be overridden by a dependency rule.
+        if (exception is IPermanentConsumerFailure)
+        {
+            return ConsumerExceptionDisposition.Permanent;
+        }
+
+        foreach (var rule in _rules)
+        {
+            var disposition = rule.Classify(exception);
+            if (disposition != ConsumerExceptionDisposition.Unclassified)
+            {
+                return disposition;
+            }
+        }
+
+        if (exception is IOutcomeUnknownConsumerFailure)
+        {
+            return ConsumerExceptionDisposition.Permanent;
+        }
+
+        return exception is ITransientConsumerFailure
+            ? ConsumerExceptionDisposition.Transient
+            : ConsumerExceptionDisposition.Unclassified;
+    }
+
+    private static IEnumerable<Exception> Enumerate(Exception exception)
+    {
+        var pending = new Stack<Exception>();
+        var visited = new HashSet<Exception>(ReferenceEqualityComparer.Instance);
+        pending.Push(exception);
+
+        while (pending.Count != 0)
+        {
+            var current = pending.Pop();
+            if (!visited.Add(current))
+            {
+                continue;
+            }
+
+            yield return current;
+
+            if (current is AggregateException aggregate)
+            {
+                for (var index = aggregate.InnerExceptions.Count - 1; index >= 0; index--)
+                {
+                    pending.Push(aggregate.InnerExceptions[index]);
+                }
+            }
+            else if (current.InnerException is not null)
+            {
+                pending.Push(current.InnerException);
+            }
+        }
     }
 }

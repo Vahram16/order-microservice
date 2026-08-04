@@ -3,6 +3,7 @@ using System.Security.Authentication;
 using MassTransit;
 using MassTransit.Logging;
 using MassTransit.Monitoring;
+using Microservices.Application.Messaging;
 using Microservices.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -15,8 +16,8 @@ namespace Microservices.Messaging;
 public static class RabbitMqMessagingExtensions
 {
     /// <summary>
-    /// Registers MassTransit using RabbitMQ with PostgreSQL-backed Entity Framework Core
-    /// bus and consumer outboxes, bounded transient retry, and bounded delayed redelivery.
+    /// Registers MassTransit using RabbitMQ with PostgreSQL-backed Entity Framework Core bus and
+    /// consumer outboxes, bounded retry, and broker-backed delayed redelivery.
     /// </summary>
     public static IServiceCollection AddRabbitMqWithPostgresOutbox<TDbContext>(
         this IServiceCollection services,
@@ -27,9 +28,9 @@ public static class RabbitMqMessagingExtensions
         where TDbContext : DbContext
     {
         ValidateEndpointNamePrefix(endpointNamePrefix);
+        RabbitMqMessagingOptionsValidator.RejectRemovedConfiguration(configuration);
 
-        var options = configuration.GetSection(RabbitMqMessagingOptions.SectionName)
-            .Get<RabbitMqMessagingOptions>() ?? new RabbitMqMessagingOptions();
+        var options = RabbitMqMessagingOptionsBinder.Bind(configuration);
         var rabbitConnectionString = configuration.GetConnectionString(
             RabbitMqMessagingOptions.ConnectionStringName);
         var rabbitHostAddress = RabbitMqMessagingOptionsValidator.ValidateAndGetHostAddress(
@@ -38,6 +39,7 @@ public static class RabbitMqMessagingExtensions
 
         services.AddSingleton(options);
         services.AddSingleton<IConsumerExceptionClassifier, ConsumerExceptionClassifier>();
+        services.AddScoped<IIntegrationEventPublisher, MassTransitIntegrationEventPublisher>();
         services.AddSingleton<OutboxMetricsCollector<TDbContext>>();
         services.AddHostedService(provider =>
             provider.GetRequiredService<OutboxMetricsCollector<TDbContext>>());
@@ -93,8 +95,8 @@ public static class RabbitMqMessagingExtensions
                         policy.RateLimitInterval!.Value);
                 }
 
-                // Redelivery must wrap immediate retry so each broker redelivery receives the
-                // configured short retry sequence before the message is scheduled again.
+                // Delayed redelivery wraps immediate retry. Services with materially different
+                // requirements should configure their consumer through ConsumerDefinition<TConsumer>.
                 endpoint.UseDelayedRedelivery(redelivery =>
                 {
                     redelivery.Intervals(policy.RedeliveryIntervals);
@@ -107,6 +109,7 @@ public static class RabbitMqMessagingExtensions
                     retry.Handle<Exception>(classifier.IsTransient);
                 });
 
+                endpoint.UseConsumeFilter(typeof(ConsumerDeliveryMetricsFilter<>), context);
                 endpoint.UseEntityFrameworkOutbox<TDbContext>(context);
             });
 
@@ -143,37 +146,52 @@ public static class RabbitMqMessagingExtensions
                         });
                 }
 
-                rabbit.UsePublishFilter(
-                    typeof(IntegrationMessagePublishFilter<>),
-                    context,
-                    filter => filter.Include(type =>
-                        typeof(IIntegrationMessage).IsAssignableFrom(type)));
-                rabbit.UseSendFilter(
-                    typeof(IntegrationMessageSendFilter<>),
-                    context,
-                    filter => filter.Include(type =>
-                        typeof(IIntegrationMessage).IsAssignableFrom(type)));
-                rabbit.UseConsumeFilter(
-                    typeof(ConsumerDeliveryMetricsFilter<>),
-                    context);
-                rabbit.UseConsumeFilter(
-                    typeof(IntegrationMessageConsumeFilter<>),
-                    context,
-                    filter => filter.Include(type =>
-                        typeof(IIntegrationMessage).IsAssignableFrom(type)));
-
+                rabbit.ConfigureJsonSerializerOptions(IntegrationContractJson.Configure);
                 rabbit.SendTopology.ConfigureErrorSettings = settings =>
                     ConfigureFaultQueue(settings, options);
                 rabbit.SendTopology.ConfigureDeadLetterSettings = settings =>
                     ConfigureFaultQueue(settings, options);
 
-                // Selected scheduler: RabbitMQ delayed-message exchange plugin. This keeps
-                // redelivery broker-backed and survives process restarts without an application
-                // scheduler database. Production brokers must install and enable the plugin.
+                // The deployment image and smoke tests own plugin verification. Applications use
+                // the configured broker capability without opening a second raw RabbitMQ connection.
                 rabbit.UseDelayedMessageScheduler();
                 rabbit.ConfigureEndpoints(context);
             });
         });
+
+        return services;
+    }
+
+    /// <summary>
+    /// Maps one integration command type to its single owning receive endpoint. Application code
+    /// injects <see cref="IIntegrationCommandSender{TCommand}"/> and never handles broker addresses.
+    /// </summary>
+    public static IServiceCollection AddIntegrationCommandRoute<TCommand>(
+        this IServiceCollection services,
+        string endpointName)
+        where TCommand : class, IIntegrationCommand
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        if (!RabbitMqMessagingOptionsValidator.IsValidEndpointName(endpointName))
+        {
+            throw new ArgumentException(
+                "Command endpoint name must use 1-128 characters of lowercase kebab-case text.",
+                nameof(endpointName));
+        }
+
+        var senderType = typeof(IIntegrationCommandSender<TCommand>);
+        if (services.Any(descriptor => descriptor.ServiceType == senderType))
+        {
+            throw new InvalidOperationException(
+                $"A command route for '{typeof(TCommand).FullName}' is already registered.");
+        }
+
+        var destinationAddress = new Uri($"exchange:{endpointName}");
+        services.AddScoped<IIntegrationCommandSender<TCommand>>(provider =>
+            new MassTransitIntegrationCommandSender<TCommand>(
+                provider.GetRequiredService<ISendEndpointProvider>(),
+                destinationAddress));
 
         return services;
     }
@@ -193,7 +211,8 @@ public static class RabbitMqMessagingExtensions
             endpoint.SetQueueArgument("x-delivery-limit", options.QueueDeliveryLimit);
         }
 
-        endpoint.SetQueueArgument("x-message-ttl", options.QueueMessageTimeToLive);
+        // Durable business queues intentionally have no receive-queue TTL. Capacity limits reject
+        // new publishes instead of silently expiring existing business messages.
         endpoint.SetQueueArgument("x-max-length", options.QueueMaxLength);
         endpoint.SetQueueArgument("x-max-length-bytes", options.QueueMaxLengthBytes);
         endpoint.SetQueueArgument("x-overflow", "reject-publish");

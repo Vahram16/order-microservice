@@ -71,7 +71,7 @@ internal sealed class ConsumerDeliveryMetricsFilter<T>(
             tags.Add("error.type", exception.GetType().FullName ?? exception.GetType().Name);
             tags.Add(
                 "messaging.failure.disposition",
-                classifier.IsTransient(exception) ? "transient" : "permanent");
+                classifier.Classify(exception).ToString().ToLowerInvariant());
             MessagingInstrumentation.ConsumerFailures.Add(1, tags);
             throw;
         }
@@ -98,6 +98,7 @@ internal sealed partial class OutboxMetricsCollector<TDbContext> : BackgroundSer
     private readonly ObservableGauge<double> _oldestAgeGauge;
     private long _backlog;
     private double _oldestAgeSeconds;
+    private int _hasSnapshot;
 
     public OutboxMetricsCollector(
         IServiceScopeFactory scopeFactory,
@@ -149,27 +150,40 @@ internal sealed partial class OutboxMetricsCollector<TDbContext> : BackgroundSer
                 oldestSentTime is null
                     ? 0
                     : Math.Max(0, (DateTime.UtcNow - oldestSentTime.Value).TotalSeconds));
+            Volatile.Write(ref _hasSnapshot, 1);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
         catch (Exception exception)
         {
+            // Keep the last successful sample. Before the first successful query, emit no gauge
+            // sample rather than reporting a misleading zero backlog.
             MessagingInstrumentation.OutboxCollectionFailures.Add(1, _tags);
             LogCollectionFailure(_logger, typeof(TDbContext).Name, exception);
         }
     }
 
-    private Measurement<long> ObserveBacklog() =>
-        new(Interlocked.Read(ref _backlog), _tags);
+    private IEnumerable<Measurement<long>> ObserveBacklog()
+    {
+        if (Volatile.Read(ref _hasSnapshot) == 1)
+        {
+            yield return new Measurement<long>(Interlocked.Read(ref _backlog), _tags);
+        }
+    }
 
-    private Measurement<double> ObserveOldestAge() =>
-        new(Volatile.Read(ref _oldestAgeSeconds), _tags);
+    private IEnumerable<Measurement<double>> ObserveOldestAge()
+    {
+        if (Volatile.Read(ref _hasSnapshot) == 1)
+        {
+            yield return new Measurement<double>(Volatile.Read(ref _oldestAgeSeconds), _tags);
+        }
+    }
 
     [LoggerMessage(
         EventId = 1001,
         Level = LogLevel.Warning,
-        Message = "Unable to collect messaging outbox metrics for {DbContext}")]
+        Message = "Unable to collect messaging outbox metrics for {DbContext}; retaining the last successful sample")]
     private static partial void LogCollectionFailure(
         ILogger logger,
         string dbContext,

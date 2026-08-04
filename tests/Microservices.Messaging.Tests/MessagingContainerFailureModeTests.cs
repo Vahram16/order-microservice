@@ -1,0 +1,203 @@
+using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
+using DotNet.Testcontainers.Builders;
+using DotNet.Testcontainers.Containers;
+using MassTransit;
+using MassTransit.EntityFrameworkCoreIntegration;
+using Microservices.Application.Messaging;
+using Microservices.Messaging;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Testcontainers.PostgreSql;
+
+namespace Microservices.Messaging.Tests;
+
+[Collection(MessagingBehaviorTestGroup.Name)]
+public sealed class MessagingContainerFailureModeTests
+{
+    [Fact]
+    public async Task RabbitMqUnavailableDuringStartupFailsWithinConfiguredBound()
+    {
+        var unavailablePort = ReserveUnusedPort();
+        using var host = BuildHost(
+            RequiredEnvironmentVariable("MESSAGING_TEST_POSTGRES_CONNECTION_STRING"),
+            $"amqp://guest:guest@127.0.0.1:{unavailablePort}/",
+            $"unavailable-{Guid.NewGuid():N}"[..40],
+            new DeliveryProbe(),
+            startTimeout: TimeSpan.FromSeconds(1));
+
+        var elapsed = Stopwatch.StartNew();
+        await Assert.ThrowsAnyAsync<Exception>(() => host.StartAsync());
+
+        Assert.InRange(elapsed.Elapsed, TimeSpan.Zero, TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task CommittedOutboxRecoversAfterProcessStopsBeforeBrokerPublication()
+    {
+        await using var postgres = new PostgreSqlBuilder("postgres:18")
+            .WithDatabase("reliability")
+            .WithUsername("postgres")
+            .WithPassword("postgres")
+            .Build();
+        await using var rabbit = BuildProductionRabbitMqContainer();
+        await postgres.StartAsync();
+        await rabbit.StartAsync();
+
+        var prefix = $"outbox-recovery-{Guid.NewGuid():N}"[..46];
+        var message = ReliabilityMessageFactory.OutboxProduced();
+        var firstProbe = new DeliveryProbe();
+        using (var firstHost = BuildHost(
+                   postgres.GetConnectionString(),
+                   RabbitConnectionString(rabbit),
+                   prefix,
+                   firstProbe))
+        {
+            await RecreateDatabaseAsync(firstHost.Services);
+            await firstHost.StartAsync();
+            await rabbit.StopAsync();
+
+            await using var scope = firstHost.Services.CreateAsyncScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ReliabilityDbContext>();
+            var publisher = scope.ServiceProvider.GetRequiredService<IIntegrationEventPublisher>();
+            var strategy = dbContext.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await dbContext.Database.BeginTransactionAsync();
+                await publisher.PublishAsync(message);
+                await dbContext.SaveChangesAsync();
+                await transaction.CommitAsync();
+            });
+
+            Assert.True(await dbContext.Set<OutboxMessage>().AnyAsync());
+            await StopIgnoringBrokerFailureAsync(firstHost);
+        }
+
+        await rabbit.StartAsync();
+        var recoveryProbe = new DeliveryProbe();
+        using var recoveryHost = BuildHost(
+            postgres.GetConnectionString(),
+            RabbitConnectionString(rabbit),
+            prefix,
+            recoveryProbe);
+        await recoveryHost.StartAsync();
+
+        await recoveryProbe.WaitForCompletionAsync(message.MessageId);
+        await WaitForOutboxDrainAsync(recoveryHost.Services);
+        Assert.Equal(1, recoveryProbe.CompletionCount(message.MessageId));
+    }
+
+    private static IContainer BuildProductionRabbitMqContainer() =>
+        new ContainerBuilder("order-rabbitmq:ci")
+            .WithEnvironment("RABBITMQ_DEFAULT_USER", "guest")
+            .WithEnvironment("RABBITMQ_DEFAULT_PASS", "guest")
+            .WithEnvironment("RABBITMQ_ERLANG_COOKIE", $"reliability-{Guid.NewGuid():N}")
+            .WithPortBinding(5672, true)
+            .WithWaitStrategy(
+                Wait.ForUnixContainer().UntilMessageIsLogged(
+                    "Server startup complete",
+                    wait => wait.WithTimeout(TimeSpan.FromMinutes(1))))
+            .Build();
+
+    private static IHost BuildHost(
+        string postgres,
+        string rabbitMq,
+        string prefix,
+        DeliveryProbe probe,
+        TimeSpan? startTimeout = null)
+    {
+        var values = new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:rabbitmq"] = rabbitMq,
+            ["Messaging:UseTls"] = "false",
+            ["Messaging:RetryIntervals:0"] = "00:00:00.020",
+            ["Messaging:RedeliveryIntervals:0"] = "00:00:00.100",
+            ["Messaging:PrefetchCount"] = "1",
+            ["Messaging:ConcurrentMessageLimit"] = "1",
+            ["Messaging:StartTimeout"] = (startTimeout ?? TimeSpan.FromSeconds(10)).ToString("c"),
+            ["Messaging:StopTimeout"] = "00:00:05",
+            ["Messaging:ConsumerStopTimeout"] = "00:00:04",
+            ["Messaging:OutboxQueryDelay"] = "00:00:00.050",
+            ["Messaging:OutboxMetricsInterval"] = "00:00:00.250",
+            ["Messaging:DuplicateDetectionWindow"] = "00:05:00",
+            ["Messaging:FaultQueueRetention"] = "00:30:00",
+            ["Messaging:QueueMaxLength"] = "1000",
+            ["Messaging:QueueMaxLengthBytes"] = "10485760",
+            ["Messaging:MaximumMessageBytes"] = "1048576",
+            ["Messaging:FaultQueueMaxLength"] = "1000"
+        };
+
+        var builder = Host.CreateApplicationBuilder();
+        builder.Configuration.AddInMemoryCollection(values);
+        builder.Services.AddSingleton(probe);
+        builder.Services.AddDbContext<ReliabilityDbContext>(options =>
+            options.UseNpgsql(postgres, npgsql => npgsql.EnableRetryOnFailure()));
+        builder.Services.AddRabbitMqWithPostgresOutbox<ReliabilityDbContext>(
+            builder.Configuration,
+            prefix,
+            registration =>
+            {
+                var consumer = registration.AddConsumer<OutboxProducedConsumer>();
+                consumer.Endpoint(endpoint => endpoint.Name = $"{prefix}-outbox-produced");
+            });
+        return builder.Build();
+    }
+
+    private static async Task RecreateDatabaseAsync(IServiceProvider services)
+    {
+        await using var scope = services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ReliabilityDbContext>();
+        await dbContext.Database.EnsureDeletedAsync();
+        await dbContext.Database.EnsureCreatedAsync();
+    }
+
+    private static async Task WaitForOutboxDrainAsync(IServiceProvider services)
+    {
+        var timeout = Stopwatch.StartNew();
+        while (timeout.Elapsed < TimeSpan.FromSeconds(20))
+        {
+            await using var scope = services.CreateAsyncScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ReliabilityDbContext>();
+            if (!await dbContext.Set<OutboxMessage>().AnyAsync())
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(50));
+        }
+
+        throw new TimeoutException("Pending outbox messages were not delivered after recovery.");
+    }
+
+    private static async Task StopIgnoringBrokerFailureAsync(IHost host)
+    {
+        try
+        {
+            await host.StopAsync(TimeSpan.FromSeconds(5));
+        }
+        catch (Exception)
+        {
+            // The test deliberately terminates the process while the broker is unavailable.
+        }
+    }
+
+    private static string RabbitConnectionString(IContainer rabbit) =>
+        $"amqp://guest:guest@{rabbit.Hostname}:{rabbit.GetMappedPublicPort(5672)}/";
+
+    private static ushort ReserveUnusedPort()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
+
+    private static string RequiredEnvironmentVariable(string name) =>
+        Environment.GetEnvironmentVariable(name) is { Length: > 0 } value
+            ? value
+            : throw new InvalidOperationException($"Environment variable '{name}' is required.");
+}
