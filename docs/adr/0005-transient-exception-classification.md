@@ -1,27 +1,28 @@
-# ADR 0005: Conservative transient-exception classification
+# ADR 0005: Service-owned transient exception classification
 
 - Status: Accepted
 - Date: 2026-08-02
 
 ## Context
 
-Broadly retrying all timeouts, I/O errors, or statusless HTTP failures can repeat permanent defects or
-external operations whose outcome is unknown.
+Retry safety depends on the operation and its idempotency, not only on a broad exception category.
+A shared list of HTTP statuses, socket codes, or database states can silently apply the wrong policy
+to a future dependency.
 
 ## Decision
 
-The shared classifier is default-deny and inspects stable provider data: PostgreSQL SQLSTATE, HTTP
-status, socket error, explicit markers, and registered dependency rules. Unknown exceptions are
-permanent. Cancellation is a separate disposition.
+The shared classifier is default-deny. It understands only explicit transient, permanent,
+outcome-unknown, and cancellation markers, plus registered `IConsumerExceptionRule` implementations.
 
-Generic `TimeoutException`, arbitrary `IOException`, statusless `HttpRequestException`, and HTTP 500
-are not shared transient categories. Outcome-unknown operations are permanent unless a dependency
-rule proves idempotency and safe replay.
+Each service owns narrow rules for the dependencies it calls. A rule must be based on stable provider
+information and must be added only when the operation is safe to replay. Unknown exceptions are
+permanent.
 
-Permanent evidence in a wrapped or aggregate exception takes precedence over transient evidence.
+Permanent or cancelled evidence in a wrapped or aggregate exception takes precedence over transient
+evidence.
 
 ## Consequences
 
-Services add narrow dependency rules instead of widening shared behavior. External side-effect
-retries require an idempotency key and reconciliation procedure. Unit tests cover supported codes,
-permanent categories, nested exceptions, conflicts, cancellation, and unknown failures.
+The shared package remains small and predictable. Services document and test their own retry rules,
+as demonstrated by the PostgreSQL recovery integration test. External side-effect retries still
+require idempotency and reconciliation.
