@@ -38,12 +38,7 @@ public sealed class ConsumerExceptionClassifierTests
     [Fact]
     public void ServiceOwnedRuleClassifiesDependencySpecificFailures()
     {
-        var services = new ServiceCollection();
-        services.AddSingleton<IConsumerExceptionRule>(new TestRule());
-        services.AddSingleton<IConsumerExceptionClassifier, ConsumerExceptionClassifier>();
-
-        using var provider = services.BuildServiceProvider();
-        var classifier = provider.GetRequiredService<IConsumerExceptionClassifier>();
+        var classifier = CreateClassifier(new TestRule());
 
         Assert.True(classifier.IsTransient(new ServiceSpecificException("dependency-temporary")));
         Assert.False(classifier.IsTransient(new ServiceSpecificException("dependency-invalid")));
@@ -52,12 +47,7 @@ public sealed class ConsumerExceptionClassifierTests
     [Fact]
     public void WrappedDependencyFailureIsEvaluatedByServiceRule()
     {
-        var services = new ServiceCollection();
-        services.AddSingleton<IConsumerExceptionRule>(new TestRule());
-        services.AddSingleton<IConsumerExceptionClassifier, ConsumerExceptionClassifier>();
-
-        using var provider = services.BuildServiceProvider();
-        var classifier = provider.GetRequiredService<IConsumerExceptionClassifier>();
+        var classifier = CreateClassifier(new TestRule());
         var exception = new InvalidOperationException(
             "provider wrapper",
             new ServiceSpecificException("dependency-temporary"));
@@ -86,9 +76,27 @@ public sealed class ConsumerExceptionClassifierTests
             classifier.Classify(new OutcomeUnknownException()));
     }
 
-    private static IConsumerExceptionClassifier CreateClassifier()
+    [Fact]
+    public void OutcomeUnknownCanBeRetriedWhenServiceRuleProvesSafeReplay()
+    {
+        var classifier = CreateClassifier(new SafeReplayRule());
+
+        Assert.Equal(
+            ConsumerExceptionDisposition.Transient,
+            classifier.Classify(new OutcomeUnknownException()));
+    }
+
+    private static IConsumerExceptionClassifier CreateClassifier(
+        IConsumerExceptionRule? rule = null)
     {
         var services = new ServiceCollection();
+        if (rule is not null)
+        {
+            services.AddSingleton(rule);
+            services.AddSingleton<IConsumerExceptionRule>(provider => provider.GetRequiredService(rule.GetType()) as IConsumerExceptionRule
+                ?? throw new InvalidOperationException("The test rule does not implement IConsumerExceptionRule."));
+        }
+
         services.AddSingleton<IConsumerExceptionClassifier, ConsumerExceptionClassifier>();
         using var provider = services.BuildServiceProvider();
         return provider.GetRequiredService<IConsumerExceptionClassifier>();
@@ -102,6 +110,14 @@ public sealed class ConsumerExceptionClassifierTests
                 : exception is ServiceSpecificException
                     ? ConsumerExceptionDisposition.Permanent
                     : ConsumerExceptionDisposition.Unclassified;
+    }
+
+    private sealed class SafeReplayRule : IConsumerExceptionRule
+    {
+        public ConsumerExceptionDisposition Classify(Exception exception) =>
+            exception is OutcomeUnknownException
+                ? ConsumerExceptionDisposition.Transient
+                : ConsumerExceptionDisposition.Unclassified;
     }
 
     private sealed class ServiceSpecificException(string code) : Exception
