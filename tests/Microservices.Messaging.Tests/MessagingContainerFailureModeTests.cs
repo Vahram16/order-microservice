@@ -62,7 +62,7 @@ public sealed class MessagingContainerFailureModeTests
 
             await using var scope = firstHost.Services.CreateAsyncScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<ReliabilityDbContext>();
-            var publisher = scope.ServiceProvider.GetRequiredService<IIntegrationMessagePublisher>();
+            var publisher = scope.ServiceProvider.GetRequiredService<IIntegrationEventPublisher>();
             var strategy = dbContext.Database.CreateExecutionStrategy();
             await strategy.ExecuteAsync(async () =>
             {
