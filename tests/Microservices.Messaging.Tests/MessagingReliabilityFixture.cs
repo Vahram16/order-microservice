@@ -1,6 +1,4 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Diagnostics.Metrics;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -30,8 +28,6 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
 
     public DeliveryProbe Probe { get; } = new();
 
-    public MessagingMetricRecorder Metrics { get; } = new();
-
     public RabbitMqManagementClient RabbitMq { get; private set; } = null!;
 
     public async Task InitializeAsync()
@@ -41,14 +37,11 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
         _prefix = $"messaging-reliability-{Guid.NewGuid():N}"[..48];
         RegisterEndpoint<SuccessConsumer>("success");
         RegisterEndpoint<OneRetryConsumer>("one-retry");
-        RegisterEndpoint<MultipleRetryConsumer>("multiple-retry");
         RegisterEndpoint<RedeliverySuccessConsumer>("redelivery-success");
         RegisterEndpoint<ExhaustedConsumer>("exhausted");
         RegisterEndpoint<PermanentConsumer>("permanent");
         RegisterEndpoint<DuplicateConsumer>("duplicate");
         RegisterEndpoint<OutboxProducedConsumer>("outbox-produced");
-        RegisterEndpoint<ParentConsumer>("parent");
-        RegisterEndpoint<ChildConsumer>("child");
 
         RabbitMq = RabbitMqManagementClient.CreateFromEnvironment();
         _host = BuildHost(_postgres, _rabbitMq, _prefix, Probe, _endpoints);
@@ -65,7 +58,6 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
             _host.Dispose();
         }
 
-        Metrics.Dispose();
         RabbitMq.Dispose();
     }
 
@@ -101,10 +93,6 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var bus = Services.GetRequiredService<IBus>();
-
-        // A receive endpoint owns both an exchange and a governed queue. Sending through queue:
-        // asks the transport to declare the queue and can conflict with its capacity arguments.
-        // Addressing the exchange routes to the existing queue without redeclaring its topology.
         var endpoint = await bus.GetSendEndpoint(new Uri($"exchange:{endpointName}"))
             .WaitAsync(timeout.Token)
             .ConfigureAwait(false);
@@ -188,21 +176,6 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
             "PostgreSQL outbox did not drain.").ConfigureAwait(false);
     }
 
-    public async Task AssertNoCompletionAsync(Guid messageId)
-    {
-        var completed = await Probe.CompletionTask(messageId)
-            .WaitAsync(TimeSpan.FromMilliseconds(750))
-            .ContinueWith(
-                static _ => true,
-                CancellationToken.None,
-                TaskContinuationOptions.OnlyOnRanToCompletion,
-                TaskScheduler.Default)
-            .WaitAsync(TimeSpan.FromSeconds(1))
-            .ConfigureAwait(false);
-
-        Assert.False(completed);
-    }
-
     public async Task VerifyGracefulDrainAsync()
     {
         var drainPrefix = $"messaging-drain-{Guid.NewGuid():N}"[..42];
@@ -256,16 +229,14 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
             ["Messaging:ConsumerStopTimeout"] = "00:00:08",
             ["Messaging:OutboxQueryDelay"] = "00:00:00.050",
             ["Messaging:OutboxMetricsInterval"] = "00:00:00.250",
-            ["Messaging:OutboxMetricsQueryTimeout"] = "00:00:02",
             ["Messaging:DuplicateDetectionWindow"] = "00:05:00",
             ["Messaging:FaultQueueRetention"] = "00:30:00",
             ["Messaging:QueueMaxLength"] = "1000",
             ["Messaging:QueueMaxLengthBytes"] = "10485760",
             ["Messaging:MaximumMessageBytes"] = "1048576",
-            ["Messaging:FaultQueueMaxLength"] = "1000",
-            ["Messaging:MaximumRetryAndRedeliveryDelay"] = "00:00:10",
-            ["Messaging:AllowValidatedDefaultConsumerPolicy"] = "false"
+            ["Messaging:FaultQueueMaxLength"] = "1000"
         };
+        AddConsumerPolicies(values, endpoints);
 
         var builder = Host.CreateApplicationBuilder();
         builder.Configuration.AddInMemoryCollection(values);
@@ -278,6 +249,31 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
             registrations => RegisterConsumers(registrations, endpoints));
 
         return builder.Build();
+    }
+
+    private static void AddConsumerPolicies(
+        IDictionary<string, string?> values,
+        IReadOnlyDictionary<Type, string> endpoints)
+    {
+        foreach (var endpoint in endpoints)
+        {
+            var policy = PolicyFor(endpoint.Key);
+            var prefix = $"Messaging:Consumers:{endpoint.Value}";
+            for (var index = 0; index < policy.RetryIntervals.Length; index++)
+            {
+                values[$"{prefix}:RetryIntervals:{index}"] =
+                    policy.RetryIntervals[index].ToString("c");
+            }
+
+            for (var index = 0; index < policy.RedeliveryIntervals.Length; index++)
+            {
+                values[$"{prefix}:RedeliveryIntervals:{index}"] =
+                    policy.RedeliveryIntervals[index].ToString("c");
+            }
+
+            values[$"{prefix}:PrefetchCount"] = "1";
+            values[$"{prefix}:ConcurrentMessageLimit"] = "1";
+        }
     }
 
     private static void RegisterConsumers(
@@ -295,51 +291,45 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
         Type consumerType,
         string endpointName)
     {
-        var policy = PolicyFor(consumerType);
-
         if (consumerType == typeof(SuccessConsumer))
-            registrations.AddConsumerWithPolicy<SuccessConsumer>(endpointName, policy);
+            Register<SuccessConsumer>(registrations, endpointName);
         else if (consumerType == typeof(OneRetryConsumer))
-            registrations.AddConsumerWithPolicy<OneRetryConsumer>(endpointName, policy);
-        else if (consumerType == typeof(MultipleRetryConsumer))
-            registrations.AddConsumerWithPolicy<MultipleRetryConsumer>(endpointName, policy);
+            Register<OneRetryConsumer>(registrations, endpointName);
         else if (consumerType == typeof(RedeliverySuccessConsumer))
-            registrations.AddConsumerWithPolicy<RedeliverySuccessConsumer>(endpointName, policy);
+            Register<RedeliverySuccessConsumer>(registrations, endpointName);
         else if (consumerType == typeof(ExhaustedConsumer))
-            registrations.AddConsumerWithPolicy<ExhaustedConsumer>(endpointName, policy);
+            Register<ExhaustedConsumer>(registrations, endpointName);
         else if (consumerType == typeof(PermanentConsumer))
-            registrations.AddConsumerWithPolicy<PermanentConsumer>(endpointName, policy);
+            Register<PermanentConsumer>(registrations, endpointName);
         else if (consumerType == typeof(DuplicateConsumer))
-            registrations.AddConsumerWithPolicy<DuplicateConsumer>(endpointName, policy);
+            Register<DuplicateConsumer>(registrations, endpointName);
         else if (consumerType == typeof(OutboxProducedConsumer))
-            registrations.AddConsumerWithPolicy<OutboxProducedConsumer>(endpointName, policy);
-        else if (consumerType == typeof(ParentConsumer))
-            registrations.AddConsumerWithPolicy<ParentConsumer>(endpointName, policy);
-        else if (consumerType == typeof(ChildConsumer))
-            registrations.AddConsumerWithPolicy<ChildConsumer>(endpointName, policy);
+            Register<OutboxProducedConsumer>(registrations, endpointName);
         else if (consumerType == typeof(DrainConsumer))
-            registrations.AddConsumerWithPolicy<DrainConsumer>(endpointName, policy);
+            Register<DrainConsumer>(registrations, endpointName);
         else
-            throw new InvalidOperationException($"No reliability policy exists for '{consumerType.FullName}'.");
+            throw new InvalidOperationException($"No test consumer registration exists for '{consumerType.FullName}'.");
     }
 
-    private static ConsumerDeliveryPolicyOptions PolicyFor(Type consumerType)
+    private static void Register<TConsumer>(
+        IBusRegistrationConfigurator registrations,
+        string endpointName)
+        where TConsumer : class, IConsumer
     {
-        var retries = consumerType == typeof(MultipleRetryConsumer)
-            ? new[] { TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(40) }
+        var consumer = registrations.AddConsumer<TConsumer>();
+        consumer.Endpoint(endpoint => endpoint.Name = endpointName);
+    }
+
+    private static DeliveryPolicy PolicyFor(Type consumerType)
+    {
+        var retries = consumerType == typeof(ExhaustedConsumer)
+            ? new[] { TimeSpan.FromMilliseconds(20) }
             : new[] { TimeSpan.FromMilliseconds(20) };
         var redeliveries = consumerType == typeof(ExhaustedConsumer)
             ? new[] { TimeSpan.FromMilliseconds(200), TimeSpan.FromMilliseconds(400) }
             : new[] { TimeSpan.FromMilliseconds(200) };
 
-        return new ConsumerDeliveryPolicyOptions
-        {
-            RetryIntervals = retries,
-            RedeliveryIntervals = redeliveries,
-            PrefetchCount = 1,
-            ConcurrentMessageLimit = 1,
-            IsCritical = true
-        };
+        return new DeliveryPolicy(retries, redeliveries);
     }
 
     private static async Task RecreateDatabaseAsync(IServiceProvider services)
@@ -372,104 +362,10 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
         Environment.GetEnvironmentVariable(name) is { Length: > 0 } value
             ? value
             : throw new InvalidOperationException($"Environment variable '{name}' is required.");
-}
 
-public sealed class MessagingMetricRecorder : IDisposable
-{
-    private readonly ConcurrentDictionary<(string Instrument, string Endpoint), long> _values = [];
-    private readonly MeterListener _listener = new();
-
-    public MessagingMetricRecorder()
-    {
-        _listener.InstrumentPublished = (instrument, listener) =>
-        {
-            if (instrument.Meter.Name == MessagingInstrumentation.MeterName)
-            {
-                listener.EnableMeasurementEvents(instrument);
-            }
-        };
-        _listener.SetMeasurementEventCallback<long>(RecordLong);
-        _listener.SetMeasurementEventCallback<double>(RecordDouble);
-        _listener.Start();
-    }
-
-    public MessagingMetricSnapshot Snapshot(string endpoint) =>
-        new(
-            Value("messaging.consumer.retry.attempts", endpoint),
-            Value("messaging.consumer.redelivery.deliveries", endpoint),
-            Value("messaging.consumer.attempt.failures", endpoint),
-            Value("messaging.consumer.attempt.duration", endpoint));
-
-    public MessagingMetricSnapshot Delta(
-        MessagingMetricSnapshot baseline,
-        string endpoint) =>
-        Snapshot(endpoint) - baseline;
-
-    public void Dispose() => _listener.Dispose();
-
-    private void RecordLong(
-        Instrument instrument,
-        long measurement,
-        ReadOnlySpan<KeyValuePair<string, object?>> tags,
-        object? state)
-    {
-        var endpoint = Endpoint(tags);
-        if (endpoint is not null)
-        {
-            _values.AddOrUpdate(
-                (instrument.Name, endpoint),
-                measurement,
-                (_, current) => current + measurement);
-        }
-    }
-
-    private void RecordDouble(
-        Instrument instrument,
-        double measurement,
-        ReadOnlySpan<KeyValuePair<string, object?>> tags,
-        object? state)
-    {
-        var endpoint = Endpoint(tags);
-        if (endpoint is not null)
-        {
-            _values.AddOrUpdate(
-                (instrument.Name, endpoint),
-                1,
-                static (_, current) => current + 1);
-        }
-    }
-
-    private long Value(string instrument, string endpoint) =>
-        _values.GetValueOrDefault((instrument, endpoint));
-
-    private static string? Endpoint(ReadOnlySpan<KeyValuePair<string, object?>> tags)
-    {
-        foreach (var tag in tags)
-        {
-            if (tag.Key == "messaging.destination.name")
-            {
-                return tag.Value?.ToString();
-            }
-        }
-
-        return null;
-    }
-}
-
-public readonly record struct MessagingMetricSnapshot(
-    long ImmediateRetries,
-    long RedeliveryDeliveries,
-    long AttemptFailures,
-    long AttemptDurations)
-{
-    public static MessagingMetricSnapshot operator -(
-        MessagingMetricSnapshot left,
-        MessagingMetricSnapshot right) =>
-        new(
-            left.ImmediateRetries - right.ImmediateRetries,
-            left.RedeliveryDeliveries - right.RedeliveryDeliveries,
-            left.AttemptFailures - right.AttemptFailures,
-            left.AttemptDurations - right.AttemptDurations);
+    private sealed record DeliveryPolicy(
+        TimeSpan[] RetryIntervals,
+        TimeSpan[] RedeliveryIntervals);
 }
 
 public sealed class RabbitMqManagementClient(HttpClient client) : IDisposable
