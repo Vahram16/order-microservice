@@ -14,19 +14,20 @@ public sealed class MessagingArchitectureTests
     [
         typeof(CustomerDbContext).Assembly,
         typeof(ServiceTemplateDbContext).Assembly,
-        typeof(IIntegrationMessagePublisher).Assembly
+        typeof(IIntegrationEventPublisher).Assembly
     ];
 
     [Fact]
-    public void ProductionApplicationCodeUsesOnlyApprovedPublishingBoundary()
+    public void ProductionApplicationCodeUsesOnlyApprovedMessagingBoundaries()
     {
         var violations = MessagingDependencyRules.FindForbiddenDependencies(
             ApplicationAssemblies.SelectMany(SafeGetTypes));
 
         Assert.True(
             violations.Count == 0,
-            "Production application code must publish through IIntegrationMessagePublisher. " +
-            Environment.NewLine + string.Join(Environment.NewLine, violations));
+            "Production application code must use IIntegrationEventPublisher or the typed " +
+            "IIntegrationCommandSender<TCommand> boundary. " + Environment.NewLine +
+            string.Join(Environment.NewLine, violations));
     }
 
     [Fact]
@@ -97,7 +98,7 @@ public sealed class MessagingArchitectureTests
     [Fact]
     public void ApplicationInterfacesDoNotLeakInfrastructureTypes()
     {
-        var publicInterfaces = typeof(IIntegrationMessagePublisher).Assembly
+        var publicInterfaces = typeof(IIntegrationEventPublisher).Assembly
             .GetExportedTypes()
             .Where(type => type.IsInterface);
         var violations = MessagingDependencyRules.FindDependenciesWithPrefixes(
@@ -136,7 +137,8 @@ public sealed class MessagingArchitectureTests
         var violation = Assert.Single(violations);
         Assert.Contains(typeof(InvalidDirectBusPublisher).FullName!, violation, StringComparison.Ordinal);
         Assert.Contains(typeof(IBus).FullName!, violation, StringComparison.Ordinal);
-        Assert.Contains(nameof(IIntegrationMessagePublisher), violation, StringComparison.Ordinal);
+        Assert.Contains(nameof(IIntegrationEventPublisher), violation, StringComparison.Ordinal);
+        Assert.Contains("IIntegrationCommandSender", violation, StringComparison.Ordinal);
     }
 
     private static IEnumerable<Type> SafeGetTypes(Assembly assembly)
@@ -176,6 +178,7 @@ internal static class MessagingDependencyRules
     [
         "MassTransit.IBus",
         "MassTransit.IBusControl",
+        "MassTransit.IPublishEndpoint",
         "MassTransit.ISendEndpointProvider",
         "MassTransit.RabbitMqTransport.IRabbitMqHostConfigurator",
         "MassTransit.RabbitMqTransport.IRabbitMqReceiveEndpointConfigurator"
@@ -185,7 +188,8 @@ internal static class MessagingDependencyRules
         FindDependencies(
             types,
             IsForbidden,
-            "Use Microservices.Application.Messaging.IIntegrationMessagePublisher instead.");
+            "Use Microservices.Application.Messaging.IIntegrationEventPublisher for events or " +
+            "IIntegrationCommandSender<TCommand> for commands instead.");
 
     public static IReadOnlyList<string> FindDependenciesWithPrefixes(
         IEnumerable<Type> types,
