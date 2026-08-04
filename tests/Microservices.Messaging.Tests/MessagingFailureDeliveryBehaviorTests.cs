@@ -16,6 +16,7 @@ public sealed class MessagingFailureDeliveryBehaviorTests(MessagingReliabilityFi
 
         await fixture.PublishAsync(message);
         await fixture.Probe.WaitForCompletionAsync(message.MessageId);
+        await fixture.WaitForStableEffectCountAsync(message.MessageId, 1);
 
         Assert.Equal(1, fixture.Probe.AttemptCount(message.MessageId));
         Assert.Equal(1, await fixture.GetEffectCountAsync(message.MessageId));
