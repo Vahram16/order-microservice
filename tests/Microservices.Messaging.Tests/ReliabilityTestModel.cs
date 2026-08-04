@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using MassTransit;
-using Microservices.Application.Messaging;
 using Microservices.Contracts;
 using Microservices.Messaging;
 using Microsoft.EntityFrameworkCore;
@@ -36,8 +35,6 @@ public sealed class DeliveryProbe
     private readonly ConcurrentDictionary<Guid, int> _attempts = [];
     private readonly ConcurrentDictionary<Guid, int> _completions = [];
     private readonly ConcurrentDictionary<Guid, TaskCompletionSource> _completionSignals = [];
-    private readonly ConcurrentDictionary<Guid, TaskCompletionSource<ChildDeliveryMetadata>>
-        _childSignals = [];
 
     public int RecordAttempt(Guid messageId) =>
         _attempts.AddOrUpdate(messageId, 1, static (_, count) => count + 1);
@@ -50,13 +47,6 @@ public sealed class DeliveryProbe
             static _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))
             .TrySetResult();
     }
-
-    public void RecordChild(Guid parentId, ChildDeliveryMetadata metadata) =>
-        _childSignals.GetOrAdd(
-            parentId,
-            static _ => new TaskCompletionSource<ChildDeliveryMetadata>(
-                TaskCreationOptions.RunContinuationsAsynchronously))
-            .TrySetResult(metadata);
 
     public int AttemptCount(Guid messageId) =>
         _attempts.GetValueOrDefault(messageId);
@@ -72,20 +62,7 @@ public sealed class DeliveryProbe
 
     public Task WaitForCompletionAsync(Guid messageId) =>
         CompletionTask(messageId).WaitAsync(TimeSpan.FromSeconds(15));
-
-    public Task<ChildDeliveryMetadata> WaitForChildAsync(Guid parentId) =>
-        _childSignals.GetOrAdd(
-                parentId,
-                static _ => new TaskCompletionSource<ChildDeliveryMetadata>(
-                    TaskCreationOptions.RunContinuationsAsynchronously))
-            .Task
-            .WaitAsync(TimeSpan.FromSeconds(15));
 }
-
-public sealed record ChildDeliveryMetadata(
-    Guid? MessageId,
-    Guid? CorrelationId,
-    Guid? CausationId);
 
 public sealed class SuccessConsumer(
     DeliveryProbe probe,
@@ -105,20 +82,6 @@ public sealed class OneRetryConsumer(DeliveryProbe probe) : IConsumer<OneRetryMe
     public Task Consume(ConsumeContext<OneRetryMessage> context)
     {
         if (probe.RecordAttempt(context.Message.MessageId) == 1)
-        {
-            throw new TestTransientException();
-        }
-
-        probe.Complete(context.Message.MessageId);
-        return Task.CompletedTask;
-    }
-}
-
-public sealed class MultipleRetryConsumer(DeliveryProbe probe) : IConsumer<MultipleRetryMessage>
-{
-    public Task Consume(ConsumeContext<MultipleRetryMessage> context)
-    {
-        if (probe.RecordAttempt(context.Message.MessageId) <= 2)
         {
             throw new TestTransientException();
         }
@@ -185,32 +148,6 @@ public sealed class OutboxProducedConsumer(DeliveryProbe probe)
     }
 }
 
-public sealed class ParentConsumer(
-    IIntegrationMessagePublisher publisher) : IConsumer<ParentMessage>
-{
-    public Task Consume(ConsumeContext<ParentMessage> context) =>
-        publisher.PublishAsync(
-            new ChildMessage(context.Message.MessageId),
-            cancellationToken: context.CancellationToken);
-}
-
-public sealed class ChildConsumer(DeliveryProbe probe) : IConsumer<ChildMessage>
-{
-    public Task Consume(ConsumeContext<ChildMessage> context)
-    {
-        var causationId = context.Headers.Get(
-            IntegrationTransportHeaders.CausationId,
-            default(Guid?));
-        probe.RecordChild(
-            context.Message.ParentId,
-            new ChildDeliveryMetadata(
-                context.MessageId,
-                context.CorrelationId,
-                causationId));
-        return Task.CompletedTask;
-    }
-}
-
 public sealed class DrainConsumer(DrainGate gate) : IConsumer<DrainMessage>
 {
     public async Task Consume(ConsumeContext<DrainMessage> context)
@@ -241,8 +178,6 @@ public sealed record SuccessMessage(Guid MessageId) : IIntegrationMessage;
 
 public sealed record OneRetryMessage(Guid MessageId) : IIntegrationMessage;
 
-public sealed record MultipleRetryMessage(Guid MessageId) : IIntegrationMessage;
-
 public sealed record RedeliverySuccessMessage(Guid MessageId) : IIntegrationMessage;
 
 public sealed record ExhaustedMessage(Guid MessageId) : IIntegrationMessage;
@@ -252,10 +187,6 @@ public sealed record PermanentMessage(Guid MessageId) : IIntegrationMessage;
 public sealed record DuplicateMessage(Guid MessageId) : IIntegrationMessage;
 
 public sealed record OutboxProducedMessage(Guid MessageId) : IIntegrationMessage;
-
-public sealed record ParentMessage(Guid MessageId) : IIntegrationMessage;
-
-public sealed record ChildMessage(Guid ParentId) : IIntegrationMessage;
 
 public sealed record UnsupportedTestMessage(Guid MessageId);
 
@@ -267,8 +198,6 @@ internal static class ReliabilityMessageFactory
 
     public static OneRetryMessage OneRetry() => new(NewId.NextGuid());
 
-    public static MultipleRetryMessage MultipleRetries() => new(NewId.NextGuid());
-
     public static RedeliverySuccessMessage RedeliverySuccess() => new(NewId.NextGuid());
 
     public static ExhaustedMessage Exhausted() => new(NewId.NextGuid());
@@ -278,6 +207,4 @@ internal static class ReliabilityMessageFactory
     public static DuplicateMessage Duplicate() => new(NewId.NextGuid());
 
     public static OutboxProducedMessage OutboxProduced() => new(NewId.NextGuid());
-
-    public static ParentMessage Parent() => new(NewId.NextGuid());
 }
