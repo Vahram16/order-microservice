@@ -1,28 +1,27 @@
-# ADR 0002: Approved publishing abstraction
+# ADR 0002: Approved publishing boundary
 
 - Status: Accepted
 - Date: 2026-08-02
 
 ## Context
 
-Injecting `IBus`, `IBusControl`, raw RabbitMQ clients, or transport-specific endpoint providers lets
-application code bypass the transactional outbox and transport metadata policy.
+Application code that injects `IBus` or raw RabbitMQ clients can bypass the scoped transactional
+outbox and couple business behavior to the transport.
 
 ## Decision
 
-Production application code publishes only through
+Production application code publishes integration contracts through
 `Microservices.Application.Messaging.IIntegrationMessagePublisher`.
 
-The scoped infrastructure implementation uses `IPublishEndpoint`, propagates cancellation,
-MessageId, CorrelationId, parent causation, and bounded application headers, and rejects application
-overrides of transport-owned headers.
+The implementation is intentionally thin and delegates to scoped MassTransit `IPublishEndpoint`.
+MassTransit owns normal consume-context propagation, correlation conventions, conversation identity,
+and outbox participation. Explicit message, correlation, causation, or application headers are used
+only when the caller has a concrete requirement.
 
-Direct bus access is limited to infrastructure composition and explicitly named test infrastructure.
-Architecture tests scan production assemblies and report the violating type, forbidden dependency,
-and approved alternative.
+Direct bus access remains available inside infrastructure composition and test infrastructure.
 
 ## Consequences
 
-The abstraction is not a cosmetic rename: it owns metadata, header validation, outbox participation,
-and architectural enforcement. New publishing capabilities must be added here only when they retain
-those invariants.
+Application code has a stable transport-independent boundary without recreating a messaging
+framework. New capabilities are added only when a real service requirement cannot be expressed with
+MassTransit configuration or `ConsumerDefinition<TConsumer>`.
