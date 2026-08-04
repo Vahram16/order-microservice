@@ -163,29 +163,29 @@ replace those checks.
 
 ## Messaging reliability
 
-Every service using `AddRabbitMqWithPostgresOutbox<TDbContext>` receives the shared production
-failure-delivery policy:
+Every service using `AddRabbitMqWithPostgresOutbox<TDbContext>` receives a pragmatic production
+baseline:
 
-- bounded, default-deny immediate retry and broker-backed delayed redelivery;
-- deterministic MassTransit `_error` and `_skipped` placement;
 - PostgreSQL bus outbox and consumer inbox/outbox;
-- an application-owned, scoped `IIntegrationMessagePublisher` that preserves transport identity,
-  correlation, causation, cancellation, and supported headers;
-- architecture tests that prohibit unauthorized direct bus and RabbitMQ dependencies;
-- explicit stable endpoint names and startup-validated consumer policies;
-- framework-free payload contracts with explicit serializer and schema-evolution rules;
+- bounded, default-deny immediate retry and broker-backed delayed redelivery;
+- a thin application-owned `IIntegrationMessagePublisher` backed by scoped `IPublishEndpoint`;
+- framework-free integration contracts with explicit serializer compatibility rules;
 - durable quorum business queues with count and byte limits, `reject-publish` overflow, and no
   receive-queue TTL;
-- attempt-level retry/redelivery telemetry separated from terminal error and skipped queue state;
-- outbox backlog, age, collector health, and recovery monitoring;
-- bounded startup and shutdown with readiness distinct from process liveness;
-- deterministic RabbitMQ/PostgreSQL reliability tests and operational recovery runbooks.
+- independently retained MassTransit `_error` and `_skipped` queues;
+- lightweight consumer and outbox metrics;
+- bounded startup and graceful shutdown;
+- architecture tests that prohibit application and domain transport leakage;
+- real RabbitMQ/PostgreSQL tests for externally meaningful reliability behavior.
 
-The enforced contract, metric meanings, topology migration rules, and test evidence are in
-`docs/messaging-failure-delivery-policy.md`. Architectural decisions are in `docs/adr/`. Incident,
-replay, outage, endpoint-rename, contract-version, capacity, migration, and shutdown procedures are
-in `docs/runbooks/messaging-operations.md`. Deployment instructions for the dashboard, Prometheus
-rules, and restricted RabbitMQ scrape are in `infrastructure/observability/README.md`.
+MassTransit owns normal consume-context propagation and standard transport behavior. Services use
+explicit stable endpoint names and `ConsumerDefinition<TConsumer>` when a consumer needs behavior
+that differs materially from the shared defaults. Dependency-specific retry safety is expressed by
+service-owned `IConsumerExceptionRule` implementations rather than a global exception catalogue.
+
+See `docs/messaging-failure-delivery-policy.md` for the enforced baseline and `docs/adr/` for the
+architectural decisions. Deployment-specific dashboards, alerts, indexes, and operational procedures
+should be introduced when a real service workload and SLO justify them.
 
 ## Run locally with Aspire
 
@@ -253,14 +253,12 @@ The CI pipeline:
 
 - restores, builds, and tests every .NET project with analyzers enforced;
 - builds and starts the pinned RabbitMQ image with delayed redelivery and Prometheus support;
-- uses real RabbitMQ and PostgreSQL for retry, redelivery, final queue placement, duplicate delivery,
-  outbox commit/rollback and recovery, broker/database failure, queue topology, shutdown, and
-  outbox-query-plan tests;
-- verifies exact messaging counter increments rather than only checking metric existence;
+- uses real RabbitMQ and PostgreSQL to verify retry, delayed redelivery, `_error` and `_skipped`
+  routing, duplicate suppression, outbox commit/rollback and recovery, broker/database recovery,
+  queue topology, and graceful shutdown;
 - scans production assemblies for prohibited bus, broker, persistence, contract, and test-helper
   dependencies;
-- validates consumer policies, deterministic endpoint names, contract serialization compatibility,
-  and correlation/causation propagation;
+- validates integration-contract serialization compatibility and stable endpoint configuration;
 - validates the Grafana dashboard JSON and Prometheus scrape/rule files with `promtool`;
 - retains build, test, PostgreSQL, RabbitMQ, plugin, and topology diagnostics when reliability tests
   fail;
@@ -289,9 +287,8 @@ dotnet ef migrations add <Name> \
 ```
 
 Deploy `ServiceTemplate.Migrator` as a run-once task before API replicas. API processes must not
-apply schema migrations during startup. The messaging outbox monitoring migration creates partial
-indexes concurrently and therefore intentionally suppresses the EF migration transaction; follow
-the checked-in runbook if PostgreSQL leaves an invalid concurrent index after an interrupted build.
+apply schema migrations during startup. Add workload-specific outbox monitoring indexes only after
+representative query plans and production requirements justify them.
 
 ## Production Keycloak boundary
 
