@@ -92,9 +92,7 @@ public sealed class ConsumerExceptionClassifierTests
         var services = new ServiceCollection();
         if (rule is not null)
         {
-            services.AddSingleton(rule);
-            services.AddSingleton<IConsumerExceptionRule>(provider => provider.GetRequiredService(rule.GetType()) as IConsumerExceptionRule
-                ?? throw new InvalidOperationException("The test rule does not implement IConsumerExceptionRule."));
+            services.AddSingleton<IConsumerExceptionRule>(rule);
         }
 
         services.AddSingleton<IConsumerExceptionClassifier, ConsumerExceptionClassifier>();
