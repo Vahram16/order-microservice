@@ -13,10 +13,11 @@ changes, produced messages, and acknowledgement also form a failure window.
 Services use MassTransit 8.5.10 Entity Framework bus outbox and consumer inbox/outbox with the same
 configured scoped `TDbContext`.
 
-Application publication is atomic with database state only when it occurs in the same service scope,
-uses `IIntegrationMessagePublisher`, and commits the configured DbContext transaction. Consumer
-produced messages remain buffered until consumer database work succeeds. Inbox state suppresses
-transport duplicates within the configured duplicate-detection window.
+Event publication and command sending are atomic with database state only when they occur in the same
+service scope, use `IIntegrationEventPublisher` or `IIntegrationCommandSender<TCommand>`, and commit
+the configured DbContext transaction. Consumer-produced messages remain buffered until consumer
+database work succeeds. Inbox state suppresses transport duplicates within the configured
+duplicate-detection window.
 
 External side effects and another DbContext/database are outside this atomic boundary and require
 idempotency plus reconciliation.
@@ -25,4 +26,5 @@ idempotency plus reconciliation.
 
 Outbox schema migrations run before API rollout. Pending rows survive broker or process interruption
 and are delivered after recovery. Cleanup state is not reported as pending work. Tests prove commit,
-rollback, duplicate suppression, interruption recovery, and consumer drain behavior.
+rollback, duplicate suppression, interruption recovery, event fan-out, command point-to-point
+routing, and consumer drain behavior.
