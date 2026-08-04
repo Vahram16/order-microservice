@@ -16,8 +16,8 @@ namespace Microservices.Messaging;
 public static class RabbitMqMessagingExtensions
 {
     /// <summary>
-    /// Registers MassTransit using RabbitMQ with PostgreSQL-backed Entity Framework Core
-    /// bus and consumer outboxes, bounded transient retry, and bounded delayed redelivery.
+    /// Registers MassTransit using RabbitMQ with PostgreSQL-backed Entity Framework Core bus and
+    /// consumer outboxes, bounded retry, and broker-backed delayed redelivery.
     /// </summary>
     public static IServiceCollection AddRabbitMqWithPostgresOutbox<TDbContext>(
         this IServiceCollection services,
@@ -36,18 +36,13 @@ public static class RabbitMqMessagingExtensions
         var rabbitHostAddress = RabbitMqMessagingOptionsValidator.ValidateAndGetHostAddress(
             options,
             rabbitConnectionString);
-        var policyRegistry = new ConsumerPolicyRegistry(options);
 
         services.AddSingleton(options);
         services.AddSingleton<IConsumerExceptionClassifier, ConsumerExceptionClassifier>();
-        services.AddSingleton<IntegrationConsumeContextAccessor>();
         services.AddScoped<IIntegrationMessagePublisher, MassTransitIntegrationMessagePublisher>();
         services.AddSingleton<OutboxMetricsCollector<TDbContext>>();
         services.AddHostedService(provider =>
             provider.GetRequiredService<OutboxMetricsCollector<TDbContext>>());
-        services.AddHealthChecks().AddCheck<OutboxCollectorHealthCheck<TDbContext>>(
-            "messaging-outbox-collector",
-            tags: ["ready"]);
         services.Configure<MassTransitHostOptions>(host =>
         {
             host.WaitUntilStarted = true;
@@ -68,7 +63,6 @@ public static class RabbitMqMessagingExtensions
         {
             registration.SetEndpointNameFormatter(
                 new KebabCaseEndpointNameFormatter(endpointNamePrefix, false));
-            ConsumerPolicyRegistryStore.Attach(registration, policyRegistry);
             configureRegistrations?.Invoke(registration);
 
             registration.AddEntityFrameworkOutbox<TDbContext>(outbox =>
@@ -83,8 +77,7 @@ public static class RabbitMqMessagingExtensions
             {
                 configureAutomaticEndpoint?.Invoke(context, name, endpoint);
 
-                var configuredPolicy = policyRegistry.Resolve(name);
-                var policy = ResolvePolicy(options, configuredPolicy);
+                var policy = ResolvePolicy(options, name);
                 var classifier = context.GetRequiredService<IConsumerExceptionClassifier>();
 
                 endpoint.PrefetchCount = policy.PrefetchCount;
@@ -102,8 +95,8 @@ public static class RabbitMqMessagingExtensions
                         policy.RateLimitInterval!.Value);
                 }
 
-                // Registration order is outer-to-inner. Delayed redelivery wraps immediate retry;
-                // the attempt filter is inside retry and therefore observes every consumer invocation.
+                // Delayed redelivery wraps immediate retry. Services with materially different
+                // requirements should configure their consumer through ConsumerDefinition<TConsumer>.
                 endpoint.UseDelayedRedelivery(redelivery =>
                 {
                     redelivery.Intervals(policy.RedeliveryIntervals);
@@ -117,7 +110,6 @@ public static class RabbitMqMessagingExtensions
                 });
 
                 endpoint.UseConsumeFilter(typeof(ConsumerDeliveryMetricsFilter<>), context);
-                endpoint.UseConsumeFilter(typeof(IntegrationConsumeContextFilter<>), context);
                 endpoint.UseEntityFrameworkOutbox<TDbContext>(context);
             });
 
@@ -160,18 +152,12 @@ public static class RabbitMqMessagingExtensions
                 rabbit.SendTopology.ConfigureDeadLetterSettings = settings =>
                     ConfigureFaultQueue(settings, options);
 
+                // The deployment image and smoke tests own plugin verification. Applications use
+                // the configured broker capability without opening a second raw RabbitMQ connection.
                 rabbit.UseDelayedMessageScheduler();
                 rabbit.ConfigureEndpoints(context);
-                policyRegistry.ValidateAllPoliciesMatched();
             });
         });
-
-        // Registered after MassTransit so host startup first establishes the governed bus and then
-        // verifies the broker extension required by every delayed-redelivery endpoint.
-        services.AddHostedService(_ => new RabbitMqDelayedExchangeCapabilityProbe(
-            options,
-            rabbitHostAddress,
-            endpointNamePrefix));
 
         return services;
     }
@@ -191,8 +177,8 @@ public static class RabbitMqMessagingExtensions
             endpoint.SetQueueArgument("x-delivery-limit", options.QueueDeliveryLimit);
         }
 
-        // Durable business receive queues deliberately have no x-message-ttl. Expiration belongs
-        // on explicitly published messages or on a separately governed parking topology.
+        // Durable business queues intentionally have no receive-queue TTL. Capacity limits reject
+        // new publishes instead of silently expiring existing business messages.
         endpoint.SetQueueArgument("x-max-length", options.QueueMaxLength);
         endpoint.SetQueueArgument("x-max-length-bytes", options.QueueMaxLengthBytes);
         endpoint.SetQueueArgument("x-overflow", "reject-publish");
@@ -217,15 +203,19 @@ public static class RabbitMqMessagingExtensions
 
     private static ResolvedConsumerDeliveryPolicy ResolvePolicy(
         RabbitMqMessagingOptions options,
-        ConsumerDeliveryPolicyOptions consumer) =>
-        new(
-            consumer.RetryIntervals ?? options.RetryIntervals,
-            consumer.RedeliveryIntervals ?? options.RedeliveryIntervals,
-            consumer.PrefetchCount ?? options.PrefetchCount,
-            consumer.ConcurrentMessageLimit ?? options.ConcurrentMessageLimit,
-            consumer.RateLimit,
-            consumer.RateLimitInterval,
-            consumer.SingleActiveConsumer);
+        string endpointName)
+    {
+        options.Consumers.TryGetValue(endpointName, out var consumer);
+
+        return new ResolvedConsumerDeliveryPolicy(
+            consumer?.RetryIntervals ?? options.RetryIntervals,
+            consumer?.RedeliveryIntervals ?? options.RedeliveryIntervals,
+            consumer?.PrefetchCount ?? options.PrefetchCount,
+            consumer?.ConcurrentMessageLimit ?? options.ConcurrentMessageLimit,
+            consumer?.RateLimit,
+            consumer?.RateLimitInterval,
+            consumer?.SingleActiveConsumer ?? false);
+    }
 
     private sealed record ResolvedConsumerDeliveryPolicy(
         TimeSpan[] RetryIntervals,
