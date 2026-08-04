@@ -252,7 +252,7 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
     }
 
     private static void AddConsumerPolicies(
-        IDictionary<string, string?> values,
+        Dictionary<string, string?> values,
         IReadOnlyDictionary<Type, string> endpoints)
     {
         foreach (var endpoint in endpoints)
@@ -322,9 +322,7 @@ public sealed class MessagingReliabilityFixture : IAsyncLifetime
 
     private static DeliveryPolicy PolicyFor(Type consumerType)
     {
-        var retries = consumerType == typeof(ExhaustedConsumer)
-            ? new[] { TimeSpan.FromMilliseconds(20) }
-            : new[] { TimeSpan.FromMilliseconds(20) };
+        var retries = new[] { TimeSpan.FromMilliseconds(20) };
         var redeliveries = consumerType == typeof(ExhaustedConsumer)
             ? new[] { TimeSpan.FromMilliseconds(200), TimeSpan.FromMilliseconds(400) }
             : new[] { TimeSpan.FromMilliseconds(200) };
