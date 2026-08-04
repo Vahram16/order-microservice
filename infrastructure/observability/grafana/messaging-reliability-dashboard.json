@@ -1,33 +1,17 @@
 {
   "annotations": {
-    "list": [
-      {
-        "builtIn": 1,
-        "datasource": {
-          "type": "grafana",
-          "uid": "-- Grafana --"
-        },
-        "enable": true,
-        "hide": true,
-        "iconColor": "rgba(0, 211, 255, 1)",
-        "name": "Annotations & Alerts",
-        "type": "dashboard"
-      }
-    ]
+    "list": []
   },
   "editable": true,
-  "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "id": null,
   "links": [],
-  "liveNow": false,
   "panels": [
     {
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Immediate retry invocations. Retries inside a delayed-redelivery delivery are included; the redelivery itself is not.",
       "fieldConfig": {
         "defaults": {
           "unit": "ops"
@@ -36,76 +20,31 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
+        "w": 12,
         "x": 0,
         "y": 0
       },
       "id": 1,
       "options": {
         "legend": {
-          "calcs": ["lastNotNull", "max"],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
         }
       },
       "targets": [
         {
-          "editorMode": "code",
           "expr": "sum by (service_name, messaging_destination_name) (rate(messaging_consumer_retry_attempts_total[$__rate_interval]))",
           "legendFormat": "{{service_name}} / {{messaging_destination_name}}",
-          "range": true,
           "refId": "A"
-        }
-      ],
-      "title": "Immediate retry invocation rate",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "Broker-backed redelivery deliveries. A delayed delivery is counted once before any immediate retries inside that delivery.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
         },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 0
-      },
-      "id": 2,
-      "options": {
-        "legend": {
-          "calcs": ["lastNotNull", "sum"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
         {
-          "editorMode": "code",
-          "expr": "sum by (service_name, messaging_destination_name) (increase(messaging_consumer_redelivery_deliveries_total[$__range]))",
-          "legendFormat": "{{service_name}} / {{messaging_destination_name}}",
-          "range": true,
-          "refId": "A"
+          "expr": "sum by (service_name, messaging_destination_name) (rate(messaging_consumer_redelivery_attempts_total[$__rate_interval]))",
+          "legendFormat": "redelivery {{service_name}} / {{messaging_destination_name}}",
+          "refId": "B"
         }
       ],
-      "title": "Delayed-redelivery deliveries",
+      "title": "Consumer retry and redelivery rate",
       "type": "timeseries"
     },
     {
@@ -113,7 +52,6 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Individual consumer invocations that threw. These attempts may later recover and must not be interpreted as final failed messages.",
       "fieldConfig": {
         "defaults": {
           "unit": "ops"
@@ -122,33 +60,26 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 16,
+        "w": 12,
+        "x": 12,
         "y": 0
       },
-      "id": 3,
+      "id": 2,
       "options": {
         "legend": {
-          "calcs": ["lastNotNull", "max"],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
         }
       },
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "sum by (service_name, messaging_destination_name, messaging_failure_disposition) (rate(messaging_consumer_attempt_failures_total[$__rate_interval]))",
-          "legendFormat": "{{service_name}} / {{messaging_destination_name}} / {{messaging_failure_disposition}}",
-          "range": true,
+          "expr": "sum by (service_name, messaging_destination_name) (rate(messaging_consumer_failures_total[$__rate_interval]))",
+          "legendFormat": "{{service_name}} / {{messaging_destination_name}}",
           "refId": "A"
         }
       ],
-      "title": "Failed consumer invocation rate",
+      "title": "Consumer failure rate",
       "type": "timeseries"
     },
     {
@@ -156,10 +87,8 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Authoritative final placement. Error and skipped queues are intentionally separate from failed attempts and retries.",
       "fieldConfig": {
         "defaults": {
-          "decimals": 0,
           "min": 0,
           "unit": "short"
         },
@@ -169,38 +98,65 @@
         "h": 8,
         "w": 12,
         "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (vhost, queue) (rabbitmq_detailed_queue_messages{queue=~\".*_error$\"})",
+          "legendFormat": "error {{vhost}}/{{queue}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (vhost, queue) (rabbitmq_detailed_queue_messages{queue=~\".*_skipped$\"})",
+          "legendFormat": "skipped {{vhost}}/{{queue}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Error and skipped queue depth",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
         "y": 8
       },
       "id": 4,
       "options": {
         "legend": {
-          "calcs": ["lastNotNull", "max"],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
         }
       },
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "sum by (vhost, queue) (rabbitmq_detailed_queue_messages{queue=~\".*_error$\"})",
-          "legendFormat": "ERROR {{vhost}}/{{queue}}",
-          "range": true,
+          "expr": "max by (service_name, db_context) (messaging_outbox_backlog)",
+          "legendFormat": "{{service_name}} / {{db_context}}",
           "refId": "A"
-        },
-        {
-          "editorMode": "code",
-          "expr": "sum by (vhost, queue) (rabbitmq_detailed_queue_messages{queue=~\".*_skipped$\"})",
-          "legendFormat": "SKIPPED {{vhost}}/{{queue}}",
-          "range": true,
-          "refId": "B"
         }
       ],
-      "title": "Final error and skipped queue depth",
+      "title": "Outbox backlog",
       "type": "timeseries"
     },
     {
@@ -208,9 +164,9 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Duration of one consumer invocation. It does not include later retry delays or delayed-redelivery waiting time.",
       "fieldConfig": {
         "defaults": {
+          "min": 0,
           "unit": "s"
         },
         "overrides": []
@@ -218,32 +174,25 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 8
+        "x": 0,
+        "y": 16
       },
       "id": 5,
       "options": {
         "legend": {
-          "calcs": ["lastNotNull", "max"],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
         }
       },
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le, service_name, messaging_destination_name) (rate(messaging_consumer_attempt_duration_seconds_bucket[$__rate_interval])))",
-          "legendFormat": "p95 {{service_name}} / {{messaging_destination_name}}",
-          "range": true,
+          "expr": "max by (service_name, db_context) (messaging_outbox_oldest_age_seconds)",
+          "legendFormat": "{{service_name}} / {{db_context}}",
           "refId": "A"
         }
       ],
-      "title": "Consumer invocation p95 duration",
+      "title": "Oldest outbox message age",
       "type": "timeseries"
     },
     {
@@ -251,228 +200,35 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Pending OutboxMessage rows split into bus-outbox and consumer-outbox roles. Delivered OutboxState retention records are excluded.",
       "fieldConfig": {
         "defaults": {
-          "decimals": 0,
-          "min": 0,
           "unit": "short"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 0,
+        "w": 12,
+        "x": 12,
         "y": 16
       },
       "id": 6,
       "options": {
         "legend": {
-          "calcs": ["lastNotNull", "max"],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
         }
       },
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "max by (service_name, db_context, outbox_role) (messaging_outbox_backlog)",
-          "legendFormat": "{{service_name}} / {{db_context}} / {{outbox_role}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Pending outbox backlog by role",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "Age of the oldest pending OutboxMessage row for each bounded role.",
-      "fieldConfig": {
-        "defaults": {
-          "min": 0,
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 16
-      },
-      "id": 7,
-      "options": {
-        "legend": {
-          "calcs": ["lastNotNull", "max"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "max by (service_name, db_context, outbox_role) (messaging_outbox_oldest_age_seconds)",
-          "legendFormat": "{{service_name}} / {{db_context}} / {{outbox_role}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Oldest pending outbox age",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "Collector health is independent from backlog. A failed query keeps the last-known backlog values rather than replacing them with zero.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 16
-      },
-      "id": 8,
-      "options": {
-        "legend": {
-          "calcs": ["lastNotNull", "max"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "min by (service_name, db_context) (messaging_outbox_collector_healthy)",
-          "legendFormat": "health {{service_name}} / {{db_context}}",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "editorMode": "code",
-          "expr": "max by (service_name, db_context) (messaging_outbox_collector_last_success_age_seconds)",
-          "legendFormat": "last success age {{service_name}} / {{db_context}}",
-          "range": true,
-          "refId": "B"
-        }
-      ],
-      "title": "Outbox collector health and staleness",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "Business queues never discard messages through queue TTL. Backlog age drives intervention before capacity rejection.",
-      "fieldConfig": {
-        "defaults": {
-          "min": 0,
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 24
-      },
-      "id": 9,
-      "options": {
-        "legend": {
-          "calcs": ["lastNotNull", "max"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "(time() - rabbitmq_detailed_queue_head_message_timestamp{queue!~\".*_(error|skipped)$\"}) and on (vhost, queue) rabbitmq_detailed_queue_messages{queue!~\".*_(error|skipped)$\"} > 0",
-          "legendFormat": "{{vhost}}/{{queue}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Business queue oldest-message age",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "Connection churn is an operational signal for broker, network, TLS, or client recovery instability.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 24
-      },
-      "id": 10,
-      "options": {
-        "legend": {
-          "calcs": ["lastNotNull", "sum"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "editorMode": "code",
           "expr": "increase(rabbitmq_connections_opened_total[$__range])",
           "legendFormat": "opened {{instance}}",
-          "range": true,
           "refId": "A"
         },
         {
-          "editorMode": "code",
           "expr": "increase(rabbitmq_connections_closed_total[$__range])",
           "legendFormat": "closed {{instance}}",
-          "range": true,
           "refId": "B"
         }
       ],
@@ -482,21 +238,21 @@
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["messaging", "masstransit", "rabbitmq", "outbox"],
+  "tags": [
+    "messaging",
+    "rabbitmq",
+    "masstransit"
+  ],
   "templating": {
     "list": [
       {
         "current": {},
-        "hide": 0,
         "includeAll": false,
         "label": "Prometheus",
-        "multi": false,
         "name": "DS_PROMETHEUS",
         "options": [],
         "query": "prometheus",
         "refresh": 1,
-        "regex": "",
-        "skipUrlSync": false,
         "type": "datasource"
       }
     ]
@@ -505,10 +261,9 @@
     "from": "now-6h",
     "to": "now"
   },
-  "timepicker": {},
   "timezone": "browser",
   "title": "Messaging Reliability",
   "uid": "messaging-reliability",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }
