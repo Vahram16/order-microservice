@@ -15,6 +15,7 @@ public interface IOutcomeUnknownConsumerFailure;
 /// <summary>
 /// Extension point for service-owned dependency rules. Shared messaging infrastructure deliberately
 /// does not guess retry safety from broad HTTP, socket, timeout, or database exception categories.
+/// Rules are registered as singleton dependencies because the classifier is singleton.
 /// </summary>
 public interface IConsumerExceptionRule
 {
@@ -80,7 +81,8 @@ internal sealed class ConsumerExceptionClassifier(
             return ConsumerExceptionDisposition.Cancelled;
         }
 
-        if (exception is IPermanentConsumerFailure or IOutcomeUnknownConsumerFailure)
+        // Explicit permanent evidence cannot be overridden by a dependency rule.
+        if (exception is IPermanentConsumerFailure)
         {
             return ConsumerExceptionDisposition.Permanent;
         }
@@ -92,6 +94,11 @@ internal sealed class ConsumerExceptionClassifier(
             {
                 return disposition;
             }
+        }
+
+        if (exception is IOutcomeUnknownConsumerFailure)
+        {
+            return ConsumerExceptionDisposition.Permanent;
         }
 
         return exception is ITransientConsumerFailure
