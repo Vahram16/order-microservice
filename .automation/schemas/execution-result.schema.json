@@ -10,6 +10,7 @@
     "status",
     "summary",
     "contextCompliance",
+    "placementCompliance",
     "changedFiles",
     "acceptanceEvidence",
     "checks",
@@ -18,7 +19,7 @@
     "pullRequestReady"
   ],
   "properties": {
-    "schemaVersion": { "type": "string", "enum": ["1.1"] },
+    "schemaVersion": { "type": "string", "enum": ["1.2"] },
     "issueKey": { "type": "string", "minLength": 1 },
     "planId": { "type": "string", "minLength": 1 },
     "status": {
@@ -60,15 +61,67 @@
         "compliant": { "type": "boolean" }
       }
     },
+    "placementCompliance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approvedOwners",
+        "actualOwners",
+        "dependencyChangesObserved",
+        "unapprovedPlacements",
+        "compliant"
+      ],
+      "properties": {
+        "approvedOwners": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "actualOwners": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "dependencyChangesObserved": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["fromProject", "toProject", "action", "approved"],
+            "properties": {
+              "fromProject": { "type": "string", "minLength": 1 },
+              "toProject": { "type": "string", "minLength": 1 },
+              "action": { "type": "string", "enum": ["add", "remove"] },
+              "approved": { "type": "boolean" }
+            }
+          }
+        },
+        "unapprovedPlacements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "actualOwner", "reason"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "actualOwner": { "type": "string", "minLength": 1 },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "compliant": { "type": "boolean" }
+      }
+    },
     "changedFiles": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path", "change", "reason"],
+        "required": ["path", "change", "owner", "reason"],
         "properties": {
           "path": { "type": "string", "minLength": 1 },
           "change": { "type": "string", "enum": ["created", "modified", "deleted"] },
+          "owner": { "type": "string", "minLength": 1 },
           "reason": { "type": "string", "minLength": 1 }
         }
       }
