@@ -1,61 +1,64 @@
 ---
 name: approved-plan-implementation
-description: Implement one explicitly approved Jira implementation plan in this repository with bounded workspace writes, repository-specific architecture rules, deterministic verification, and structured execution reporting. Use only after human approval; never use for unapproved or materially changed plans.
+description: Implement one explicitly approved Jira plan with bounded workspace writes. Loads only the focused skills, architecture references, and canonical examples recorded in the approved plan's `contextSelection`; stops for replanning when material new scope or architecture context is required.
 ---
 
 # Approved Plan Implementation
 
-This skill is the workspace-write phase. It must never be used to bypass the human plan gate.
-
-Always apply `$order-microservice-architecture` and `AGENTS.md`.
+This is the workspace-write phase. Never use it to bypass the human plan gate.
 
 ## Required inputs
 
 - Jira issue key;
-- the exact approved plan artifact;
+- exact approved plan artifact (schema `1.1`);
 - orchestrator-generated plan identifier/fingerprint;
-- base revision and working branch/worktree;
+- base revision and isolated working branch/worktree;
 - explicit approval state.
 
-If the approval artifact, plan identifier, issue key, or base revision does not match the execution request, stop as `blocked`.
+If issue key, plan fingerprint, base revision, approval state, or plan schema does not match the execution request, stop as `blocked`.
+
+## Context loading
+
+Do not automatically load the entire architecture corpus.
+
+1. Read `AGENTS.md`.
+2. Read the approved plan's `contextSelection`.
+3. Load exactly the selected focused skills and architecture reference paths.
+4. Inspect the selected canonical examples before broad repository search.
+5. Load additional source files only as required to implement the approved file/behavior scope.
+
+If implementation requires a materially new architecture boundary not represented in the approved `contextSelection` (for example a migration, integration contract, or security change), return `replan_required`. Do not silently expand the context and approval scope.
 
 ## Execution rules
 
-1. Reconfirm the approved scope before editing.
-2. Inspect the exact neighboring implementation/tests named by the plan.
-3. Make the smallest coherent diff that satisfies the approved acceptance criteria.
-4. Preserve the existing pure vertical-slice structure and domain/infrastructure boundaries.
-5. Do not introduce a new cross-slice/shared abstraction unless the approved plan explicitly justifies it with demonstrated reuse.
-6. Do not expand scope into opportunistic refactoring, package upgrades, formatting sweeps, architecture rewrites, or unrelated cleanup.
-7. When implementation reveals a material unknown, security concern, breaking contract, new migration risk, or architecture change absent from the approved plan, stop and return `replan_required`.
+1. Reconfirm approved acceptance criteria, file changes, context selection, and out-of-scope items before editing.
+2. Make the smallest coherent diff that satisfies the approved plan.
+3. Follow the selected skill contracts and canonical repository patterns.
+4. Do not introduce cross-slice/shared abstractions unless explicitly approved and justified by demonstrated reuse.
+5. Do not expand scope into opportunistic refactoring, package upgrades, formatting sweeps, architecture rewrites, or unrelated cleanup.
+6. Preserve source/test/CI/ADR constraints even when an alternative generic .NET pattern is familiar.
+7. On a material unknown, incompatible requirement, architecture-test conflict, new security/contract/migration risk, or unapproved cross-boundary dependency, stop and replan.
 
-## Repository-specific implementation requirements
+## Boundary rules
 
-- Use shared `ICommand`/`IQuery` contracts and matching handlers for business slices.
-- Keep one top-level responsibility per source file and avoid sibling-slice dependencies.
-- Keep domain code framework-free and let the domain enforce business invariants.
-- Preserve layered error semantics; do not leak exception/database/internal details into client-visible errors.
-- Preserve ETag/concurrency/idempotency semantics when touching mutable Customer-style behavior.
-- Use explicit service-owned transaction boundaries when multiple persistence effects must be atomic.
-- Keep MassTransit/RabbitMQ behind the approved integration messaging abstractions.
-- Keep migrations out of API startup and use the owning Migrator deployment boundary.
-- Preserve Keycloak/resource API responsibility and least privilege.
+When selected by the plan:
+
+- `$implement-vertical-slice` governs endpoint/request/command-query/validator/handler placement;
+- `$change-domain-model` governs invariants, value objects, lifecycle, domain errors, and failure atomicity;
+- `$change-persistence` governs EF Core, named constraints, transactions, schema, migrations, and Migrator ordering;
+- `$change-messaging` governs event/command intent, approved abstractions, outbox/inbox, topology, contracts, and retry policy;
+- `$change-security` governs Keycloak/resource-API responsibilities, validated identity, scopes/roles, and least privilege;
+- `$verify-dotnet-change` governs deterministic verification and evidence reporting.
+
+Do not apply rules from an unrelated boundary simply because they exist elsewhere in the repository.
 
 ## Verification
 
-Run deterministic commands in the workspace. Start narrow for feedback speed, then execute all affected test projects/checks required by the approved plan and `AGENTS.md`.
+Use the approved plan's verification section and `$verify-dotnet-change`.
 
-At minimum for changed .NET projects:
+Run deterministic commands in the workspace, narrow-to-broad. The external orchestrator/CI should independently capture process exit codes. A check is successful only if it actually executed and returned success.
 
-```bash
-dotnet restore <project>
-dotnet build <project> --configuration Release --no-restore
-dotnet test <test-project> --configuration Release --no-restore
-```
-
-For messaging, Keycloak, shared-platform, persistence, or architecture changes, run the dedicated repository checks identified by `$order-microservice-architecture` and leave full CI as the final authority.
-
-Do not claim a command passed unless the command actually executed successfully. The external orchestrator/CI should independently capture process exit codes; the agent's report is supplementary evidence, not the source of truth.
+GitHub CI remains final pull-request authority, especially for real PostgreSQL/RabbitMQ, Keycloak, architecture, and cross-project checks unavailable locally.
 
 ## Completion review
 
@@ -63,15 +66,16 @@ Before reporting success:
 
 1. inspect the full diff against the approved plan;
 2. verify every acceptance criterion has implementation and test evidence;
-3. check for accidental generated files, secrets, broad formatting, package churn, or unrelated edits;
-4. identify residual risks and any verification that could not run locally;
-5. do not merge, deploy, or transition Jira to Done.
+3. confirm no unapproved architecture context/boundary was introduced;
+4. check for accidental generated files, secrets, broad formatting, package churn, or unrelated edits;
+5. list residual risks and any `not_run`/`blocked` verification honestly;
+6. do not merge, deploy, or transition Jira to Done.
 
 When structured output is requested, conform to `.automation/schemas/execution-result.schema.json`.
 
-Allowed terminal statuses are:
+Terminal statuses:
 
-- `success`: implementation is complete and locally verified as far as the plan requires;
-- `failed`: deterministic verification failed and the result contains the failing checks;
-- `blocked`: an external dependency/environment problem prevents completion;
-- `replan_required`: implementation would materially exceed or contradict the approved plan.
+- `success` — complete with required local deterministic verification executed as far as the environment permits;
+- `failed` — required deterministic verification executed and failed;
+- `blocked` — external dependency/environment/approval mismatch prevents completion;
+- `replan_required` — correct implementation would materially exceed the approved plan/context.
