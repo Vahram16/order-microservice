@@ -23,6 +23,12 @@
     "allowUnapprovedArchitectureExpansion": false,
     "preferredCanonicalExampleLimit": 3
   },
+  "placementPolicy": {
+    "requireApprovedProjectPlacement": true,
+    "allowUnapprovedProjectReferenceChanges": false,
+    "allowUnapprovedSharedAbstractions": false,
+    "allowUnapprovedNewProjects": false
+  },
   "riskPolicy": {
     "manualOnly": [
       "destructive-production-data",
@@ -35,7 +41,9 @@
       "security-boundary",
       "integration-contract",
       "shared-platform",
-      "destructive-or-breaking-persistence-contract"
+      "destructive-or-breaking-persistence-contract",
+      "new-shared-project-dependency",
+      "new-project-or-bounded-context"
     ]
   }
 }
