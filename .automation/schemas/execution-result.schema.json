@@ -9,6 +9,7 @@
     "planId",
     "status",
     "summary",
+    "contextCompliance",
     "changedFiles",
     "acceptanceEvidence",
     "checks",
@@ -17,25 +18,47 @@
     "pullRequestReady"
   ],
   "properties": {
-    "schemaVersion": {
-      "type": "string",
-      "enum": ["1.0"]
-    },
-    "issueKey": {
-      "type": "string",
-      "minLength": 1
-    },
-    "planId": {
-      "type": "string",
-      "minLength": 1
-    },
+    "schemaVersion": { "type": "string", "enum": ["1.1"] },
+    "issueKey": { "type": "string", "minLength": 1 },
+    "planId": { "type": "string", "minLength": 1 },
     "status": {
       "type": "string",
       "enum": ["success", "failed", "blocked", "replan_required"]
     },
-    "summary": {
-      "type": "string",
-      "minLength": 1
+    "summary": { "type": "string", "minLength": 1 },
+    "contextCompliance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selectedSkillsLoaded",
+        "selectedReferencesLoaded",
+        "canonicalExamplesInspected",
+        "unapprovedArchitectureContext",
+        "compliant"
+      ],
+      "properties": {
+        "selectedSkillsLoaded": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "selectedReferencesLoaded": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "canonicalExamplesInspected": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "unapprovedArchitectureContext": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "compliant": { "type": "boolean" }
+      }
     },
     "changedFiles": {
       "type": "array",
@@ -45,10 +68,7 @@
         "required": ["path", "change", "reason"],
         "properties": {
           "path": { "type": "string", "minLength": 1 },
-          "change": {
-            "type": "string",
-            "enum": ["created", "modified", "deleted"]
-          },
+          "change": { "type": "string", "enum": ["created", "modified", "deleted"] },
           "reason": { "type": "string", "minLength": 1 }
         }
       }
@@ -61,14 +81,8 @@
         "required": ["criterion", "implementedBy", "verifiedBy"],
         "properties": {
           "criterion": { "type": "string", "minLength": 1 },
-          "implementedBy": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "verifiedBy": {
-            "type": "array",
-            "items": { "type": "string" }
-          }
+          "implementedBy": { "type": "array", "items": { "type": "string" } },
+          "verifiedBy": { "type": "array", "items": { "type": "string" } }
         }
       }
     },
@@ -80,27 +94,14 @@
         "required": ["command", "outcome", "exitCode", "notes"],
         "properties": {
           "command": { "type": "string", "minLength": 1 },
-          "outcome": {
-            "type": "string",
-            "enum": ["passed", "failed", "not_run"]
-          },
-          "exitCode": {
-            "type": ["integer", "null"]
-          },
+          "outcome": { "type": "string", "enum": ["passed", "failed", "not_run", "blocked"] },
+          "exitCode": { "type": ["integer", "null"] },
           "notes": { "type": "string" }
         }
       }
     },
-    "residualRisks": {
-      "type": "array",
-      "items": { "type": "string" }
-    },
-    "unexecutedVerification": {
-      "type": "array",
-      "items": { "type": "string" }
-    },
-    "pullRequestReady": {
-      "type": "boolean"
-    }
+    "residualRisks": { "type": "array", "items": { "type": "string" } },
+    "unexecutedVerification": { "type": "array", "items": { "type": "string" } },
+    "pullRequestReady": { "type": "boolean" }
   }
 }
