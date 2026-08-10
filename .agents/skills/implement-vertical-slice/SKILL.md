@@ -5,48 +5,40 @@ description: Plan or implement a business API use case using this repository's p
 
 # Implement Vertical Slice
 
-Load only:
+Load first:
 
-1. `docs/agent-context/architecture/vertical-slice.md`;
-2. `docs/agent-context/architecture/testing.md`;
+1. the scoped owner document selected by planning (for Customer: `docs/agent-context/services/customer.md`);
+2. `docs/agent-context/architecture/vertical-slice.md`;
 3. the nearest analogous slice and its tests.
 
-Additionally load:
+Additionally load only when affected:
 
-- `domain-boundary.md` when business invariants/state transitions change;
-- `api-and-errors.md` when route/response/error/authorization behavior changes;
-- `concurrency-idempotency.md` for mutations using ETags, idempotency, explicit transactions, or race recovery;
-- `persistence.md` when EF model/schema/query helpers change;
-- `security.md` only when authentication/authorization/identity behavior changes;
-- `messaging.md` only when the slice emits/consumes integration messages.
+- `domain-boundary.md` for business invariants/state transitions;
+- `api-and-errors.md` for route/response/error/authorization behavior;
+- `concurrency-idempotency.md` for ETags, idempotency, explicit transactions, or race recovery;
+- `persistence.md` for EF model/schema/query-helper changes;
+- `security.md` for authentication/authorization/identity behavior;
+- `messaging.md` for integration messages.
+
+Do not load the detailed testing manual during design by default. Test ownership comes from `testing-map.md`; `$verify-dotnet-change` loads `architecture/testing.md` when verification is executed.
 
 ## Procedure
 
-1. Identify the exact owning bounded context and use case.
+1. Identify the exact owning bounded context/use case and approved placement.
 2. Choose the nearest canonical slice before designing files.
-3. Keep the change inside one versioned slice unless a genuinely stable cross-slice primitive is required.
+3. Keep the change inside one versioned slice unless a stable cross-slice primitive is justified.
 4. Keep HTTP concerns in the endpoint, application orchestration in the handler, and business invariants in Domain.
 5. Use shared `ICommand`/`IQuery` contracts rather than raw MediatR request contracts.
-6. Preserve existing error, concurrency, idempotency, and authorization semantics that apply to the use case.
-7. Add tests at each affected boundary and retain architecture-test compliance.
-8. Review the final diff for sibling-slice coupling, speculative abstractions, or scope drift.
+6. Preserve applicable error, concurrency, idempotency, persistence, and authorization semantics.
+7. Add/update tests in the owning test project at each affected boundary.
+8. Review the diff for sibling-slice coupling, speculative abstractions, placement drift, or scope expansion.
 
 ## Stop conditions
 
-Stop/replan rather than improvising if:
-
-- acceptance criteria do not define a needed domain rule;
-- implementation requires a new cross-service/shared abstraction not in the approved plan;
-- a durable API/integration/security contract must change unexpectedly;
-- a schema migration becomes necessary but was not approved;
-- an architecture test must be weakened to proceed.
+Stop/replan if requirements do not define a needed business rule, a new shared/cross-service abstraction is required, a durable API/integration/security contract changes unexpectedly, an unapproved migration appears, placement changes materially, or an architecture test would need weakening.
 
 ## Canonical starting points
 
-- read: `GettingCurrent/V1/`;
-- ordinary mutation: `UpdatingDetails/V1/`;
-- idempotent transactional mutation: `AddingAddress/V1/`;
-- owned-child update/delete: `UpdatingAddress/V1/`, `RemovingAddress/V1/`;
-- lifecycle/destructive business operation: `ClosingAccount/V1/`.
+For Customer work use the paths in `services/customer.md`, including `GettingCurrent/V1`, `UpdatingDetails/V1`, `AddingAddress/V1`, `UpdatingAddress/V1`, `RemovingAddress/V1`, and `ClosingAccount/V1` as behavior-matched examples.
 
-Do not copy Customer business semantics into a different bounded context.
+Do not copy Customer business semantics into another bounded context.
