@@ -1,0 +1,36 @@
+{
+  "jira": {
+    "eligibilityJql": "<explicit organization-owned JQL>",
+    "planReviewTransition": "<transition id or name>",
+    "approvedTransition": "<transition id or name>",
+    "completedTransition": "<transition id or name>"
+  },
+  "repository": {
+    "fullName": "Vahram16/order-microservice",
+    "baseBranch": "develop",
+    "branchPrefix": "agent/"
+  },
+  "automation": {
+    "maxImplementationAttempts": 2,
+    "maxFeedbackFixAttempts": 2,
+    "requireHumanPlanApproval": true,
+    "createDraftPullRequests": true,
+    "allowAgentMerge": false,
+    "allowAgentDeploy": false
+  },
+  "riskPolicy": {
+    "manualOnly": [
+      "destructive-production-data",
+      "production-secrets",
+      "production-deployment",
+      "unapproved-breaking-public-contract",
+      "unapproved-breaking-integration-contract"
+    ],
+    "minimumHighRisk": [
+      "security-boundary",
+      "integration-contract",
+      "shared-platform",
+      "destructive-or-breaking-persistence-contract"
+    ]
+  }
+}
