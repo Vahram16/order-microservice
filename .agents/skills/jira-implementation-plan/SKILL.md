@@ -25,7 +25,7 @@ Start with `AGENTS.md`, `docs/agent-context/project-structure.md`, and `$order-m
    - existing direct dependency direction;
    - corresponding test project(s);
    - whether any proposed `src/Shared`, AppHost, infrastructure, or Migrator change is actually justified.
-3. Record the placement rationale. Do not choose a folder merely because its name seems convenient.
+3. Populate `projectPlacement` with owner kind, bounded context, target projects/folders, test projects, any new projects/dependency changes, placement reasons, and shared-abstraction justification when applicable.
 4. Classify architecture impact.
 5. Select focused skills from:
    - `implement-vertical-slice`;
@@ -37,11 +37,11 @@ Start with `AGENTS.md`, `docs/agent-context/project-structure.md`, and `$order-m
 6. Select only the architecture references required by those impacts from `docs/agent-context/`. Include `docs/agent-context/project-structure.md` in `contextSelection.references` when execution will create files/projects, change project references, cross project/service boundaries, or when placement itself is material to approval.
 7. Select 1-3 canonical production/test examples that most closely match the requested behavior. Prefer exact neighboring slices/tests over broad repository exploration.
 8. Read the selected context and trace the requested change through actual affected boundaries.
-9. Identify exact or best-current candidate files to create/modify. Every planned file must have an owning project/folder reason. If a path is uncertain, say so rather than inventing it.
+9. Identify exact or best-current candidate files to create/modify. Every `fileChanges` entry must include an `owner` matching the approved placement. If a path is uncertain, say so rather than inventing it.
 10. Map every material acceptance criterion to implementation evidence and deterministic verification evidence.
 11. Evaluate bounded-context ownership, VSA independence, domain invariants/failure atomicity, concurrency/idempotency/transactions, persistence/migrations, integration contracts/messaging, security/authorization, backward compatibility, observability, deployment, and project dependency impact only where applicable.
 12. Classify risk and decide `ready`, `blocked`, or `manual_only`.
-13. Produce output conforming to `.automation/schemas/plan.schema.json` (schema version `1.1`) when structured output is requested.
+13. Produce output conforming to `.automation/schemas/plan.schema.json` (schema version `1.2`) when structured output is requested.
 
 ## Project-placement rules
 
@@ -65,9 +65,9 @@ A proposal to add a new shared dependency or project is an architecture decision
 
 ## Context-selection contract
 
-The plan's `contextSelection` is part of the approval artifact, not informational prose.
+The plan's `projectPlacement` and `contextSelection` are part of the approval artifact, not informational prose.
 
-It must contain:
+`projectPlacement` must make ownership explicit. `contextSelection` must contain:
 
 - `skills`: only focused skills needed for execution/verification;
 - `references`: exact repository reference paths to load, including the project structure map when placement/dependencies are material;
@@ -113,6 +113,6 @@ Do not:
 
 ## Approval boundary
 
-The complete plan, including target file/project placement and `contextSelection`, is immutable after approval. Execution receives the exact approved plan plus orchestrator-generated fingerprint.
+The complete plan, including `projectPlacement`, target file owners, and `contextSelection`, is immutable after approval. Execution receives the exact approved plan plus orchestrator-generated fingerprint.
 
 If implementation discovers that correct work belongs in a materially different project/bounded context, needs a new project reference/shared abstraction, or requires a new architecture boundary, return `replan_required` instead of silently relocating code or expanding context.
