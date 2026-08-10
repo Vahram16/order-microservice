@@ -5,22 +5,23 @@ description: Select and run deterministic repository verification for an impleme
 
 # Verify .NET Change
 
-Load `docs/agent-context/architecture/testing.md` and inspect `.github/workflows/dotnet-ci.yml` before choosing broad verification.
+Load `docs/agent-context/testing-map.md` first to identify test ownership. Load `docs/agent-context/architecture/testing.md` and inspect `.github/workflows/dotnet-ci.yml` only when choosing detailed/broad verification.
 
 ## Procedure
 
-1. Inspect the diff and list affected projects/boundaries.
-2. Map each affected boundary to the repository's actual test projects/checks.
-3. Run narrow tests first for fast feedback.
+1. Inspect the diff and list affected owners/projects/architecture boundaries.
+2. Map each affected boundary to actual test projects/checks using `testing-map.md`.
+3. Run narrow owning tests first for fast feedback.
 4. Run affected Release builds with analyzers/warnings-as-errors.
-5. Run broader affected architecture/integration/infrastructure checks.
-6. Record every check as `passed`, `failed`, `not_run`, or `blocked` with the actual command and reason.
-7. Do not edit production code merely to silence a verification result unless the caller explicitly switches back to an implementation/fix skill.
+5. Run broader affected architecture/integration/infrastructure checks only where the diff requires them.
+6. Record every check as `passed`, `failed`, `not_run`, or `blocked` with actual command/outcome/reason.
+7. Do not edit production code merely to silence verification unless the caller explicitly switches back to an implementation/fix skill.
 
 ## Rules
 
 - Never report a predicted check as passed.
-- Never weaken an architecture/security/reliability test because a diff violates it.
-- Never suppress analyzers without explicit justification in scope.
+- Never weaken architecture/security/reliability tests because a diff violates them.
+- Never suppress analyzers without explicit in-scope justification.
 - If local infrastructure prevents a check, mark it `blocked`/`not_run` and rely on CI rather than fabricating evidence.
+- When solution membership/project references/agent-context routing change, run the corresponding deterministic structure check.
 - GitHub PR CI remains final deterministic authority.
