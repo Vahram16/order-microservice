@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Approved plan execution result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "issueKey",
+    "planId",
+    "status",
+    "summary",
+    "changedFiles",
+    "acceptanceEvidence",
+    "checks",
+    "residualRisks",
+    "unexecutedVerification",
+    "pullRequestReady"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "enum": ["1.0"]
+    },
+    "issueKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "planId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["success", "failed", "blocked", "replan_required"]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "changedFiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "change", "reason"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "change": {
+            "type": "string",
+            "enum": ["created", "modified", "deleted"]
+          },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "acceptanceEvidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["criterion", "implementedBy", "verifiedBy"],
+        "properties": {
+          "criterion": { "type": "string", "minLength": 1 },
+          "implementedBy": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "verifiedBy": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "outcome", "exitCode", "notes"],
+        "properties": {
+          "command": { "type": "string", "minLength": 1 },
+          "outcome": {
+            "type": "string",
+            "enum": ["passed", "failed", "not_run"]
+          },
+          "exitCode": {
+            "type": ["integer", "null"]
+          },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "residualRisks": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "unexecutedVerification": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "pullRequestReady": {
+      "type": "boolean"
+    }
+  }
+}
