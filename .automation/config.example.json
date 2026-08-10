@@ -18,6 +18,11 @@
     "allowAgentMerge": false,
     "allowAgentDeploy": false
   },
+  "contextPolicy": {
+    "requireApprovedContextSelection": true,
+    "allowUnapprovedArchitectureExpansion": false,
+    "preferredCanonicalExampleLimit": 3
+  },
   "riskPolicy": {
     "manualOnly": [
       "destructive-production-data",
