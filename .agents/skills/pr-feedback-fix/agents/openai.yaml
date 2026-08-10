@@ -1,0 +1,6 @@
+interface:
+  display_name: "PR Feedback Fix"
+  short_description: "Apply bounded fixes for approved PR feedback"
+  default_prompt: "Use $pr-feedback-fix to apply only the actionable approved PR feedback without expanding scope or ownership."
+policy:
+  allow_implicit_invocation: false
