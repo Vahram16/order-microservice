@@ -1,6 +1,6 @@
 ---
 name: approved-plan-implementation
-description: Implement one explicitly approved Jira plan with bounded workspace writes. Loads only the focused skills, architecture references, and canonical examples recorded in the approved plan's `contextSelection`; stops for replanning when material new scope or architecture context is required.
+description: Implement one explicitly approved Jira plan with bounded workspace writes. Loads only the focused skills, references, canonical examples, and project-placement context recorded in the approved plan; stops for replanning when material new scope, ownership, dependency, or architecture context is required.
 ---
 
 # Approved Plan Implementation
@@ -17,27 +17,31 @@ This is the workspace-write phase. Never use it to bypass the human plan gate.
 
 If issue key, plan fingerprint, base revision, approval state, or plan schema does not match the execution request, stop as `blocked`.
 
-## Context loading
+## Context and placement loading
 
-Do not automatically load the entire architecture corpus.
+Do not automatically load the entire architecture corpus and do not improvise code placement.
 
 1. Read `AGENTS.md`.
-2. Read the approved plan's `contextSelection`.
+2. Read the approved plan's proposed file changes and `contextSelection`.
 3. Load exactly the selected focused skills and architecture reference paths.
-4. Inspect the selected canonical examples before broad repository search.
-5. Load additional source files only as required to implement the approved file/behavior scope.
+4. If `docs/agent-context/project-structure.md` is selected, use it to verify target project/folder ownership and dependency direction before creating/moving files.
+5. Inspect the selected canonical examples before broad repository search.
+6. Inspect the owning `.csproj` before adding/removing project/package references.
+7. Load additional ordinary source files only as required to implement the approved file/behavior scope.
 
-If implementation requires a materially new architecture boundary not represented in the approved `contextSelection` (for example a migration, integration contract, or security change), return `replan_required`. Do not silently expand the context and approval scope.
+Reading an implementation dependency inside the approved owner is normal. Discovering that correct implementation belongs in another bounded context/project, needs a new shared abstraction/project reference, or requires a materially new architecture boundary is not normal discovery: return `replan_required`.
 
 ## Execution rules
 
-1. Reconfirm approved acceptance criteria, file changes, context selection, and out-of-scope items before editing.
-2. Make the smallest coherent diff that satisfies the approved plan.
+1. Reconfirm approved acceptance criteria, target files/projects/folders, context selection, and out-of-scope items before editing.
+2. Make the smallest coherent diff that satisfies the approved plan **in the approved owner/location**.
 3. Follow the selected skill contracts and canonical repository patterns.
 4. Do not introduce cross-slice/shared abstractions unless explicitly approved and justified by demonstrated reuse.
-5. Do not expand scope into opportunistic refactoring, package upgrades, formatting sweeps, architecture rewrites, or unrelated cleanup.
-6. Preserve source/test/CI/ADR constraints even when an alternative generic .NET pattern is familiar.
-7. On a material unknown, incompatible requirement, architecture-test conflict, new security/contract/migration risk, or unapproved cross-boundary dependency, stop and replan.
+5. Do not move service-local code into `src/Shared` for convenience.
+6. Do not create a new service/bounded context, AppHost responsibility, infrastructure component, or Migrator behavior unless explicitly present in the approved plan.
+7. Do not expand scope into opportunistic refactoring, package upgrades, formatting sweeps, architecture rewrites, or unrelated cleanup.
+8. Preserve source/test/project-file/CI/ADR constraints even when an alternative generic .NET pattern is familiar.
+9. On a material unknown, incompatible requirement, architecture-test conflict, different code owner, new project dependency, new security/contract/migration risk, or unapproved cross-boundary dependency, stop and replan.
 
 ## Boundary rules
 
@@ -50,13 +54,27 @@ When selected by the plan:
 - `$change-security` governs Keycloak/resource-API responsibilities, validated identity, scopes/roles, and least privilege;
 - `$verify-dotnet-change` governs deterministic verification and evidence reporting.
 
-Do not apply rules from an unrelated boundary simply because they exist elsewhere in the repository.
+`docs/agent-context/project-structure.md` governs repository ownership/placement when selected. Do not apply rules from unrelated boundaries merely because they exist elsewhere in the repository.
+
+## Placement invariants
+
+- Customer business use cases remain in Customer vertical slices.
+- Customer domain invariants remain in `Customer.Api/Domain`.
+- Customer EF/schema/migrations remain service-owned under `Customer.Api/Persistence`; migration execution remains in `Customer.Migrator`.
+- Shared projects contain only their documented stable cross-service responsibilities.
+- AppHost remains local development orchestration, not production business logic.
+- Infrastructure folders remain deployment/operational assets, not application/domain source.
+- A new bounded context/service requires explicit approved requirements.
+
+If an approved file path turns out to be structurally wrong in a material way, do not quietly choose a different architecture. Return `replan_required` with the discovered ownership evidence.
 
 ## Verification
 
 Use the approved plan's verification section and `$verify-dotnet-change`.
 
 Run deterministic commands in the workspace, narrow-to-broad. The external orchestrator/CI should independently capture process exit codes. A check is successful only if it actually executed and returned success.
+
+When project references, solution membership, shared libraries, AppHost, or Migrators change, verify the affected project graph/build in addition to feature tests.
 
 GitHub CI remains final pull-request authority, especially for real PostgreSQL/RabbitMQ, Keycloak, architecture, and cross-project checks unavailable locally.
 
@@ -66,16 +84,18 @@ Before reporting success:
 
 1. inspect the full diff against the approved plan;
 2. verify every acceptance criterion has implementation and test evidence;
-3. confirm no unapproved architecture context/boundary was introduced;
-4. check for accidental generated files, secrets, broad formatting, package churn, or unrelated edits;
-5. list residual risks and any `not_run`/`blocked` verification honestly;
-6. do not merge, deploy, or transition Jira to Done.
+3. verify every changed/created file belongs to an approved project/folder;
+4. verify no unapproved project reference/shared dependency/architecture boundary was introduced;
+5. confirm no unapproved architecture context was introduced;
+6. check for accidental generated files, secrets, broad formatting, package churn, or unrelated edits;
+7. list residual risks and any `not_run`/`blocked` verification honestly;
+8. do not merge, deploy, or transition Jira to Done.
 
 When structured output is requested, conform to `.automation/schemas/execution-result.schema.json`.
 
 Terminal statuses:
 
-- `success` — complete with required local deterministic verification executed as far as the environment permits;
+- `success` — complete in the approved owner/location with required local deterministic verification executed as far as the environment permits;
 - `failed` — required deterministic verification executed and failed;
 - `blocked` — external dependency/environment/approval mismatch prevents completion;
-- `replan_required` — correct implementation would materially exceed the approved plan/context.
+- `replan_required` — correct implementation would materially exceed the approved plan/context/ownership/dependency placement.
