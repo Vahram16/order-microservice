@@ -20,6 +20,7 @@
   },
   "contextPolicy": {
     "requireApprovedContextSelection": true,
+    "requireScopedOwnerContext": true,
     "allowUnapprovedArchitectureExpansion": false,
     "preferredCanonicalExampleLimit": 3
   },
