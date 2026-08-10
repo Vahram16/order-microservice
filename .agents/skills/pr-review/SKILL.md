@@ -1,53 +1,56 @@
 ---
 name: pr-review
-description: Review a completed implementation or pull-request diff against the approved Jira plan, repository architecture, security boundaries, persistence/messaging contracts, and deterministic verification requirements. Use before requesting human review or when an architecture-aware Codex review is requested.
+description: Review a completed implementation or PR diff against the approved Jira plan, its selected architecture context, repository constraints, and deterministic evidence. Use before human review or for architecture-aware Codex review; do not edit unless handed off to a fix/implementation skill.
 ---
 
 # Pull Request Review
 
-Review is evidence-driven. Do not rewrite the implementation unless explicitly handed off to `$pr-feedback-fix` or `$approved-plan-implementation`.
-
-Always apply `$order-microservice-architecture` and `AGENTS.md`.
+Review is evidence-driven. Do not rewrite implementation unless explicitly handed off to `$pr-feedback-fix` or `$approved-plan-implementation`.
 
 ## Inputs
 
-- Jira issue and acceptance criteria;
-- exact approved plan and plan identifier when the change came from the automation flow;
-- full diff against the intended base revision;
+- Jira issue/acceptance criteria;
+- exact approved plan/fingerprint when applicable;
+- approved `contextSelection`;
+- full diff against intended base revision;
 - deterministic build/test/CI evidence available at review time.
+
+## Context loading
+
+Read `AGENTS.md`, then load the focused skills/references recorded in the approved plan. Inspect its canonical examples when comparing architecture/pattern fidelity.
+
+If the diff touches an architecture boundary not present in the approved plan/context selection, treat that as scope drift and normally return `replan_required` rather than silently broadening review assumptions.
 
 ## Review order
 
-1. **Scope fidelity** — detect behavior or refactoring outside the approved Jira scope.
-2. **Correctness** — acceptance criteria, edge cases, nullability, cancellation, failure paths, and state transitions.
-3. **Architecture** — vertical-slice independence, domain boundary, service ownership, shared-library pressure, and migration boundary.
-4. **Concurrency/idempotency** — stale writes, duplicate requests, retry behavior, uniqueness races, transaction atomicity, and side effects.
-5. **Security/privacy** — identity source, authorization, scopes/roles, client-safe errors, PII/secrets, and least privilege.
-6. **Persistence** — query/update semantics, EF tracking, constraints/indexes, migration safety, and deployment ordering.
-7. **Messaging/contracts** — outbox/inbox semantics, command/event intent, stable endpoint topology, compatibility, and transport leakage.
-8. **API/error behavior** — HTTP semantics, validation, Problem Details, preconditions, ETags, and backward compatibility.
-9. **Tests/evidence** — acceptance criteria coverage, architecture tests, integration tests, and any unexecuted required checks.
-10. **Maintainability** — only after the above; avoid style-only noise already enforced by analyzers/CI.
+1. **Scope fidelity** — no behavior/refactoring or new architecture boundary outside approved scope.
+2. **Correctness** — acceptance criteria, edge cases, nullability, cancellation, failure paths, state transitions.
+3. **Selected architecture contracts** — evaluate only relevant VSA/domain/persistence/messaging/security contracts deeply, plus global invariants.
+4. **Concurrency/idempotency/transactions** — when the affected behavior can race/retry or mutate state.
+5. **Security/privacy** — identity source, authorization, least privilege, safe errors/PII/secrets where affected.
+6. **Compatibility** — API/schema/integration/topology behavior where affected.
+7. **Tests/evidence** — acceptance traceability, architecture tests, integration tests, unexecuted required checks.
+8. **Maintainability** — after correctness/contracts; avoid style noise already enforced by analyzers/CI.
 
 ## Finding quality
 
 Report only actionable findings. Each finding must include:
 
 - severity: `critical`, `high`, `medium`, or `low`;
-- affected path and line/range when known;
+- affected path/line when known;
 - concrete failure/risk scenario;
-- violated requirement, repository convention, or accepted plan step;
+- violated acceptance criterion, approved plan item, repository rule, selected reference, or deterministic check;
 - smallest credible remediation direction.
 
-Do not call speculative preferences defects. Do not request a repository pattern that contradicts the existing pure vertical-slice design.
+Do not call generic preferences defects. Do not request a pattern that conflicts with this repository's pure vertical-slice approach.
 
 ## Merge recommendation
 
-Return one conclusion:
+Return one:
 
-- `approve`: no blocking finding and required evidence is sufficient;
-- `changes_requested`: at least one correctness/architecture/security/contract issue must be fixed;
-- `blocked_on_evidence`: implementation may be correct but required deterministic checks/CI evidence are missing or failing;
-- `replan_required`: the implementation needs material scope/architecture changes outside the approved plan.
+- `approve` — no blocking finding and required evidence is sufficient;
+- `changes_requested` — in-scope correctness/architecture/security/contract defect must be fixed;
+- `blocked_on_evidence` — required deterministic checks/CI are missing or failing;
+- `replan_required` — correction needs material scope/context/architecture change outside the approved plan.
 
-An agent recommendation never merges the PR. Human/branch-protection policy remains the merge authority.
+An agent recommendation never merges the PR.
