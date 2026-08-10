@@ -4,21 +4,22 @@ This is a production-oriented .NET 10 microservices repository. Preserve archite
 
 ## Context strategy
 
-Keep context selective.
+Keep context selective, but never guess code ownership or placement.
 
-1. Read `docs/agent-context/README.md` to route architecture knowledge.
-2. Use the narrowest matching skill under `.agents/skills/`.
-3. Inspect the nearest canonical production example and its tests.
-4. Load deeper service docs/ADRs only for boundaries actually affected.
+1. Read `docs/agent-context/project-structure.md` when locating the owning project/folder, creating files/projects, or deciding whether behavior is service-local or shared.
+2. Read `docs/agent-context/README.md` to route behavior-specific architecture knowledge.
+3. Use the narrowest matching skill under `.agents/skills/`.
+4. Inspect the nearest canonical production example and its tests.
+5. Load deeper service docs/ADRs only for boundaries actually affected.
 
-Do not preload every architecture document for every task.
+Do not preload every architecture document for every task. `project-structure.md` answers **where code belongs**; focused architecture references answer **how behavior must work**.
 
 Evidence priority when guidance conflicts:
 
 1. approved acceptance criteria/scope;
 2. executable architecture/security/integration tests;
 3. accepted ADRs and service documentation;
-4. current production implementation;
+4. current production implementation/project files;
 5. agent-context notes;
 6. generic framework convention.
 
@@ -35,20 +36,23 @@ If the first four materially disagree, stop and surface the conflict.
 - Preserve explicit concurrency, idempotency, transaction, error, security, and compatibility semantics demonstrated by the owning service.
 - Keycloak owns identity-provider responsibilities; resource APIs own token validation, least-privilege authorization, resource ownership, and domain authorization.
 - Treat architecture tests as executable design constraints, not tests to weaken for convenience.
+- Shared code is earned by demonstrated cross-service reuse. Do not move service-local behavior into `src/Shared` speculatively.
+- A planned file/project location is part of the approved architecture scope. Material ownership/location changes require replanning.
 
 `Customer.Api` is the concrete business-service reference. `ServiceTemplate` is infrastructure scaffolding. Derive structural conventions from Customer but never copy its business semantics into another bounded context.
 
 ## Engineering protocol
 
 1. Treat the Jira issue and approved plan as the scope boundary.
-2. Inspect the nearest analogous implementation/tests before designing a new pattern.
-3. Plan before workspace writes when the workflow requires approval.
-4. State assumptions, blocking questions, affected boundaries, compatibility impact, and risk.
-5. After approval, implement the smallest coherent change.
-6. Add tests at every affected architectural boundary.
-7. Run deterministic verification; never treat an agent statement as test evidence.
-8. Review the final diff against the approved plan and repository invariants.
-9. If implementation requires material unapproved scope, return to planning instead of silently expanding work.
+2. Identify the bounded-context owner and target project/folder using `docs/agent-context/project-structure.md`.
+3. Inspect the target `.csproj`, nearest analogous implementation, and relevant tests before designing a new pattern.
+4. Plan before workspace writes when the workflow requires approval.
+5. State assumptions, blocking questions, affected boundaries, compatibility impact, code-placement rationale, and risk.
+6. After approval, implement the smallest coherent change in the approved owner/location.
+7. Add tests at every affected architectural boundary.
+8. Run deterministic verification; never treat an agent statement as test evidence.
+9. Review the final diff against the approved plan and repository invariants.
+10. If implementation requires material unapproved scope, a different owning project, a new shared dependency, or a new architecture boundary, return to planning instead of silently expanding work.
 
 ## Verification
 
@@ -67,7 +71,8 @@ Unless an explicit human-approved workflow says otherwise, an agent must not:
 - weaken authentication/authorization/security controls;
 - make breaking public/integration-contract changes;
 - introduce new cross-service/shared abstractions without demonstrated need;
-- expand an approved task into unrelated refactoring.
+- expand an approved task into unrelated refactoring;
+- create a new bounded context/service/domain merely from repository naming or template examples.
 
 Escalate these as high-risk/manual work.
 
@@ -75,7 +80,7 @@ Escalate these as high-risk/manual work.
 
 Architecture/context:
 
-- `$order-microservice-architecture` — route unknown/cross-cutting work to focused context.
+- `$order-microservice-architecture` — route unknown/cross-cutting work to project ownership + focused context.
 - `$implement-vertical-slice` — business endpoints/use cases.
 - `$change-domain-model` — aggregates/value objects/invariants.
 - `$change-persistence` — EF Core/schema/migrations/transactions.
@@ -86,9 +91,9 @@ Architecture/context:
 Automation flow:
 
 - `$jira-work-intake` — read-only Jira discovery/eligibility.
-- `$jira-implementation-plan` — read-only structured planning.
+- `$jira-implementation-plan` — read-only structured planning, project placement, and context selection.
 - `$approved-plan-implementation` — exact approved-plan workspace-write execution.
 - `$pr-review` — architecture/correctness/security/evidence review.
 - `$pr-feedback-fix` — bounded accepted-review fixes.
 
-See `docs/agentic-automation.md` for orchestration/state/approval contracts.
+See `docs/agent-context/project-structure.md` for repository ownership/code placement and `docs/agentic-automation.md` for orchestration/state/approval contracts.
