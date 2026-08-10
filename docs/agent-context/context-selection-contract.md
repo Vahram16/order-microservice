@@ -1,182 +1,154 @@
 # Context and Placement Selection Contract
 
-The automation treats both repository placement and context as approved execution dependencies, not as unbounded agent discretion.
+The automation treats repository placement and context as approved execution dependencies, not unbounded agent discretion.
 
 ## Goal
 
-Provide enough repository-specific knowledge for correct implementation while avoiding repeated broad repository discovery, loading unrelated architecture manuals, or repeatedly guessing where code belongs.
+Provide enough repository-specific knowledge for correct implementation while avoiding repeated broad discovery, unrelated manuals, or repeated placement inference.
 
-This optimizes quality and token/cycle-time efficiency. It does not assume that more documentation automatically means fewer tokens.
+The model is progressive disclosure:
 
-`docs/agent-context/project-structure.md` is the ownership/placement source for agents. Focused files under `architecture/` describe behavioral rules.
+```text
+AGENTS.md
+   ↓
+project-map.md
+   ↓
+one scoped owner context
+   ↓
+only affected architecture references
+   ↓
+1-3 canonical source/test examples
+```
+
+`project-map.md` is the small ownership router. `services/` and `platform/` contain scoped owner knowledge. `architecture/` contains behavior/boundary rules. Skills contain repeatable procedures.
 
 ## Planning owns placement and context selection
 
-The read-only planning stage emits both `projectPlacement` and `contextSelection` in `plan.json` schema `1.2`.
+The read-only planning stage emits `projectPlacement` and `contextSelection` in `plan.json` schema `1.2`.
 
-Example placement:
+Example:
 
 ```json
 {
   "projectPlacement": {
     "ownerKind": "bounded-context-service",
     "boundedContext": "Customer",
-    "targetProjects": [
-      "src/Services/Customer/Customer.Api/Customer.Api.csproj"
-    ],
-    "targetFolders": [
-      "src/Services/Customer/Customer.Api/Features/Customers/UpdatingDetails/V1"
-    ],
-    "testProjects": [
-      "tests/Customer.Api.Tests/Customer.Api.Tests.csproj"
-    ],
+    "targetProjects": ["src/Services/Customer/Customer.Api/Customer.Api.csproj"],
+    "targetFolders": ["src/Services/Customer/Customer.Api/Features/Customers/UpdatingDetails/V1"],
+    "testProjects": ["tests/Customer.Api.Tests/Customer.Api.Tests.csproj"],
     "newProjects": [],
     "dependencyChanges": [],
-    "placementReasons": [
-      "The behavior is a Customer-owned mutation and follows the existing Customer vertical-slice boundary."
-    ],
+    "placementReasons": ["The behavior is Customer-owned and follows the existing Customer vertical-slice boundary."],
     "sharedAbstractionJustification": null
-  }
-}
-```
-
-Example context selection:
-
-```json
-{
+  },
   "contextSelection": {
-    "skills": [
-      "implement-vertical-slice",
-      "change-domain-model",
-      "verify-dotnet-change"
-    ],
+    "skills": ["implement-vertical-slice", "change-domain-model", "verify-dotnet-change"],
     "references": [
-      "docs/agent-context/project-structure.md",
+      "docs/agent-context/services/customer.md",
       "docs/agent-context/architecture/vertical-slice.md",
-      "docs/agent-context/architecture/domain-boundary.md",
-      "docs/agent-context/architecture/testing.md"
+      "docs/agent-context/architecture/domain-boundary.md"
     ],
     "canonicalExamples": [
       "src/Services/Customer/Customer.Api/Features/Customers/UpdatingDetails/V1/UpdateCustomerDetailsEndpoint.cs",
       "tests/Customer.Api.Tests/CustomerDomainTests.cs"
     ],
-    "selectionReasons": [
-      "The task changes one Customer mutation and a domain invariant; it does not change persistence schema, messaging, or identity configuration."
-    ]
+    "selectionReasons": ["The task changes one Customer mutation and a domain invariant; persistence, messaging, and identity are not affected."]
   }
 }
 ```
 
-Examples are illustrative only; the planner must derive actual ownership, paths, dependencies, and context from the task/repository.
+The example is illustrative. Actual ownership, paths, dependencies, and context come from current repository evidence and the task.
 
 ## Placement selection rules
 
-1. Read `project-structure.md`, the solution file, and affected `.csproj` files before assigning ownership.
-2. Identify the bounded context or shared/platform owner before proposing files.
-3. Prefer the narrowest owning service/slice over a new shared abstraction.
-4. Record exact target projects/folders and corresponding test projects.
-5. Record every proposed project-reference addition/removal explicitly.
-6. A new project/service must appear in `newProjects` and requires explicit requirements/approval.
-7. `sharedAbstractionJustification` must explain demonstrated cross-service need whenever the plan introduces new shared behavior; otherwise keep it `null`.
-8. Every `fileChanges` item records an `owner` consistent with `projectPlacement`.
+1. Start with `project-map.md` to identify the owner category.
+2. Load only the matching owner context under `services/` or `platform/`.
+3. Verify placement against `Microservices.Boilerplate.slnx`, affected `.csproj`, current source, and tests.
+4. Prefer the narrowest owning service/slice over a new shared abstraction.
+5. Record exact target projects/folders/test projects.
+6. Record every proposed project-reference addition/removal explicitly.
+7. A new project/service must appear in `newProjects` and requires explicit approved business/architecture requirements.
+8. `sharedAbstractionJustification` must show demonstrated cross-service need whenever new shared behavior is proposed; otherwise keep it `null`.
+9. Every `fileChanges` item records an owner consistent with `projectPlacement`.
 
 ## Context selection rules
 
-1. Start from `AGENTS.md`, `project-structure.md`, and the architecture router.
+1. Select only the scoped owner context needed for execution. Do not include every service/platform document.
 2. Select focused skills by actual affected behavior boundary.
-3. Select architecture references needed to understand those boundaries.
-4. Include `project-structure.md` in execution context when placement/dependency decisions remain material during implementation.
-5. Prefer 1-3 nearest canonical source/test examples; `preferredCanonicalExampleLimit` is configurable policy, not a hard correctness limit.
+3. Select only architecture references needed for those boundaries.
+4. Use `testing-map.md` for test ownership; load `architecture/testing.md` only when detailed verification semantics are needed.
+5. Prefer 1-3 nearest canonical source/test examples; `preferredCanonicalExampleLimit` is policy guidance, not a hard correctness limit.
 6. Do not select unrelated areas "just in case".
-7. Include `verify-dotnet-change` for implementation plans that will execute code changes.
+7. Include `verify-dotnet-change` for implementation plans executing code changes.
 
 ## Approval contract
 
-After human approval, `projectPlacement`, `fileChanges.owner`, and `contextSelection` are immutable with the rest of the plan fingerprint.
+After human approval, `projectPlacement`, `fileChanges.owner`, and `contextSelection` are immutable with the plan fingerprint.
 
 Execution must:
 
 - implement in approved owners/projects/folders;
-- load selected focused skills/references;
+- load selected owner context, focused skills, and behavior references only;
 - inspect selected canonical examples first;
 - read additional ordinary source files as needed inside approved scope;
-- not introduce a materially new owner, dependency, shared abstraction, or architecture boundary without replanning.
+- not introduce a materially new owner, project dependency, shared abstraction, or architecture boundary without replanning.
 
-## Normal discovery vs placement/context drift
+## Normal discovery vs drift
 
 Normal discovery:
 
-- following a method call into another file in the same approved service/project;
-- inspecting a DTO or test fixture needed to understand approved behavior;
+- following calls/files inside the approved owner/boundary;
+- inspecting a DTO/test fixture needed for approved behavior;
 - reading a project file to confirm an existing dependency;
-- reading an implementation helper inside the approved architectural boundary.
+- reading an implementation helper inside approved scope.
 
-Placement/context drift requiring re-evaluation:
+Drift requiring re-evaluation:
 
-- a slice-local plan discovers it needs a database migration;
-- a Customer-only plan discovers the correct owner is another bounded context;
-- a service-local change needs a new `src/Shared` abstraction;
-- a new project reference is required but was absent from `projectPlacement.dependencyChanges`;
-- a business feature unexpectedly changes an integration event contract;
-- an endpoint task requires new Keycloak scopes/client configuration;
-- a service-local change requires modifying a shared platform library;
-- API startup would need to run migrations instead of its Migrator;
-- passing tests would require weakening an architecture rule.
+- slice-local plan discovers a migration is required;
+- Customer-only plan discovers another bounded context is the correct owner;
+- service-local change needs a new `src/Shared` abstraction;
+- new project reference was absent from approved `dependencyChanges`;
+- business feature unexpectedly changes durable integration contracts;
+- endpoint work requires new Keycloak/client policy;
+- service-local task requires shared platform/infrastructure changes;
+- API startup would need to execute migrations;
+- passing tests would require weakening architecture rules.
 
-These normally require `replan_required` rather than silent relocation or broader context loading.
+These normally return `replan_required` rather than silently relocating code or loading broader context.
 
 ## Execution reporting
 
-`execution-result.json` schema `1.2` records two independent compliance dimensions.
+`execution-result.json` schema `1.2` records independent `contextCompliance` and `placementCompliance`.
 
-`contextCompliance` records:
+Context compliance records selected skills/references/examples and unapproved architecture context. Placement compliance records approved/actual owners, observed project-reference changes, unapproved placements, and overall compliance. Every changed file also reports its owner.
 
-- selected skills loaded;
-- selected references loaded;
-- canonical examples inspected;
-- unapproved architecture context encountered;
-- overall context compliance.
-
-`placementCompliance` records:
-
-- approved owners;
-- actual owners touched by the diff;
-- observed project-reference additions/removals and whether each was approved;
-- unapproved file placements;
-- overall placement compliance.
-
-Every changed file also reports its `owner`.
-
-The outer orchestrator must reject a `success` result when required policy has either `contextCompliance.compliant == false` or `placementCompliance.compliant == false`.
+The outer orchestrator must reject `success` when required policy has either compliance dimension false.
 
 ## Metrics
 
-Persist enough metadata to correlate context/placement strategy with engineering outcomes. Useful measures include:
+Persist enough metadata to evaluate the context strategy empirically:
 
-- selected skill count;
-- selected reference count;
-- canonical example count;
+- selected owner-reference count;
+- selected skill/reference/canonical-example count;
 - target project/folder count;
-- unapproved placement rate;
-- unexpected project-dependency rate;
+- placement/dependency drift rate;
 - context-drift/replan rate;
-- Codex input/output token usage when available from the execution platform;
-- planning and implementation latency;
+- Codex input/output token usage when available;
+- planning/implementation latency;
 - CI first-pass rate;
 - review finding rate;
 - reverted PR rate.
 
-Do not optimize for minimum tokens alone. The target is the smallest placement-aware context package that maintains or improves correctness, architecture compliance, and first-pass verification.
+Optimize for the **smallest context package that preserves or improves correctness**, not minimum tokens in isolation.
 
 ## Maintenance
 
-`project-structure.md` explains current ownership, project/folder responsibilities, dependency directions, tests, and code-placement rules. Architecture references explain project-specific behavioral decisions and invariants. Do not duplicate source code or generic .NET tutorials.
-
-When the repository structure or architecture changes intentionally:
+When repository structure/architecture changes intentionally:
 
 1. update solution/project files, executable tests, ADRs, and source as appropriate;
-2. update `project-structure.md` when ownership/project topology changes;
-3. update affected architecture references;
-4. update skill routing if boundaries changed;
+2. update `project-map.md` when owner/project topology changes;
+3. update only affected service/platform owner documents;
+4. update affected behavior references/skill routing;
 5. update schemas/config only when the machine contract changes;
-6. review whether old canonical examples remain representative.
+6. review canonical examples;
+7. run `scripts/verify-agent-context.py` so stale paths/skill/schema routing fail deterministically.
