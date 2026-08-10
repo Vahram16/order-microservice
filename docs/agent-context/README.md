@@ -4,6 +4,8 @@ This directory is a progressive-disclosure knowledge base for coding agents. `AG
 
 Repository source, executable architecture tests, accepted ADRs, and CI remain authoritative. These notes are navigation and decision aids, not a replacement for reading the affected implementation.
 
+For the machine-level rule that binds selected skills/references/examples into the approved plan and reports context drift, read `context-selection-contract.md`.
+
 ## Load by change type
 
 | Change | Read first | Canonical evidence |
