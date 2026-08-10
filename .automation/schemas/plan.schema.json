@@ -13,6 +13,7 @@
     "risk",
     "scope",
     "architectureImpact",
+    "projectPlacement",
     "contextSelection",
     "fileChanges",
     "implementationSteps",
@@ -26,7 +27,7 @@
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "enum": ["1.1"]
+      "enum": ["1.2"]
     },
     "issueKey": { "type": "string", "minLength": 1 },
     "issueSummary": { "type": "string", "minLength": 1 },
@@ -81,6 +82,77 @@
         "adrImpact": { "type": "array", "items": { "type": "string" } }
       }
     },
+    "projectPlacement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ownerKind",
+        "boundedContext",
+        "targetProjects",
+        "targetFolders",
+        "testProjects",
+        "newProjects",
+        "dependencyChanges",
+        "placementReasons",
+        "sharedAbstractionJustification"
+      ],
+      "properties": {
+        "ownerKind": {
+          "type": "string",
+          "enum": [
+            "bounded-context-service",
+            "shared-library",
+            "apphost",
+            "infrastructure",
+            "automation",
+            "documentation",
+            "repository-root",
+            "mixed"
+          ]
+        },
+        "boundedContext": { "type": ["string", "null"] },
+        "targetProjects": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "targetFolders": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "testProjects": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "newProjects": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "dependencyChanges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["fromProject", "toProject", "action", "reason"],
+            "properties": {
+              "fromProject": { "type": "string", "minLength": 1 },
+              "toProject": { "type": "string", "minLength": 1 },
+              "action": { "type": "string", "enum": ["add", "remove"] },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "placementReasons": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "sharedAbstractionJustification": { "type": ["string", "null"] }
+      }
+    },
     "contextSelection": {
       "type": "object",
       "additionalProperties": false,
@@ -122,10 +194,11 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path", "action", "reason"],
+        "required": ["path", "action", "owner", "reason"],
         "properties": {
           "path": { "type": "string", "minLength": 1 },
           "action": { "type": "string", "enum": ["create", "modify", "delete"] },
+          "owner": { "type": "string", "minLength": 1 },
           "reason": { "type": "string", "minLength": 1 }
         }
       }
