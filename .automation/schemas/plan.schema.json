@@ -1,0 +1,271 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Jira implementation plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "issueKey",
+    "issueSummary",
+    "baseBranch",
+    "baseRevision",
+    "decision",
+    "risk",
+    "scope",
+    "architectureImpact",
+    "projectPlacement",
+    "contextSelection",
+    "fileChanges",
+    "implementationSteps",
+    "acceptanceTraceability",
+    "verification",
+    "migrationImpact",
+    "securityImpact",
+    "integrationImpact",
+    "blockingQuestions"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "enum": ["1.2"]
+    },
+    "issueKey": { "type": "string", "minLength": 1 },
+    "issueSummary": { "type": "string", "minLength": 1 },
+    "baseBranch": { "type": "string", "minLength": 1 },
+    "baseRevision": { "type": "string", "minLength": 1 },
+    "decision": {
+      "type": "string",
+      "enum": ["ready", "blocked", "manual_only"]
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "reasons", "humanApprovalRequired"],
+      "properties": {
+        "level": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+        "reasons": { "type": "array", "items": { "type": "string" } },
+        "humanApprovalRequired": { "type": "boolean" }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inScope", "outOfScope", "assumptions"],
+      "properties": {
+        "inScope": { "type": "array", "items": { "type": "string" } },
+        "outOfScope": { "type": "array", "items": { "type": "string" } },
+        "assumptions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "architectureImpact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["boundedContext", "classifications", "affectedBoundaries", "adrImpact"],
+      "properties": {
+        "boundedContext": { "type": ["string", "null"] },
+        "classifications": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "slice-local",
+              "domain-contract",
+              "persistence-contract",
+              "integration-contract",
+              "security-boundary",
+              "shared-platform",
+              "deployment"
+            ]
+          }
+        },
+        "affectedBoundaries": { "type": "array", "items": { "type": "string" } },
+        "adrImpact": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "projectPlacement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ownerKind",
+        "boundedContext",
+        "targetProjects",
+        "targetFolders",
+        "testProjects",
+        "newProjects",
+        "dependencyChanges",
+        "placementReasons",
+        "sharedAbstractionJustification"
+      ],
+      "properties": {
+        "ownerKind": {
+          "type": "string",
+          "enum": [
+            "bounded-context-service",
+            "shared-library",
+            "apphost",
+            "infrastructure",
+            "automation",
+            "documentation",
+            "repository-root",
+            "mixed"
+          ]
+        },
+        "boundedContext": { "type": ["string", "null"] },
+        "targetProjects": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "targetFolders": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "testProjects": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "newProjects": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "dependencyChanges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["fromProject", "toProject", "action", "reason"],
+            "properties": {
+              "fromProject": { "type": "string", "minLength": 1 },
+              "toProject": { "type": "string", "minLength": 1 },
+              "action": { "type": "string", "enum": ["add", "remove"] },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "placementReasons": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "sharedAbstractionJustification": { "type": ["string", "null"] }
+      }
+    },
+    "contextSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skills", "references", "canonicalExamples", "selectionReasons"],
+      "properties": {
+        "skills": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "implement-vertical-slice",
+              "change-domain-model",
+              "change-persistence",
+              "change-messaging",
+              "change-security",
+              "verify-dotnet-change"
+            ]
+          }
+        },
+        "references": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "canonicalExamples": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "selectionReasons": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "fileChanges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "action", "owner", "reason"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "action": { "type": "string", "enum": ["create", "modify", "delete"] },
+          "owner": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "implementationSteps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["order", "description", "paths"],
+        "properties": {
+          "order": { "type": "integer", "minimum": 1 },
+          "description": { "type": "string", "minLength": 1 },
+          "paths": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "acceptanceTraceability": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["criterion", "implementationEvidence", "verificationEvidence"],
+        "properties": {
+          "criterion": { "type": "string", "minLength": 1 },
+          "implementationEvidence": { "type": "array", "items": { "type": "string" } },
+          "verificationEvidence": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["testsToAddOrChange", "commands", "ciRequirements"],
+      "properties": {
+        "testsToAddOrChange": { "type": "array", "items": { "type": "string" } },
+        "commands": { "type": "array", "items": { "type": "string" } },
+        "ciRequirements": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "migrationImpact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "notes"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "securityImpact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "notes"],
+      "properties": {
+        "level": { "type": "string", "enum": ["none", "low", "high"] },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "integrationImpact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["breakingChange", "notes"],
+      "properties": {
+        "breakingChange": { "type": "boolean" },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "blockingQuestions": { "type": "array", "items": { "type": "string" } }
+  }
+}

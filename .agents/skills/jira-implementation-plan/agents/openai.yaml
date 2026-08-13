@@ -1,0 +1,6 @@
+interface:
+  display_name: "Jira Implementation Plan"
+  short_description: "Build an approved repository-aware Jira plan"
+  default_prompt: "Use $jira-implementation-plan to produce the read-only implementation plan and scoped context selection for this Jira issue."
+policy:
+  allow_implicit_invocation: false

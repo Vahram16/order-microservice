@@ -1,0 +1,6 @@
+interface:
+  display_name: "Approved Plan Implementation"
+  short_description: "Execute one exact human-approved Jira plan"
+  default_prompt: "Use $approved-plan-implementation to implement the exact approved plan in its approved owner and context."
+policy:
+  allow_implicit_invocation: false

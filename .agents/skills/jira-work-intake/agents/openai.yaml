@@ -1,0 +1,6 @@
+interface:
+  display_name: "Jira Work Intake"
+  short_description: "Classify Jira work for automation readiness"
+  default_prompt: "Use $jira-work-intake to classify the supplied Jira work against the configured automation eligibility contract."
+policy:
+  allow_implicit_invocation: false

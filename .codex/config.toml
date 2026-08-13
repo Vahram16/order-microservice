@@ -1,0 +1,8 @@
+# Repository-scoped Codex integration. Credentials are never committed.
+# Interactive users authenticate with Atlassian OAuth 2.1.
+# Non-interactive automation must use an organization-approved machine identity.
+
+[mcp_servers.atlassian]
+url = "https://mcp.atlassian.com/v1/mcp/authv2"
+required = false
+default_tools_approval_mode = "writes"
