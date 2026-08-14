@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_CONTEXT = [
     "docs/agent-context/project-map.md",
     "docs/agent-context/services/customer.md",
+    "docs/agent-context/services/product.md",
     "docs/agent-context/services/service-template.md",
     "docs/agent-context/platform/shared-projects.md",
     "docs/agent-context/platform/apphost.md",

@@ -2,10 +2,10 @@
 
 ## Scope
 
-This repository currently contains shared security infrastructure and `ServiceTemplate.Api`. It does
-not contain an Order domain or real Order endpoints. Names such as `order-api`, `order-mobile`, and
-`orders.read` define the intended identity contract; they do not imply that domain authorization has
-already been implemented.
+This repository contains shared security infrastructure, Customer and Product resource APIs, and
+`ServiceTemplate.Api`. It does not contain an Order domain or real Order endpoints. Names such as
+`order-api`, `order-mobile`, and `orders.read` define the intended identity contract; they do not
+imply that Order domain authorization has already been implemented.
 
 ## Responsibility boundary
 
@@ -49,7 +49,7 @@ The mobile application opens the system browser, sends an authorization request,
 through the registered redirect URI, and exchanges the code plus PKCE verifier directly with
 Keycloak. It sends only the access token to the API.
 
-## Local Scalar client
+## Local Scalar clients
 
 The development realm includes a separate `scalar-dev` public client for the HTTPS API-documentation
 endpoint at `https://localhost:7040/scalar/v1`. It uses Authorization Code with PKCE `S256`, exact
@@ -68,6 +68,11 @@ mobile client's explicit role scope mapping contains only `order-user`, so privi
 roles are not emitted through the public mobile client. A dedicated `order-api-roles` client scope
 uses Keycloak's client-specific role mapper and writes only resolved `order-api` roles to
 `resource_access.order-api.roles` in access tokens.
+
+Customer and Product use separate development Scalar clients at ports `7050` and `7060`. The
+`product-scalar-dev` client has exact redirect/origin allow-lists, PKCE `S256`, and only the
+`product-api-audience` plus basic identity scopes. Product capability scopes and roles remain
+undefined until an explicit authorization requirement is approved.
 
 ## API validation
 
@@ -189,6 +194,8 @@ the realm, checks OIDC discovery, and queries the Admin API to verify:
 - explicit profile, email, audience, role, offline, and application scopes;
 - only `order-user` in the mobile client's `order-api` role scope mapping;
 - the `scalar-dev` public-client, redirect, origin, scopes, and `order-user` role boundary;
+- the isolated Product bearer-only resource client, audience mapper, and PKCE Scalar client without
+  invented capability grants;
 - the client-specific `order-api-roles` protocol mapper and its access-token-only claim target.
 
 Unit tests separately verify JWT option hardening, exact scopes, role mapping, required claims, and the

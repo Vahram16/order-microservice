@@ -17,6 +17,7 @@ var postgres = builder
 
 var serviceDatabase = postgres.AddDatabase("service-template-db");
 var customerDatabase = postgres.AddDatabase("customer-db", "customer");
+var productDatabase = postgres.AddDatabase("product-db", "product");
 var keycloakDatabase = postgres.AddDatabase("keycloak-db", "keycloak");
 var rabbitMq = builder.AddRabbitMQ("rabbitmq")
     .WithManagementPlugin()
@@ -95,6 +96,31 @@ builder.AddProject<Projects.Customer_Api>(
     })
     .WaitFor(customerDatabase)
     .WaitForCompletion(customerMigrations)
+    .WaitFor(keycloak);
+
+var productMigrations = builder.AddProject<Projects.Product_Migrator>(
+        "product-migrator")
+    .WithReference(productDatabase)
+    .WaitFor(productDatabase);
+
+builder.AddProject<Projects.Product_Api>(
+        "product-api",
+        launchProfileName: "https")
+    .WithReference(productDatabase)
+    .WithReference(keycloak)
+    .WithEnvironment("Security__Authority", keycloakIssuer)
+    .WithEnvironment("Security__Audience", "product-api")
+    .WithEnvironment("Security__RoleClientId", "product-api")
+    .WithEnvironment("Security__ValidAuthorizedParties__0", "product-scalar-dev")
+    .WithEnvironment("Security__RequireHttpsMetadata", "true")
+    .WithHttpHealthCheck("/health", endpointName: "https")
+    .WithUrlForEndpoint("https", url =>
+    {
+        url.Url = "/scalar/v1";
+        url.DisplayText = "Product Scalar API";
+    })
+    .WaitFor(productDatabase)
+    .WaitForCompletion(productMigrations)
     .WaitFor(keycloak);
 
 await builder.Build().RunAsync();

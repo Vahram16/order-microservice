@@ -5,6 +5,7 @@ Use this file to choose **which test project owns verification**. Load `architec
 | Production area | Primary test owner |
 | --- | --- |
 | Customer domain, slices, API, persistence, concurrency/idempotency | `tests/Customer.Api.Tests` |
+| Product domain, slices, API, persistence | `tests/Product.Api.Tests` |
 | Shared CQRS/application pipeline behavior | `tests/Microservices.Application.Tests` |
 | Repository-wide dependency/boundary rules | `tests/Microservices.ArchitectureTests` |
 | Messaging contracts/topology/outbox/inbox/retry/recovery | `tests/Microservices.Messaging.Tests` |
@@ -15,6 +16,7 @@ Use this file to choose **which test project owns verification**. Load `architec
 ## Routing rules
 
 - Start with the owning component's test project and the nearest existing test.
+- Product changes start with `tests/Product.Api.Tests`; add repository architecture coverage when Product changes a dependency boundary.
 - Add repository architecture tests when dependency direction or project boundaries change.
 - Add messaging/security/platform test projects only when those boundaries are actually affected.
 - A new real service needs its own service-specific test ownership plus repository architecture coverage.

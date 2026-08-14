@@ -9,6 +9,7 @@ Repository source, project files, executable tests, accepted ADRs, and CI remain
 Start with `project-map.md`. Then load **one matching owner document**, not the whole repository map:
 
 - Customer -> `services/customer.md`;
+- Product -> `services/product.md`;
 - ServiceTemplate / approved new-service scaffolding -> `services/service-template.md`;
 - shared libraries / proposed shared abstractions -> `platform/shared-projects.md`;
 - local Aspire orchestration -> `platform/apphost.md`;

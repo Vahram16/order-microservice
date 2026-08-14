@@ -4,6 +4,7 @@ using MassTransit;
 using Microservices.Application.Messaging;
 using Microservices.Contracts;
 using Microservices.Messaging;
+using Product.Api.Persistence;
 using ServiceTemplate.Api.Persistence;
 
 namespace Microservices.ArchitectureTests;
@@ -13,6 +14,7 @@ public sealed class MessagingArchitectureTests
     private static readonly Assembly[] ApplicationAssemblies =
     [
         typeof(CustomerDbContext).Assembly,
+        typeof(ProductDbContext).Assembly,
         typeof(ServiceTemplateDbContext).Assembly,
         typeof(IIntegrationEventPublisher).Assembly
     ];
@@ -50,9 +52,15 @@ public sealed class MessagingArchitectureTests
     [Fact]
     public void DomainTypesDoNotDependOnMessagingPersistenceOrTransportInfrastructure()
     {
-        var domainTypes = typeof(CustomerDbContext).Assembly
-            .GetTypes()
-            .Where(type => type.Namespace?.StartsWith("Customer.Api.Domain", StringComparison.Ordinal) == true);
+        var domainTypes = new[]
+            {
+                typeof(CustomerDbContext).Assembly,
+                typeof(ProductDbContext).Assembly
+            }
+            .SelectMany(SafeGetTypes)
+            .Where(type =>
+                type.Namespace?.StartsWith("Customer.Api.Domain", StringComparison.Ordinal) == true ||
+                type.Namespace?.StartsWith("Product.Api.Domain", StringComparison.Ordinal) == true);
         var violations = MessagingDependencyRules.FindDependenciesWithPrefixes(
             domainTypes,
             [
@@ -75,6 +83,7 @@ public sealed class MessagingArchitectureTests
         var forbiddenAssemblyPrefixes = new[]
         {
             "Customer.",
+            "Product.",
             "ServiceTemplate.",
             "Microservices.Messaging",
             "Microsoft.EntityFrameworkCore",

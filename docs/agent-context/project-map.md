@@ -9,6 +9,7 @@ Do not load every service/platform document. After ownership is clear, load only
 | Change area | Owner | Load next |
 | --- | --- | --- |
 | Customer business behavior, Customer domain, Customer persistence | `src/Services/Customer` | `services/customer.md` |
+| Product business behavior, Product domain, Product persistence | `src/Services/Product` | `services/product.md` |
 | Generic service scaffolding/template wiring | `src/Services/ServiceTemplate` | `services/service-template.md` |
 | Shared CQRS/contracts/messaging/PostgreSQL/security/service defaults | `src/Shared` | `platform/shared-projects.md` |
 | Local Aspire orchestration/development resource wiring | `src/AppHost/Microservices.AppHost` | `platform/apphost.md` |
@@ -26,6 +27,10 @@ src/AppHost/Microservices.AppHost
 src/Services/Customer/
 ├── Customer.Api
 └── Customer.Migrator
+
+src/Services/Product/
+├── Product.Api
+└── Product.Migrator
 
 src/Services/ServiceTemplate/
 ├── ServiceTemplate.Api
@@ -47,12 +52,14 @@ tests/
 ├── Microservices.Messaging.Tests
 ├── Microservices.Primitives.Tests
 ├── Microservices.Security.Tests
-└── Microservices.ServiceDefaults.Tests
+├── Microservices.ServiceDefaults.Tests
+└── Product.Api.Tests
 ```
 
 ## Routing rules
 
 - If the task names Customer or modifies files under `src/Services/Customer`, load `services/customer.md`.
+- If the task names Product or modifies files under `src/Services/Product`, load `services/product.md`.
 - If the task is about creating/modifying generic service scaffolding, load `services/service-template.md`.
 - If the task proposes `src/Shared` changes or a new cross-service abstraction, load `platform/shared-projects.md` and treat the change as architecture-sensitive.
 - If the task changes local development orchestration/resources, load `platform/apphost.md`.

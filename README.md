@@ -3,8 +3,9 @@
 A .NET 10 foundation for independently deployable services with PostgreSQL, RabbitMQ, transactional
 outbox/inbox support, OpenTelemetry, health checks, OpenAPI, and Keycloak-backed authentication.
 
-The repository contains infrastructure plumbing and a service template. It intentionally does not
-invent an Order domain, aggregates, endpoints, or authorization rules that do not yet exist.
+The repository contains infrastructure plumbing, Customer and Product bounded-context services, and
+a service template. It intentionally does not invent an Order domain, aggregates, endpoints, or
+authorization rules that do not yet exist.
 
 ## Architecture
 
@@ -29,6 +30,12 @@ src/
   AppHost/
     Microservices.AppHost/          local Aspire orchestration and development realm import
   Services/
+    Customer/
+      Customer.Api/                 Customer bounded-context API and vertical slices
+      Customer.Migrator/            run-once Customer schema migration
+    Product/
+      Product.Api/                  Product bounded-context API and vertical slices
+      Product.Migrator/             run-once Product schema migration
     ServiceTemplate/
       ServiceTemplate.Api/          resource API composition root and vertical-slice template
       ServiceTemplate.Migrator/     run-once schema migration
@@ -40,9 +47,11 @@ src/
     Microservices.Security/         JWT validation and authorization policies
     Microservices.ServiceDefaults/  observability, resilience, health, and OpenAPI
 tests/
+  Customer.Api.Tests/
   Microservices.ArchitectureTests/
   Microservices.Messaging.Tests/
   Microservices.Security.Tests/
+  Product.Api.Tests/
 infrastructure/
   keycloak/                         optimized production identity image definition
   rabbitmq/                         pinned broker image with delayed exchange and Prometheus
@@ -92,17 +101,21 @@ application-owned custom scheme before release. The mobile application must open
 complete the authorization flow, exchange the code with its PKCE verifier, and attach only the
 access token as a bearer token to API calls.
 
-## Local API documentation client
+## Local API documentation clients
 
-The development realm also defines `scalar-dev`, a public PKCE client for Scalar at
-`https://localhost:7040/scalar/v1`. It has the same explicitly granted API audience, application
-scopes, and `order-user` role boundary as the mobile client, but it does not request
-`offline_access` because interactive API documentation does not need an offline refresh token. It
-is accepted only by the development API configuration; production continues to allow only
-explicitly configured production clients.
+The development realm defines separate public PKCE clients for each Scalar surface:
 
-The imported realm explicitly assigns Keycloak's `basic` client scope to both public clients so
-their access tokens contain the stable OIDC `sub` identifier required by the API.
+- `scalar-dev` at `https://localhost:7040/scalar/v1` for the template/Order identity contract;
+- `customer-scalar-dev` at `https://localhost:7050/scalar/v1` for Customer;
+- `product-scalar-dev` at `https://localhost:7060/scalar/v1` for Product.
+
+Each client has an exact redirect URI and web origin. The Product client receives only the
+`product-api` audience plus basic identity claims; no Product capability scope or application role
+is invented by this change. These clients are development-only, and production must configure an
+explicit trusted caller and authorization contract.
+
+The imported realm assigns Keycloak's `basic` client scope so access tokens contain the stable OIDC
+`sub` identifier required by API token validation.
 
 Run the API with its HTTPS launch profile when using Scalar OAuth. The exact redirect URI and web
 origin are intentionally not wildcards.
@@ -221,7 +234,9 @@ Aspire starts:
 - the pinned RabbitMQ image with the delayed-message exchange and Prometheus plugins;
 - Keycloak 26.7.0 on host port `8080`;
 - `ServiceTemplate.Migrator`;
-- `ServiceTemplate.Api` after its dependencies are ready.
+- `ServiceTemplate.Api` after its dependencies are ready;
+- `Customer.Migrator`, followed by `Customer.Api`;
+- `Product.Migrator`, followed by `Product.Api`.
 
 Open the Aspire dashboard URL printed by `dotnet run`. The Keycloak resource exposes its endpoint and
 admin-console link there.
@@ -301,6 +316,19 @@ dotnet ef migrations add <Name> \
 Deploy `ServiceTemplate.Migrator` as a run-once task before API replicas. API processes must not
 apply schema migrations during startup. Add workload-specific outbox monitoring indexes only after
 representative query plans and production requirements justify them.
+
+Create a Product-owned migration:
+
+```bash
+dotnet ef migrations add <Name> \
+  --project src/Services/Product/Product.Api \
+  --startup-project src/Services/Product/Product.Api \
+  --context ProductDbContext \
+  --output-dir Persistence/Migrations
+```
+
+Deploy `Product.Migrator` as a run-once task before Product API replicas. Product API processes must
+not apply schema migrations during startup.
 
 ## Production Keycloak boundary
 

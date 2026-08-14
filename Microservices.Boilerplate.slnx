@@ -8,6 +8,10 @@
     <Project Path="src/Services/Customer/Customer.Api/Customer.Api.csproj" />
     <Project Path="src/Services/Customer/Customer.Migrator/Customer.Migrator.csproj" />
   </Folder>
+  <Folder Name="/src/Services/Product/">
+    <Project Path="src/Services/Product/Product.Api/Product.Api.csproj" />
+    <Project Path="src/Services/Product/Product.Migrator/Product.Migrator.csproj" />
+  </Folder>
   <Folder Name="/src/Services/ServiceTemplate/">
     <Project Path="src/Services/ServiceTemplate/ServiceTemplate.Api/ServiceTemplate.Api.csproj" />
     <Project Path="src/Services/ServiceTemplate/ServiceTemplate.Migrator/ServiceTemplate.Migrator.csproj" />
@@ -29,5 +33,6 @@
     <Project Path="tests/Microservices.Primitives.Tests/Microservices.Primitives.Tests.csproj" />
     <Project Path="tests/Microservices.Security.Tests/Microservices.Security.Tests.csproj" />
     <Project Path="tests/Microservices.ServiceDefaults.Tests/Microservices.ServiceDefaults.Tests.csproj" />
+    <Project Path="tests/Product.Api.Tests/Product.Api.Tests.csproj" />
   </Folder>
 </Solution>
