@@ -7,6 +7,16 @@ namespace Product.Api.Tests;
 
 public sealed class ProductDomainBoundaryTests
 {
+    private const string SdkImplicitUsings = """
+        global using System;
+        global using System.Collections.Generic;
+        global using System.IO;
+        global using System.Linq;
+        global using System.Net.Http;
+        global using System.Threading;
+        global using System.Threading.Tasks;
+        """;
+
     private static readonly string[] ForbiddenNamespacePrefixes =
     [
         "Microsoft.AspNetCore",
@@ -38,17 +48,28 @@ public sealed class ProductDomainBoundaryTests
             "Product",
             "Product.Api");
         var domainPath = Path.Combine(productApiPath, "Domain");
-        var sourceFiles = Directory
+        var domainSourceFiles = Directory
             .EnumerateFiles(domainPath, "*.cs", SearchOption.AllDirectories)
             .OrderBy(path => path, StringComparer.Ordinal)
-            .Append(Path.Combine(productApiPath, "GlobalUsings.cs"))
             .ToArray();
 
-        Assert.NotEmpty(sourceFiles);
-        var syntaxTrees = sourceFiles
+        Assert.NotEmpty(domainSourceFiles);
+        var domainSyntaxTrees = domainSourceFiles
             .Select(path => CSharpSyntaxTree.ParseText(
                 File.ReadAllText(path),
                 path: path))
+            .ToArray();
+        var supportSyntaxTrees = new[]
+        {
+            CSharpSyntaxTree.ParseText(
+                File.ReadAllText(Path.Combine(productApiPath, "GlobalUsings.cs")),
+                path: Path.Combine(productApiPath, "GlobalUsings.cs")),
+            CSharpSyntaxTree.ParseText(
+                SdkImplicitUsings,
+                path: "Product.Api.SdkImplicitUsings.g.cs")
+        };
+        var syntaxTrees = domainSyntaxTrees
+            .Concat(supportSyntaxTrees)
             .ToArray();
         var compilation = CSharpCompilation.Create(
             "ProductDomainBoundaryAnalysis",
@@ -68,7 +89,7 @@ public sealed class ProductDomainBoundaryTests
             $"Product Domain semantic analysis could not compile the boundary sources:{Environment.NewLine}{string.Join(Environment.NewLine, compilationErrors)}");
 
         var violations = new List<string>();
-        foreach (var syntaxTree in syntaxTrees)
+        foreach (var syntaxTree in domainSyntaxTrees)
         {
             var semanticModel = compilation.GetSemanticModel(
                 syntaxTree,
