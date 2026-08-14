@@ -121,7 +121,7 @@ public sealed class ProductDomainBoundaryTests
 
         return referencePaths
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-            .Select(MetadataReference.CreateFromFile);
+            .Select(path => MetadataReference.CreateFromFile(path));
     }
 
     private static IEnumerable<ISymbol> GetReferencedSymbols(
@@ -152,15 +152,16 @@ public sealed class ProductDomainBoundaryTests
         ISymbol symbol,
         out string namespaceName)
     {
-        namespaceName = symbol switch
+        var resolvedNamespaceName = symbol switch
         {
             INamespaceSymbol namespaceSymbol => namespaceSymbol.ToDisplayString(),
             _ => symbol.ContainingNamespace?.ToDisplayString() ?? string.Empty
         };
+        namespaceName = resolvedNamespaceName;
 
         return ForbiddenNamespacePrefixes.Any(prefix =>
-            string.Equals(namespaceName, prefix, StringComparison.Ordinal) ||
-            namespaceName.StartsWith(prefix + ".", StringComparison.Ordinal));
+            string.Equals(resolvedNamespaceName, prefix, StringComparison.Ordinal) ||
+            resolvedNamespaceName.StartsWith(prefix + ".", StringComparison.Ordinal));
     }
 
     private static string FindRepositoryRoot()
