@@ -1,5 +1,7 @@
 using Microservices.Application;
 using Microsoft.EntityFrameworkCore;
+using Product.Api.Features.Products.Common;
+using Product.Api.Persistence;
 
 namespace Product.Api.Features.Products.Creating.V1;
 
