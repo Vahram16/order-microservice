@@ -1,4 +1,5 @@
 using Microservices.Application;
+using Product.Api.Features.Products.Common;
 
 namespace Product.Api.Features.Products.Creating.V1;
 

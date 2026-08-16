@@ -1,4 +1,5 @@
 using MediatR;
+using Product.Api.Features.Products.Common;
 
 namespace Product.Api.Features.Products.GettingById.V1;
 
