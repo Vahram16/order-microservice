@@ -1,3 +1,4 @@
+using System.Globalization;
 using Payment.Api.Persistence;
 
 namespace Payment.Api.Tests;
@@ -8,7 +9,9 @@ public sealed class PaymentWebhookEventTests
     public void DurableReceiptStartsUnprocessedAndKeepsProviderIdentity()
     {
         var id = Guid.NewGuid();
-        var receivedAt = DateTimeOffset.Parse("2026-08-17T00:00:00Z");
+        var receivedAt = DateTimeOffset.Parse(
+            "2026-08-17T00:00:00Z",
+            CultureInfo.InvariantCulture);
 
         var webhookEvent = PaymentWebhookEvent.Create(
             id,
@@ -33,8 +36,12 @@ public sealed class PaymentWebhookEventTests
             "evt_123",
             "setup_intent.succeeded",
             "seti_123",
-            DateTimeOffset.Parse("2026-08-17T00:00:00Z"));
-        var first = DateTimeOffset.Parse("2026-08-17T00:00:01Z");
+            DateTimeOffset.Parse(
+                "2026-08-17T00:00:00Z",
+                CultureInfo.InvariantCulture));
+        var first = DateTimeOffset.Parse(
+            "2026-08-17T00:00:01Z",
+            CultureInfo.InvariantCulture);
         var second = first.AddMinutes(1);
 
         webhookEvent.MarkProcessed(first);
