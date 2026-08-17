@@ -1,7 +1,5 @@
-using FluentValidation;
 using MassTransit;
 using MediatR;
-using Microservices.Application;
 using Microservices.Messaging;
 using Microservices.Persistence.Postgres;
 using Microservices.Security;
@@ -12,6 +10,7 @@ using Payment.Api.Features.PaymentMethods.Common;
 using Payment.Api.Infrastructure.Stripe;
 using Payment.Api.Integration;
 using Payment.Api.Persistence;
+using Payment.Api.Webhooks;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,8 +26,8 @@ builder.AddApiDocumentation(
             ["profile"] = "Read the user's basic identity profile.",
             ["payment-api-audience"] = "Request a token for Payment API.",
             ["payment-api-roles"] = "Request Payment API client roles.",
-            [PaymentAuthorization.ReadScope] = "Read saved payment methods.",
-            [PaymentAuthorization.WriteScope] = "Manage saved payment methods."
+            [PaymentAuthorization.ReadScope] = "Read payment methods.",
+            [PaymentAuthorization.WriteScope] = "Manage payment methods."
         }));
 builder.Services.AddMicroserviceProblemDetails();
 builder.Services.AddApiSecurity(builder.Configuration, builder.Environment);
@@ -36,24 +35,13 @@ builder.Services.AddPostgresDbContext<PaymentDbContext>(builder.Configuration, "
 builder.Services.AddHealthChecks().AddDbContextCheck<PaymentDbContext>(
     tags: [ServiceHealthCheckTags.Readiness]);
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddValidatorsFromAssemblyContaining<Program>(
-    ServiceLifetime.Scoped,
-    includeInternalTypes: true);
 builder.Services.AddMediatR(configuration =>
 {
     configuration.RegisterServicesFromAssemblyContaining<Program>();
-    configuration.AddOpenBehavior(typeof(ValidationBehavior<,>));
     configuration.LicenseKey = builder.Configuration["Licensing:MediatR"];
 });
-
-builder.Services.AddOptions<StripeOptions>()
-    .Bind(builder.Configuration.GetSection(StripeOptions.SectionName))
-    .Validate(options => !string.IsNullOrWhiteSpace(options.SecretKey), "Stripe SecretKey is required.")
-    .Validate(options => !string.IsNullOrWhiteSpace(options.WebhookSecret), "Stripe WebhookSecret is required.")
-    .ValidateOnStart();
-builder.Services.AddScoped<IStripeGateway, StripeGateway>();
+builder.Services.AddStripePayments(builder.Configuration);
 builder.Services.AddHostedService<StripeWebhookProcessor>();
-
 builder.Services.AddRabbitMqWithPostgresOutbox<PaymentDbContext>(
     builder.Configuration,
     "payment",
@@ -69,7 +57,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapDefaultEndpoints();
 app.MapApiDocumentation();
-app.MapMicroserviceErrorCatalog();
+PaymentErrorCatalog.Map(app);
 app.MapPaymentMethodEndpoints();
 StripeWebhookEndpoint.Map(app);
 

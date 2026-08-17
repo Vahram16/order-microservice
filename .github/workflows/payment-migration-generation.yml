@@ -1,0 +1,54 @@
+name: payment-migration-generation
+
+on:
+  push:
+    branches:
+      - agent/payment-service
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Restore Payment API
+        run: dotnet restore src/Services/Payment/Payment.Api/Payment.Api.csproj
+
+      - name: Generate Payment migration
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ConnectionStrings__payment-db: Host=localhost;Port=5432;Database=payment_design;Username=postgres;Password=postgres
+          ConnectionStrings__rabbitmq: amqp://guest:guest@localhost:5672/
+          Messaging__UseTls: "false"
+          Stripe__SecretKey: sk_test_design_time
+          Stripe__WebhookSecret: whsec_design_time
+          Security__Authority: https://identity.invalid/realms/order
+          Security__Audience: payment-api
+          Security__RoleClientId: payment-api
+          Security__ValidAuthorizedParties__0: order-mobile
+          Security__RequireHttpsMetadata: "false"
+        run: >-
+          dotnet ef migrations add InitialPayment
+          --project src/Services/Payment/Payment.Api/Payment.Api.csproj
+          --startup-project src/Services/Payment/Payment.Api/Payment.Api.csproj
+          --output-dir Persistence/Migrations
+
+      - name: Upload generated migration
+        uses: actions/upload-artifact@v7
+        with:
+          name: payment-generated-migration
+          path: src/Services/Payment/Payment.Api/Persistence/Migrations
+          if-no-files-found: error
+          retention-days: 1

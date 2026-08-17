@@ -13,31 +13,34 @@ internal sealed class ListPaymentMethodsHandler(PaymentDbContext dbContext)
         ListPaymentMethodsQuery query,
         CancellationToken cancellationToken)
     {
-        var customerId = await dbContext.PaymentCustomers
-            .Where(customer => customer.IdentityProvider == query.IdentityProvider &&
-                               customer.IdentitySubject == query.IdentitySubject)
-            .Select(customer => (Guid?)customer.CustomerId)
-            .SingleOrDefaultAsync(cancellationToken);
-        if (customerId is null)
+        var customer = await dbContext.PaymentCustomers
+            .AsNoTracking()
+            .FindByIdentityAsync(
+                query.Identity.Provider,
+                query.Identity.Subject,
+                cancellationToken);
+
+        if (customer is null)
         {
             return PaymentApplicationErrors.CustomerNotSynchronized;
         }
 
         var methods = await dbContext.PaymentMethods
             .AsNoTracking()
-            .Where(method => method.CustomerId == customerId.Value &&
-                             method.Status == SavedPaymentMethodStatus.Active)
+            .Where(method =>
+                method.PaymentCustomerId == customer.Id &&
+                method.Status == PaymentMethodStatus.Active)
             .OrderByDescending(method => method.IsDefault)
-            .ThenByDescending(method => method.CreatedAt)
+            .ThenBy(method => method.CreatedAt)
             .Select(method => new PaymentMethodResponse(
                 method.Id,
-                method.Type,
                 method.Brand,
                 method.Last4,
                 method.ExpMonth,
                 method.ExpYear,
                 method.WalletType,
-                method.IsDefault))
+                method.IsDefault,
+                method.Status.ToString()))
             .ToListAsync(cancellationToken);
 
         return Result.Success<IReadOnlyList<PaymentMethodResponse>>(methods);

@@ -1,14 +1,13 @@
 using Microservices.Application;
 using Microsoft.EntityFrameworkCore;
 using Payment.Api.Features.PaymentMethods.Common;
-using Payment.Api.Infrastructure.Stripe;
 using Payment.Api.Persistence;
 
 namespace Payment.Api.Features.PaymentMethods.CreatingSetup.V1;
 
 internal sealed class CreatePaymentMethodSetupHandler(
     PaymentDbContext dbContext,
-    IStripeGateway stripeGateway,
+    IPaymentProvider paymentProvider,
     TimeProvider timeProvider)
     : ICommandHandler<CreatePaymentMethodSetupCommand, Result<CreatePaymentMethodSetupResult>>
 {
@@ -16,57 +15,125 @@ internal sealed class CreatePaymentMethodSetupHandler(
         CreatePaymentMethodSetupCommand command,
         CancellationToken cancellationToken)
     {
-        var customer = await dbContext.PaymentCustomers.SingleOrDefaultAsync(
-            candidate => candidate.IdentityProvider == command.IdentityProvider &&
-                         candidate.IdentitySubject == command.IdentitySubject,
+        var customer = await dbContext.PaymentCustomers.FindByIdentityAsync(
+            command.Identity.Provider,
+            command.Identity.Subject,
             cancellationToken);
+
         if (customer is null)
         {
             return PaymentApplicationErrors.CustomerNotSynchronized;
         }
 
-        var stripeCustomerId = customer.StripeCustomerId;
-        if (stripeCustomerId is null)
-        {
-            stripeCustomerId = await stripeGateway.CreateCustomerAsync(
-                customer.CustomerId,
-                StripeIdempotencyKeys.Customer(customer.CustomerId),
-                cancellationToken);
+        var operation = await dbContext.PaymentMethodSetupOperations
+            .SingleOrDefaultAsync(item => item.Id == command.RequestId, cancellationToken);
 
-            customer.AssignStripeCustomer(stripeCustomerId, timeProvider.GetUtcNow());
-            try
+        if (operation is not null && operation.PaymentCustomerId != customer.Id)
+        {
+            return PaymentApplicationErrors.IdempotencyKeyReused;
+        }
+
+        if (customer.ProviderCustomerId is null)
+        {
+            var providerCustomerResult = await EnsureProviderCustomerAsync(customer, cancellationToken);
+            if (providerCustomerResult.IsFailure)
             {
-                await dbContext.SaveChangesAsync(cancellationToken);
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                dbContext.ChangeTracker.Clear();
-                customer = await dbContext.PaymentCustomers.SingleAsync(
-                    candidate => candidate.CustomerId == customer.CustomerId,
-                    cancellationToken);
-                if (!string.Equals(customer.StripeCustomerId, stripeCustomerId, StringComparison.Ordinal))
-                {
-                    throw;
-                }
+                return providerCustomerResult.Error;
             }
         }
 
-        var setupIntent = await stripeGateway.CreateSetupIntentAsync(
-            stripeCustomerId,
-            customer.CustomerId,
+        operation ??= PaymentMethodSetupOperation.Create(
             command.RequestId,
-            command.MakeDefault,
-            StripeIdempotencyKeys.SetupIntent(customer.CustomerId, command.RequestId),
-            cancellationToken);
+            customer.Id,
+            timeProvider.GetUtcNow());
 
-        if (string.IsNullOrWhiteSpace(setupIntent.ClientSecret))
+        if (dbContext.Entry(operation).State == EntityState.Detached)
         {
-            throw new InvalidOperationException("Stripe returned a SetupIntent without a client secret.");
+            dbContext.PaymentMethodSetupOperations.Add(operation);
+            await dbContext.SaveChangesAsync(cancellationToken);
         }
+
+        PaymentMethodSetupSession setup;
+        try
+        {
+            setup = operation.ProviderSetupIntentId is null
+                ? await paymentProvider.CreatePaymentMethodSetupAsync(
+                    customer.Id,
+                    customer.ProviderCustomerId!,
+                    PaymentProviderIdempotencyKeys.PaymentMethodSetup(operation.Id),
+                    cancellationToken)
+                : await paymentProvider.GetPaymentMethodSetupAsync(
+                    operation.ProviderSetupIntentId,
+                    cancellationToken);
+        }
+        catch (PaymentProviderException)
+        {
+            return PaymentApplicationErrors.ProviderUnavailable;
+        }
+
+        if (!operation.TryAssignProviderSetupIntent(
+                setup.ProviderSetupIntentId,
+                timeProvider.GetUtcNow()))
+        {
+            return PaymentApplicationErrors.IdempotencyKeyReused;
+        }
+
+        if (string.IsNullOrWhiteSpace(setup.ClientSecret))
+        {
+            return PaymentApplicationErrors.ProviderUnavailable;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         return Result.Success(new CreatePaymentMethodSetupResult(
-            command.RequestId,
-            setupIntent.Id,
-            setupIntent.ClientSecret));
+            setup.ProviderSetupIntentId,
+            setup.ClientSecret,
+            setup.Status));
+    }
+
+    private async Task<Result> EnsureProviderCustomerAsync(
+        Domain.PaymentCustomer customer,
+        CancellationToken cancellationToken)
+    {
+        string providerCustomerId;
+        try
+        {
+            providerCustomerId = await paymentProvider.CreateCustomerAsync(
+                customer.Id,
+                customer.CustomerId,
+                PaymentProviderIdempotencyKeys.PaymentCustomer(customer.Id),
+                cancellationToken);
+        }
+        catch (PaymentProviderException)
+        {
+            return PaymentApplicationErrors.ProviderUnavailable;
+        }
+
+        var assignment = customer.AssignProviderCustomer(
+            providerCustomerId,
+            timeProvider.GetUtcNow());
+        if (assignment.IsFailure)
+        {
+            return assignment.Error;
+        }
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return Result.Success();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            dbContext.Entry(customer).State = EntityState.Detached;
+            var current = await dbContext.PaymentCustomers
+                .SingleAsync(item => item.Id == customer.Id, cancellationToken);
+
+            return string.Equals(
+                current.ProviderCustomerId,
+                providerCustomerId,
+                StringComparison.Ordinal)
+                ? Result.Success()
+                : PaymentApplicationErrors.ConcurrencyConflict;
+        }
     }
 }

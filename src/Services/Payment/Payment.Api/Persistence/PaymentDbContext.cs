@@ -1,92 +1,120 @@
+using MassTransit;
 using Microservices.Messaging;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Payment.Api.Domain;
 
 namespace Payment.Api.Persistence;
 
-public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
-    : DbContext(options)
+public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options) : DbContext(options)
 {
-    public DbSet<PaymentCustomer> PaymentCustomers => Set<PaymentCustomer>();
-    public DbSet<SavedPaymentMethod> PaymentMethods => Set<SavedPaymentMethod>();
-    internal DbSet<StripeWebhookInboxEntry> StripeWebhookInbox => Set<StripeWebhookInboxEntry>();
+    internal DbSet<PaymentCustomer> PaymentCustomers => Set<PaymentCustomer>();
+    internal DbSet<PaymentMethod> PaymentMethods => Set<PaymentMethod>();
+    internal DbSet<PaymentMethodSetupOperation> PaymentMethodSetupOperations => Set<PaymentMethodSetupOperation>();
+    internal DbSet<PaymentWebhookEvent> PaymentWebhookEvents => Set<PaymentWebhookEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        ArgumentNullException.ThrowIfNull(modelBuilder);
         base.OnModelCreating(modelBuilder);
-        modelBuilder.ApplyConfigurationsFromAssembly(typeof(PaymentDbContext).Assembly);
+
+        ConfigurePaymentCustomer(modelBuilder);
+        ConfigurePaymentMethod(modelBuilder);
+        ConfigurePaymentMethodSetup(modelBuilder);
+        ConfigureWebhookEvent(modelBuilder);
         modelBuilder.AddMassTransitOutboxEntities();
     }
-}
 
-internal sealed class PaymentCustomerConfiguration : IEntityTypeConfiguration<PaymentCustomer>
-{
-    public void Configure(EntityTypeBuilder<PaymentCustomer> builder)
+    private static void ConfigurePaymentCustomer(ModelBuilder modelBuilder)
     {
-        builder.ToTable("payment_customers");
-        builder.HasKey(customer => customer.CustomerId);
-        builder.Property(customer => customer.CustomerId).ValueGeneratedNever();
-        builder.Property(customer => customer.IdentityProvider).HasMaxLength(32).IsRequired();
-        builder.Property(customer => customer.IdentitySubject).HasMaxLength(255).IsRequired();
-        builder.Property(customer => customer.StripeCustomerId).HasMaxLength(255);
-        builder.Property(customer => customer.CreatedAt).IsRequired();
-        builder.Property(customer => customer.UpdatedAt).IsRequired();
-        builder.Property(customer => customer.Version).IsConcurrencyToken().IsRequired();
+        var entity = modelBuilder.Entity<PaymentCustomer>();
+        entity.ToTable("payment_customers");
+        entity.HasKey(customer => customer.Id);
+        entity.Property(customer => customer.CustomerId).IsRequired();
+        entity.Property(customer => customer.IdentityProvider).HasMaxLength(32).IsRequired();
+        entity.Property(customer => customer.IdentitySubject).HasMaxLength(255).IsRequired();
+        entity.Property(customer => customer.ProviderCustomerId).HasMaxLength(255);
+        entity.Property(customer => customer.CreatedAt).IsRequired();
+        entity.Property(customer => customer.UpdatedAt).IsRequired();
+        entity.Property(customer => customer.Version).IsConcurrencyToken();
 
-        builder.HasIndex(customer => new { customer.IdentityProvider, customer.IdentitySubject })
-            .HasDatabaseName("UX_payment_customers_identity")
-            .IsUnique();
-        builder.HasIndex(customer => customer.StripeCustomerId)
-            .HasDatabaseName("UX_payment_customers_stripe_customer_id")
-            .HasFilter("\"StripeCustomerId\" IS NOT NULL")
-            .IsUnique();
+        entity.HasIndex(customer => customer.CustomerId)
+            .IsUnique()
+            .HasDatabaseName(PaymentDatabaseConstraints.CustomerId);
+        entity.HasIndex(customer => new { customer.IdentityProvider, customer.IdentitySubject })
+            .IsUnique()
+            .HasDatabaseName(PaymentDatabaseConstraints.CustomerIdentity);
+        entity.HasIndex(customer => customer.ProviderCustomerId)
+            .IsUnique()
+            .HasFilter("\"ProviderCustomerId\" IS NOT NULL")
+            .HasDatabaseName(PaymentDatabaseConstraints.ProviderCustomer);
     }
-}
 
-internal sealed class SavedPaymentMethodConfiguration : IEntityTypeConfiguration<SavedPaymentMethod>
-{
-    public void Configure(EntityTypeBuilder<SavedPaymentMethod> builder)
+    private static void ConfigurePaymentMethod(ModelBuilder modelBuilder)
     {
-        builder.ToTable("payment_methods");
-        builder.HasKey(method => method.Id);
-        builder.Property(method => method.Id).ValueGeneratedNever();
-        builder.Property(method => method.CustomerId).IsRequired();
-        builder.Property(method => method.ProviderPaymentMethodId).HasMaxLength(255).IsRequired();
-        builder.Property(method => method.Type).HasMaxLength(32).IsRequired();
-        builder.Property(method => method.Brand).HasMaxLength(32);
-        builder.Property(method => method.Last4).HasMaxLength(4);
-        builder.Property(method => method.WalletType).HasMaxLength(32);
-        builder.Property(method => method.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
-        builder.Property(method => method.IsDefault).IsRequired();
-        builder.Property(method => method.CreatedAt).IsRequired();
-        builder.Property(method => method.UpdatedAt).IsRequired();
+        var entity = modelBuilder.Entity<PaymentMethod>();
+        entity.ToTable("payment_methods");
+        entity.HasKey(method => method.Id);
+        entity.Property(method => method.ProviderPaymentMethodId).HasMaxLength(255).IsRequired();
+        entity.Property(method => method.Brand).HasMaxLength(32).IsRequired();
+        entity.Property(method => method.Last4).HasMaxLength(4).IsRequired();
+        entity.Property(method => method.WalletType).HasMaxLength(32);
+        entity.Property(method => method.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
+        entity.Property(method => method.CreatedAt).IsRequired();
+        entity.Property(method => method.UpdatedAt).IsRequired();
 
-        builder.HasIndex(method => method.ProviderPaymentMethodId)
-            .HasDatabaseName("UX_payment_methods_provider_id")
-            .IsUnique();
-        builder.HasIndex(method => new { method.CustomerId, method.IsDefault })
-            .HasDatabaseName("UX_payment_methods_default")
+        entity.HasIndex(method => method.ProviderPaymentMethodId)
+            .IsUnique()
+            .HasDatabaseName(PaymentDatabaseConstraints.ProviderPaymentMethod);
+        entity.HasIndex(method => new { method.PaymentCustomerId, method.IsDefault })
+            .IsUnique()
             .HasFilter("\"IsDefault\"")
-            .IsUnique();
+            .HasDatabaseName(PaymentDatabaseConstraints.DefaultPaymentMethod);
+        entity.HasIndex(method => method.PaymentCustomerId);
 
-        builder.HasOne<PaymentCustomer>()
+        entity.HasOne<PaymentCustomer>()
             .WithMany()
-            .HasForeignKey(method => method.CustomerId)
+            .HasForeignKey(method => method.PaymentCustomerId)
             .OnDelete(DeleteBehavior.Restrict);
     }
-}
 
-internal sealed class StripeWebhookInboxConfiguration : IEntityTypeConfiguration<StripeWebhookInboxEntry>
-{
-    public void Configure(EntityTypeBuilder<StripeWebhookInboxEntry> builder)
+    private static void ConfigurePaymentMethodSetup(ModelBuilder modelBuilder)
     {
-        builder.ToTable("stripe_webhook_inbox");
-        builder.HasKey(entry => entry.EventId);
-        builder.Property(entry => entry.EventId).HasMaxLength(255);
-        builder.Property(entry => entry.EventType).HasMaxLength(128).IsRequired();
-        builder.Property(entry => entry.ObjectId).HasMaxLength(255).IsRequired();
-        builder.Property(entry => entry.LastError).HasMaxLength(2000);
-        builder.HasIndex(entry => new { entry.ProcessedAtUtc, entry.NextAttemptAtUtc, entry.ReceivedAtUtc });
+        var entity = modelBuilder.Entity<PaymentMethodSetupOperation>();
+        entity.ToTable("payment_method_setups");
+        entity.HasKey(operation => operation.Id);
+        entity.Property(operation => operation.ProviderSetupIntentId).HasMaxLength(255);
+        entity.Property(operation => operation.CreatedAt).IsRequired();
+        entity.Property(operation => operation.UpdatedAt).IsRequired();
+        entity.HasIndex(operation => operation.ProviderSetupIntentId)
+            .IsUnique()
+            .HasFilter("\"ProviderSetupIntentId\" IS NOT NULL")
+            .HasDatabaseName(PaymentDatabaseConstraints.ProviderSetupIntent);
+        entity.HasIndex(operation => operation.PaymentCustomerId);
+        entity.HasOne<PaymentCustomer>()
+            .WithMany()
+            .HasForeignKey(operation => operation.PaymentCustomerId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureWebhookEvent(ModelBuilder modelBuilder)
+    {
+        var entity = modelBuilder.Entity<PaymentWebhookEvent>();
+        entity.ToTable("payment_webhook_events");
+        entity.HasKey(webhookEvent => webhookEvent.Id);
+        entity.Property(webhookEvent => webhookEvent.ProviderEventId).HasMaxLength(255).IsRequired();
+        entity.Property(webhookEvent => webhookEvent.EventType).HasMaxLength(128).IsRequired();
+        entity.Property(webhookEvent => webhookEvent.ProviderSetupIntentId).HasMaxLength(255).IsRequired();
+        entity.Property(webhookEvent => webhookEvent.LastErrorCode).HasMaxLength(128);
+        entity.HasIndex(webhookEvent => webhookEvent.ProviderEventId)
+            .IsUnique()
+            .HasDatabaseName(PaymentDatabaseConstraints.ProviderWebhookEvent);
+        entity.HasIndex(webhookEvent => new
+        {
+            webhookEvent.ProcessedAt,
+            webhookEvent.DeadLetteredAt,
+            webhookEvent.NextAttemptAt,
+            webhookEvent.LeaseExpiresAt
+        });
+        entity.HasIndex(webhookEvent => webhookEvent.ProviderSetupIntentId);
     }
 }

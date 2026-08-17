@@ -1,9 +1,8 @@
 using Microservices.Application;
+using Payment.Api.Infrastructure;
 
 namespace Payment.Api.Features.PaymentMethods.CreatingSetup.V1;
 
 internal sealed record CreatePaymentMethodSetupCommand(
-    string IdentityProvider,
-    string IdentitySubject,
-    Guid RequestId,
-    bool MakeDefault) : ICommand<Result<CreatePaymentMethodSetupResult>>;
+    CurrentPaymentIdentity Identity,
+    Guid RequestId) : ICommand<Result<CreatePaymentMethodSetupResult>>;
