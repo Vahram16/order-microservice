@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using Payment.Api.Persistence;
@@ -36,7 +37,12 @@ internal static class StripeWebhookEndpoint
                     }
 
                     string payload;
-                    using (var reader = new StreamReader(request.Body, leaveOpen: true))
+                    using (var reader = new StreamReader(
+                               request.Body,
+                               Encoding.UTF8,
+                               detectEncodingFromByteOrderMarks: false,
+                               bufferSize: 4096,
+                               leaveOpen: true))
                     {
                         payload = await reader.ReadToEndAsync(cancellationToken);
                     }

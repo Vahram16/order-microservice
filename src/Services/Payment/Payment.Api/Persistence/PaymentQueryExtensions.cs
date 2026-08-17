@@ -6,7 +6,7 @@ namespace Payment.Api.Persistence;
 internal static class PaymentQueryExtensions
 {
     public static Task<PaymentCustomer?> FindByIdentityAsync(
-        this DbSet<PaymentCustomer> customers,
+        this IQueryable<PaymentCustomer> customers,
         string identityProvider,
         string identitySubject,
         CancellationToken cancellationToken) =>

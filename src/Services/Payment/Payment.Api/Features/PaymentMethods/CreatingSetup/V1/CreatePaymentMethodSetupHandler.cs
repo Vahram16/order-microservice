@@ -1,5 +1,6 @@
 using Microservices.Application;
 using Microsoft.EntityFrameworkCore;
+using Payment.Api.Domain;
 using Payment.Api.Features.PaymentMethods.Common;
 using Payment.Api.Persistence;
 
@@ -92,7 +93,7 @@ internal sealed class CreatePaymentMethodSetupHandler(
     }
 
     private async Task<Result> EnsureProviderCustomerAsync(
-        Domain.PaymentCustomer customer,
+        PaymentCustomer customer,
         CancellationToken cancellationToken)
     {
         string providerCustomerId;
