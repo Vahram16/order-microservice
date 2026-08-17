@@ -95,7 +95,10 @@ internal sealed class StripeGateway : IStripeGateway
     public StripeWebhookEnvelope ConstructWebhookEvent(string payload, string signatureHeader)
     {
         var stripeEvent = EventUtility.ConstructEvent(payload, signatureHeader, _webhookSecret);
-        var objectId = stripeEvent.Data.Object?.Id ?? string.Empty;
+        var objectId = stripeEvent.Data.Object is SetupIntent setupIntent
+            ? setupIntent.Id
+            : string.Empty;
+
         return new StripeWebhookEnvelope(stripeEvent.Id, stripeEvent.Type, objectId);
     }
 

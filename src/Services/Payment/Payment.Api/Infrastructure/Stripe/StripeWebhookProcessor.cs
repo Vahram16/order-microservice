@@ -12,6 +12,14 @@ internal sealed class StripeWebhookProcessor(
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ProcessingLease = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan FailureBackoff = TimeSpan.FromSeconds(15);
+    private static readonly Action<ILogger, Exception?> LogIterationFailed = LoggerMessage.Define(
+        LogLevel.Error,
+        new EventId(1, "StripeWebhookProcessorIterationFailed"),
+        "Stripe webhook processor iteration failed.");
+    private static readonly Action<ILogger, string, Exception?> LogWebhookFailed = LoggerMessage.Define<string>(
+        LogLevel.Warning,
+        new EventId(2, "StripeWebhookProcessingFailed"),
+        "Stripe webhook {EventId} processing failed.");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -34,7 +42,7 @@ internal sealed class StripeWebhookProcessor(
             }
             catch (Exception exception)
             {
-                logger.LogError(exception, "Stripe webhook processor iteration failed.");
+                LogIterationFailed(logger, exception);
                 await Task.Delay(PollInterval, timeProvider, stoppingToken);
             }
         }
@@ -198,7 +206,7 @@ internal sealed class StripeWebhookProcessor(
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             await RecordFailureAsync(eventId, leaseId, exception, cancellationToken);
-            logger.LogWarning(exception, "Stripe webhook {EventId} processing failed.", eventId);
+            LogWebhookFailed(logger, eventId, exception);
         }
     }
 

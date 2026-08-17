@@ -8,6 +8,7 @@ namespace Payment.Api.Infrastructure.Stripe;
 internal static class StripeWebhookEndpoint
 {
     private const long MaximumPayloadBytes = 256 * 1024;
+    private const string SetupIntentSucceeded = "setup_intent.succeeded";
 
     public static void Map(IEndpointRouteBuilder endpoints) =>
         endpoints.MapPost(
@@ -43,7 +44,7 @@ internal static class StripeWebhookEndpoint
                         return Results.BadRequest();
                     }
 
-                    if (!string.Equals(envelope.EventType, Events.SetupIntentSucceeded, StringComparison.Ordinal))
+                    if (!string.Equals(envelope.EventType, SetupIntentSucceeded, StringComparison.Ordinal))
                     {
                         return Results.Ok();
                     }
