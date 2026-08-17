@@ -10,6 +10,7 @@
     </PackageReference>
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="Stripe.net" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../../Shared/Microservices.Application/Microservices.Application.csproj" />

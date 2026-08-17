@@ -1,4 +1,5 @@
 using Customer.Api.Domain;
+using Microservices.Messaging;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -15,6 +16,7 @@ public sealed class CustomerDbContext(DbContextOptions<CustomerDbContext> option
     {
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(CustomerDbContext).Assembly);
+        modelBuilder.AddMassTransitOutboxEntities();
     }
 }
 
