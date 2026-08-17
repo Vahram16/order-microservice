@@ -14,6 +14,8 @@
   <ItemGroup>
     <ProjectReference Include="../../Services/Customer/Customer.Api/Customer.Api.csproj" />
     <ProjectReference Include="../../Services/Customer/Customer.Migrator/Customer.Migrator.csproj" />
+    <ProjectReference Include="../../Services/Payment/Payment.Api/Payment.Api.csproj" />
+    <ProjectReference Include="../../Services/Payment/Payment.Migrator/Payment.Migrator.csproj" />
     <ProjectReference Include="../../Services/Product/Product.Api/Product.Api.csproj" />
     <ProjectReference Include="../../Services/Product/Product.Migrator/Product.Migrator.csproj" />
     <ProjectReference Include="../../Services/ServiceTemplate/ServiceTemplate.Api/ServiceTemplate.Api.csproj" />

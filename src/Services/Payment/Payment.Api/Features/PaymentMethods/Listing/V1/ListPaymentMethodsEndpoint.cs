@@ -29,7 +29,7 @@ internal static class ListPaymentMethodsEndpoint
                         cancellationToken);
 
                     return result.Match<IResult>(
-                        Results.Ok,
+                        success => Results.Ok(success),
                         error => PaymentHttp.Problem(error, httpContext));
                 })
             .WithName("ListPaymentMethodsV1")
