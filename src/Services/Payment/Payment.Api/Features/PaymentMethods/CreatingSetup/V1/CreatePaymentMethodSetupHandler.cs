@@ -26,13 +26,16 @@ internal sealed class CreatePaymentMethodSetupHandler(
             return PaymentApplicationErrors.CustomerNotSynchronized;
         }
 
-        var operation = await dbContext.PaymentMethodSetupOperations
-            .SingleOrDefaultAsync(item => item.Id == command.RequestId, cancellationToken);
-
-        if (operation is not null && operation.PaymentCustomerId != customer.Id)
+        var operationResult = await GetOrCreateSetupOperationAsync(
+            command.RequestId,
+            customer.Id,
+            cancellationToken);
+        if (operationResult.IsFailure)
         {
-            return PaymentApplicationErrors.IdempotencyKeyReused;
+            return operationResult.Error;
         }
+
+        var operation = operationResult.Value;
 
         if (customer.ProviderCustomerId is null)
         {
@@ -41,17 +44,6 @@ internal sealed class CreatePaymentMethodSetupHandler(
             {
                 return providerCustomerResult.Error;
             }
-        }
-
-        operation ??= PaymentMethodSetupOperation.Create(
-            command.RequestId,
-            customer.Id,
-            timeProvider.GetUtcNow());
-
-        if (dbContext.Entry(operation).State == EntityState.Detached)
-        {
-            dbContext.PaymentMethodSetupOperations.Add(operation);
-            await dbContext.SaveChangesAsync(cancellationToken);
         }
 
         PaymentMethodSetupSession setup;
@@ -92,6 +84,45 @@ internal sealed class CreatePaymentMethodSetupHandler(
             setup.Status));
     }
 
+    private async Task<Result<PaymentMethodSetupOperation>> GetOrCreateSetupOperationAsync(
+        Guid requestId,
+        Guid paymentCustomerId,
+        CancellationToken cancellationToken)
+    {
+        var existing = await dbContext.PaymentMethodSetupOperations
+            .SingleOrDefaultAsync(item => item.Id == requestId, cancellationToken);
+        if (existing is not null)
+        {
+            return existing.PaymentCustomerId == paymentCustomerId
+                ? Result.Success(existing)
+                : PaymentApplicationErrors.IdempotencyKeyReused;
+        }
+
+        var created = PaymentMethodSetupOperation.Create(
+            requestId,
+            paymentCustomerId,
+            timeProvider.GetUtcNow());
+        dbContext.PaymentMethodSetupOperations.Add(created);
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return Result.Success(created);
+        }
+        catch (DbUpdateException exception) when (
+            exception.IsUniqueConstraintViolation(
+                PaymentDatabaseConstraints.PaymentMethodSetupPrimaryKey))
+        {
+            dbContext.ChangeTracker.Clear();
+            var concurrent = await dbContext.PaymentMethodSetupOperations
+                .SingleAsync(item => item.Id == requestId, cancellationToken);
+
+            return concurrent.PaymentCustomerId == paymentCustomerId
+                ? Result.Success(concurrent)
+                : PaymentApplicationErrors.IdempotencyKeyReused;
+        }
+    }
+
     private async Task<Result> EnsureProviderCustomerAsync(
         PaymentCustomer customer,
         CancellationToken cancellationToken)
@@ -101,7 +132,6 @@ internal sealed class CreatePaymentMethodSetupHandler(
         {
             providerCustomerId = await paymentProvider.CreateCustomerAsync(
                 customer.Id,
-                customer.CustomerId,
                 PaymentProviderIdempotencyKeys.PaymentCustomer(customer.Id),
                 cancellationToken);
         }

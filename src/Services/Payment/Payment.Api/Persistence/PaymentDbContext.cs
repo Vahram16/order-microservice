@@ -81,7 +81,8 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
     {
         var entity = modelBuilder.Entity<PaymentMethodSetupOperation>();
         entity.ToTable("payment_method_setups");
-        entity.HasKey(operation => operation.Id);
+        entity.HasKey(operation => operation.Id)
+            .HasName(PaymentDatabaseConstraints.PaymentMethodSetupPrimaryKey);
         entity.Property(operation => operation.ProviderSetupIntentId).HasMaxLength(255);
         entity.Property(operation => operation.CreatedAt).IsRequired();
         entity.Property(operation => operation.UpdatedAt).IsRequired();

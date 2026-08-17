@@ -4,7 +4,6 @@ internal interface IPaymentProvider
 {
     Task<string> CreateCustomerAsync(
         Guid paymentCustomerId,
-        Guid customerId,
         string idempotencyKey,
         CancellationToken cancellationToken);
 

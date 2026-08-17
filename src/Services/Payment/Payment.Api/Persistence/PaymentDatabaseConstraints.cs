@@ -7,6 +7,7 @@ internal static class PaymentDatabaseConstraints
     public const string ProviderCustomer = "ux_payment_customers_provider_customer";
     public const string ProviderPaymentMethod = "ux_payment_methods_provider_id";
     public const string DefaultPaymentMethod = "ux_payment_methods_default";
+    public const string PaymentMethodSetupPrimaryKey = "pk_payment_method_setups";
     public const string ProviderSetupIntent = "ux_payment_method_setups_provider_intent";
     public const string ProviderWebhookEvent = "ux_payment_webhook_events_provider_event";
 }

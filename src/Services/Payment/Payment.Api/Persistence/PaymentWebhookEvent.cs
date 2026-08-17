@@ -43,11 +43,7 @@ internal sealed class PaymentWebhookEvent
 
     public void MarkFailed(DateTimeOffset now, string errorCode, int maximumAttempts)
     {
-        if (maximumAttempts <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(maximumAttempts));
-        }
-
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumAttempts);
         ArgumentException.ThrowIfNullOrWhiteSpace(errorCode);
 
         AttemptCount++;

@@ -7,7 +7,6 @@ namespace Payment.Api.Infrastructure.Stripe;
 internal sealed class StripePaymentProvider : IPaymentProvider
 {
     private const string PaymentCustomerMetadata = "payment_customer_id";
-    private const string CustomerMetadata = "customer_id";
     private readonly StripeClient _client;
 
     public StripePaymentProvider(IOptions<StripeOptions> options)
@@ -17,7 +16,6 @@ internal sealed class StripePaymentProvider : IPaymentProvider
 
     public async Task<string> CreateCustomerAsync(
         Guid paymentCustomerId,
-        Guid customerId,
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
@@ -29,8 +27,7 @@ internal sealed class StripePaymentProvider : IPaymentProvider
                 {
                     Metadata = new Dictionary<string, string>(StringComparer.Ordinal)
                     {
-                        [PaymentCustomerMetadata] = paymentCustomerId.ToString("D"),
-                        [CustomerMetadata] = customerId.ToString("D")
+                        [PaymentCustomerMetadata] = paymentCustomerId.ToString("D")
                     }
                 },
                 new RequestOptions { IdempotencyKey = idempotencyKey },
