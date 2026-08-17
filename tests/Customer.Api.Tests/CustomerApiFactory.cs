@@ -22,6 +22,8 @@ public sealed class CustomerApiFactory : WebApplicationFactory<Program>
         "ConnectionStrings__customer-db";
     private const string RabbitMqConnectionStringEnvironmentVariable =
         "ConnectionStrings__rabbitmq";
+    private const string RabbitMqUseTlsEnvironmentVariable =
+        "Messaging__UseTls";
     private static readonly SymmetricSecurityKey SigningKey = new(
         RandomNumberGenerator.GetBytes(64));
     private readonly string _connectionString =
@@ -35,14 +37,17 @@ public sealed class CustomerApiFactory : WebApplicationFactory<Program>
 
     public CustomerApiFactory()
     {
-        // Minimal-hosting Program reads connection strings while it composes services,
-        // before WebApplicationFactory's ConfigureAppConfiguration callback executes.
+        // Minimal-hosting Program reads connection strings and messaging transport settings while
+        // it composes services, before WebApplicationFactory's ConfigureAppConfiguration callback.
         Environment.SetEnvironmentVariable(
             ConnectionStringEnvironmentVariable,
             _connectionString);
         Environment.SetEnvironmentVariable(
             RabbitMqConnectionStringEnvironmentVariable,
             _rabbitMqConnectionString);
+        Environment.SetEnvironmentVariable(
+            RabbitMqUseTlsEnvironmentVariable,
+            bool.FalseString);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
