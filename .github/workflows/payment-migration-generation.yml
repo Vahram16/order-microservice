@@ -1,15 +1,18 @@
-name: payment-migration-generation
+name: payment-migration-validation
 
 on:
   push:
     branches:
       - agent/payment-service
+  pull_request:
+    paths:
+      - 'src/Services/Payment/Payment.Api/**'
 
 permissions:
   contents: read
 
 jobs:
-  generate:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -29,7 +32,7 @@ jobs:
       - name: Build Payment API
         run: dotnet build src/Services/Payment/Payment.Api/Payment.Api.csproj --configuration Release --no-restore
 
-      - name: Generate Payment migration
+      - name: Verify Payment model matches committed migrations
         env:
           ASPNETCORE_ENVIRONMENT: Development
           ConnectionStrings__payment-db: Host=localhost;Port=5432;Database=payment_design;Username=postgres;Password=postgres
@@ -43,15 +46,6 @@ jobs:
           Security__ValidAuthorizedParties__0: order-mobile
           Security__RequireHttpsMetadata: "false"
         run: >-
-          dotnet ef migrations add InitialPayment
+          dotnet ef migrations has-pending-model-changes
           --project src/Services/Payment/Payment.Api/Payment.Api.csproj
           --startup-project src/Services/Payment/Payment.Api/Payment.Api.csproj
-          --output-dir Persistence/Migrations
-
-      - name: Upload generated migration
-        uses: actions/upload-artifact@v7
-        with:
-          name: payment-generated-migration
-          path: src/Services/Payment/Payment.Api/Persistence/Migrations
-          if-no-files-found: error
-          retention-days: 1
