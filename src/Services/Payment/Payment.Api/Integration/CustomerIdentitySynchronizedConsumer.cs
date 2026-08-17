@@ -64,10 +64,15 @@ internal sealed class CustomerIdentitySynchronizedConsumer(
             exception.IsUniqueConstraintViolation(PaymentDatabaseConstraints.CustomerId) ||
             exception.IsUniqueConstraintViolation(PaymentDatabaseConstraints.CustomerIdentity))
         {
-            dbContext.ChangeTracker.Clear();
-            var current = await dbContext.PaymentCustomers.SingleOrDefaultAsync(
-                customer => customer.CustomerId == message.CustomerId,
-                context.CancellationToken);
+            // SaveChanges rolls back to its transaction savepoint. Detach only the losing domain row;
+            // the MassTransit consumer-outbox entities in this DbContext must remain tracked.
+            dbContext.Entry(created.Value).State = EntityState.Detached;
+
+            var current = await dbContext.PaymentCustomers
+                .AsNoTracking()
+                .SingleOrDefaultAsync(
+                    customer => customer.CustomerId == message.CustomerId,
+                    context.CancellationToken);
 
             if (current is null ||
                 current.EnsureCustomerIdentity(

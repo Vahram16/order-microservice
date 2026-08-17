@@ -15,61 +15,68 @@ internal sealed class SetDefaultPaymentMethodHandler(
         SetDefaultPaymentMethodCommand command,
         CancellationToken cancellationToken)
     {
-        var customer = await dbContext.PaymentCustomers.FindByIdentityAsync(
-            command.Identity.Provider,
-            command.Identity.Subject,
-            cancellationToken);
-        if (customer is null)
+        var strategy = dbContext.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
-            return PaymentApplicationErrors.CustomerNotSynchronized;
-        }
-
-        var methods = await dbContext.PaymentMethods
-            .Where(method =>
-                method.PaymentCustomerId == customer.Id &&
-                method.Status == PaymentMethodStatus.Active)
-            .ToListAsync(cancellationToken);
-        var target = methods.SingleOrDefault(method => method.Id == command.PaymentMethodId);
-        if (target is null)
-        {
-            return PaymentApplicationErrors.PaymentMethodNotFound;
-        }
-
-        if (target.IsDefault)
-        {
-            return Result.Success(PaymentMethodMappings.ToResponse(target));
-        }
-
-        var now = timeProvider.GetUtcNow();
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-
-        var current = methods.SingleOrDefault(method => method.IsDefault);
-        if (current is not null)
-        {
-            current.ClearDefault(now);
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
-
-        var makeDefault = target.MakeDefault(now);
-        if (makeDefault.IsFailure)
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            return makeDefault.Error;
-        }
-
-        try
-        {
-            await dbContext.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-            return Result.Success(PaymentMethodMappings.ToResponse(target));
-        }
-        catch (DbUpdateException exception) when (
-            exception.IsUniqueConstraintViolation(
-                PaymentDatabaseConstraints.DefaultPaymentMethod))
-        {
-            await transaction.RollbackAsync(cancellationToken);
+            // A retry must rebuild the tracked graph from committed database state.
+            // This request handler does not carry MassTransit consumer-outbox state.
             dbContext.ChangeTracker.Clear();
-            return PaymentApplicationErrors.ConcurrencyConflict;
-        }
+
+            var customer = await dbContext.PaymentCustomers.FindByIdentityAsync(
+                command.Identity.Provider,
+                command.Identity.Subject,
+                cancellationToken);
+            if (customer is null)
+            {
+                return PaymentApplicationErrors.CustomerNotSynchronized;
+            }
+
+            var methods = await dbContext.PaymentMethods
+                .Where(method =>
+                    method.PaymentCustomerId == customer.Id &&
+                    method.Status == PaymentMethodStatus.Active)
+                .ToListAsync(cancellationToken);
+            var target = methods.SingleOrDefault(method => method.Id == command.PaymentMethodId);
+            if (target is null)
+            {
+                return PaymentApplicationErrors.PaymentMethodNotFound;
+            }
+
+            if (target.IsDefault)
+            {
+                return Result.Success(PaymentMethodMappings.ToResponse(target));
+            }
+
+            var now = timeProvider.GetUtcNow();
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+            var current = methods.SingleOrDefault(method => method.IsDefault);
+            if (current is not null)
+            {
+                current.ClearDefault(now);
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+
+            var makeDefault = target.MakeDefault(now);
+            if (makeDefault.IsFailure)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return makeDefault.Error;
+            }
+
+            try
+            {
+                await dbContext.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return Result.Success(PaymentMethodMappings.ToResponse(target));
+            }
+            catch (DbUpdateException exception) when (
+                exception.IsUniqueConstraintViolation(
+                    PaymentDatabaseConstraints.DefaultPaymentMethod))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return PaymentApplicationErrors.ConcurrencyConflict;
+            }
+        });
     }
 }

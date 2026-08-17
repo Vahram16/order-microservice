@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -96,13 +97,22 @@ public sealed class PaymentApiFactory : WebApplicationFactory<Program>
         });
     }
 
-    public async Task InitializeDatabaseAsync()
+    protected override IHost CreateHost(IHostBuilder builder)
     {
-        using var scope = Services.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
-        await dbContext.Database.MigrateAsync();
-        await ResetAsync();
+        // The application starts MassTransit hosted services immediately. Apply the real Payment
+        // migrations first so the EF outbox dispatcher never races schema creation in integration tests.
+        var options = new DbContextOptionsBuilder<PaymentDbContext>()
+            .UseNpgsql(_connectionString)
+            .Options;
+        using (var dbContext = new PaymentDbContext(options))
+        {
+            dbContext.Database.Migrate();
+        }
+
+        return base.CreateHost(builder);
     }
+
+    public Task InitializeDatabaseAsync() => ResetAsync();
 
     public HttpClient CreateAuthenticatedClient(string subject, params string[] scopes)
     {

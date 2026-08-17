@@ -121,90 +121,100 @@ internal sealed class ProcessStripeWebhookConsumer(
         ProviderPaymentMethod providerMethod,
         CancellationToken cancellationToken)
     {
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(
-            IsolationLevel.Serializable,
-            cancellationToken);
-
-        // A command may be redelivered after the database commit but before the broker ACK.
-        // The durable receipt is the idempotency fence; no service-owned lease/token protocol is needed.
-        var webhookEvent = await dbContext.PaymentWebhookEvents
-            .FromSqlInterpolated($"SELECT * FROM payment_webhook_events WHERE \"Id\" = {webhookEventId} FOR UPDATE")
-            .SingleAsync(cancellationToken);
-
-        if (webhookEvent.ProcessedAt is not null)
+        var strategy = dbContext.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            return;
-        }
+            // Each execution-strategy attempt must start from database truth. This consumer explicitly
+            // opts out of the EF consumer outbox, so clearing only this reconciliation context cannot
+            // detach MassTransit inbox/outbox state.
+            dbContext.ChangeTracker.Clear();
 
-        var method = await dbContext.PaymentMethods.SingleOrDefaultAsync(
-            item => item.ProviderPaymentMethodId == providerMethod.ProviderPaymentMethodId,
-            cancellationToken);
-
-        var card = new CardPaymentMethodDetails(
-            providerMethod.Brand,
-            providerMethod.Last4,
-            providerMethod.ExpMonth,
-            providerMethod.ExpYear,
-            providerMethod.WalletType);
-        var now = timeProvider.GetUtcNow();
-
-        if (method is null)
-        {
-            var hasDefault = await dbContext.PaymentMethods.AnyAsync(
-                item =>
-                    item.PaymentCustomerId == paymentCustomerId &&
-                    item.IsDefault &&
-                    item.Status == PaymentMethodStatus.Active,
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable,
                 cancellationToken);
 
-            var created = PaymentMethod.Create(
-                Guid.NewGuid(),
-                paymentCustomerId,
-                providerMethod.ProviderPaymentMethodId,
-                card,
-                isDefault: !hasDefault,
-                now);
-            if (created.IsFailure)
+            // A command may be redelivered after the database commit but before the broker ACK.
+            // The durable receipt is the idempotency fence; no service-owned lease/token protocol is needed.
+            var webhookEvent = await dbContext.PaymentWebhookEvents
+                .FromSqlInterpolated($"SELECT * FROM payment_webhook_events WHERE \"Id\" = {webhookEventId} FOR UPDATE")
+                .SingleAsync(cancellationToken);
+
+            if (webhookEvent.ProcessedAt is not null)
             {
-                throw WebhookProcessingException.Permanent(created.Error.Code);
+                await transaction.CommitAsync(cancellationToken);
+                return;
             }
 
-            dbContext.PaymentMethods.Add(created.Value);
-        }
-        else
-        {
-            if (method.PaymentCustomerId != paymentCustomerId)
-            {
-                throw WebhookProcessingException.Permanent(
-                    "payment.webhook.method_customer_conflict");
-            }
-
-            var synchronized = method.Synchronize(card, now);
-            if (synchronized.IsFailure)
-            {
-                throw WebhookProcessingException.Permanent(synchronized.Error.Code);
-            }
-
-            var hasDefault = await dbContext.PaymentMethods.AnyAsync(
-                item =>
-                    item.PaymentCustomerId == paymentCustomerId &&
-                    item.Id != method.Id &&
-                    item.IsDefault &&
-                    item.Status == PaymentMethodStatus.Active,
+            var method = await dbContext.PaymentMethods.SingleOrDefaultAsync(
+                item => item.ProviderPaymentMethodId == providerMethod.ProviderPaymentMethodId,
                 cancellationToken);
-            if (!hasDefault)
+
+            var card = new CardPaymentMethodDetails(
+                providerMethod.Brand,
+                providerMethod.Last4,
+                providerMethod.ExpMonth,
+                providerMethod.ExpYear,
+                providerMethod.WalletType);
+            var now = timeProvider.GetUtcNow();
+
+            if (method is null)
             {
-                var makeDefault = method.MakeDefault(now);
-                if (makeDefault.IsFailure)
+                var hasDefault = await dbContext.PaymentMethods.AnyAsync(
+                    item =>
+                        item.PaymentCustomerId == paymentCustomerId &&
+                        item.IsDefault &&
+                        item.Status == PaymentMethodStatus.Active,
+                    cancellationToken);
+
+                var created = PaymentMethod.Create(
+                    Guid.NewGuid(),
+                    paymentCustomerId,
+                    providerMethod.ProviderPaymentMethodId,
+                    card,
+                    isDefault: !hasDefault,
+                    now);
+                if (created.IsFailure)
                 {
-                    throw WebhookProcessingException.Permanent(makeDefault.Error.Code);
+                    throw WebhookProcessingException.Permanent(created.Error.Code);
+                }
+
+                dbContext.PaymentMethods.Add(created.Value);
+            }
+            else
+            {
+                if (method.PaymentCustomerId != paymentCustomerId)
+                {
+                    throw WebhookProcessingException.Permanent(
+                        "payment.webhook.method_customer_conflict");
+                }
+
+                var synchronized = method.Synchronize(card, now);
+                if (synchronized.IsFailure)
+                {
+                    throw WebhookProcessingException.Permanent(synchronized.Error.Code);
+                }
+
+                var hasDefault = await dbContext.PaymentMethods.AnyAsync(
+                    item =>
+                        item.PaymentCustomerId == paymentCustomerId &&
+                        item.Id != method.Id &&
+                        item.IsDefault &&
+                        item.Status == PaymentMethodStatus.Active,
+                    cancellationToken);
+                if (!hasDefault)
+                {
+                    var makeDefault = method.MakeDefault(now);
+                    if (makeDefault.IsFailure)
+                    {
+                        throw WebhookProcessingException.Permanent(makeDefault.Error.Code);
+                    }
                 }
             }
-        }
 
-        webhookEvent.MarkProcessed(now);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+            webhookEvent.MarkProcessed(now);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
     }
 
     private abstract class WebhookProcessingException(
