@@ -20,12 +20,18 @@ public sealed class CustomerApiFactory : WebApplicationFactory<Program>
     private const string Audience = "customer-api";
     private const string ConnectionStringEnvironmentVariable =
         "ConnectionStrings__customer-db";
+    private const string RabbitMqConnectionStringEnvironmentVariable =
+        "ConnectionStrings__rabbitmq";
     private static readonly SymmetricSecurityKey SigningKey = new(
         RandomNumberGenerator.GetBytes(64));
     private readonly string _connectionString =
         Environment.GetEnvironmentVariable("CUSTOMER_TEST_CONNECTION_STRING")
         ?? throw new InvalidOperationException(
             "CUSTOMER_TEST_CONNECTION_STRING is required for Customer API integration tests.");
+    private readonly string _rabbitMqConnectionString =
+        Environment.GetEnvironmentVariable("MESSAGING_TEST_RABBITMQ_CONNECTION_STRING")
+        ?? throw new InvalidOperationException(
+            "MESSAGING_TEST_RABBITMQ_CONNECTION_STRING is required for Customer API integration tests.");
 
     public CustomerApiFactory()
     {
@@ -34,6 +40,9 @@ public sealed class CustomerApiFactory : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable(
             ConnectionStringEnvironmentVariable,
             _connectionString);
+        Environment.SetEnvironmentVariable(
+            RabbitMqConnectionStringEnvironmentVariable,
+            _rabbitMqConnectionString);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
