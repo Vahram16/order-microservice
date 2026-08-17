@@ -26,6 +26,9 @@ jobs:
       - name: Restore Payment API
         run: dotnet restore src/Services/Payment/Payment.Api/Payment.Api.csproj
 
+      - name: Build Payment API
+        run: dotnet build src/Services/Payment/Payment.Api/Payment.Api.csproj --configuration Release --no-restore
+
       - name: Generate Payment migration
         env:
           ASPNETCORE_ENVIRONMENT: Development
