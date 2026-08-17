@@ -62,6 +62,10 @@ internal sealed class ProvisionCustomerHandler(
         catch (DbUpdateException exception) when (
             exception.IsUniqueConstraintViolation(CustomerDatabaseConstraints.Identity))
         {
+            // The competing request that won the unique-key race committed both the Customer and
+            // CustomerIdentitySynchronized through the transactional bus outbox. The losing unit of
+            // work is discarded wholesale: continuing to publish from this DbContext would reuse
+            // MassTransit's failed outbox scope after its tracked OutboxState was cleared.
             dbContext.ChangeTracker.Clear();
             existing = await dbContext.Customers.FindByIdentityAsync(
                 command.Identity.Provider,
@@ -73,8 +77,6 @@ internal sealed class ProvisionCustomerHandler(
                 throw;
             }
 
-            await PublishIdentityAsync(existing, timeProvider.GetUtcNow(), cancellationToken);
-            await dbContext.SaveChangesAsync(cancellationToken);
             return Result.Success(new ProvisionCustomerResult(
                 CustomerMappings.ToResponse(existing),
                 false));
