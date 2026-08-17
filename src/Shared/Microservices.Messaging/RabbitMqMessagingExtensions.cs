@@ -24,7 +24,8 @@ public static class RabbitMqMessagingExtensions
         IConfiguration configuration,
         string endpointNamePrefix,
         Action<IBusRegistrationConfigurator>? configureRegistrations = null,
-        ConfigureEndpointsProviderCallback? configureAutomaticEndpoint = null)
+        ConfigureEndpointsProviderCallback? configureAutomaticEndpoint = null,
+        Func<string, bool>? useConsumerOutbox = null)
         where TDbContext : DbContext
     {
         ValidateEndpointNamePrefix(endpointNamePrefix);
@@ -110,7 +111,14 @@ public static class RabbitMqMessagingExtensions
                 });
 
                 endpoint.UseConsumeFilter(typeof(ConsumerDeliveryMetricsFilter<>), context);
-                endpoint.UseEntityFrameworkOutbox<TDbContext>(context);
+
+                // Most consumers benefit from the EF consumer outbox. A consumer that performs
+                // external provider I/O before a short local transaction may opt out explicitly;
+                // retry/redelivery/error-queue behavior remains configured above.
+                if (useConsumerOutbox?.Invoke(name) is not false)
+                {
+                    endpoint.UseEntityFrameworkOutbox<TDbContext>(context);
+                }
             });
 
             registration.UsingRabbitMq((context, rabbit) =>

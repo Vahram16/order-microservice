@@ -1,4 +1,5 @@
 using System.Text;
+using Microservices.Application.Messaging;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using Payment.Api.Persistence;
@@ -16,6 +17,7 @@ internal static class StripeWebhookEndpoint
                     HttpRequest request,
                     PaymentDbContext dbContext,
                     IPaymentWebhookVerifier verifier,
+                    IIntegrationCommandSender<ProcessStripeWebhook> commandSender,
                     TimeProvider timeProvider,
                     CancellationToken cancellationToken) =>
                 {
@@ -62,12 +64,21 @@ internal static class StripeWebhookEndpoint
                         return Results.Ok();
                     }
 
-                    dbContext.PaymentWebhookEvents.Add(PaymentWebhookEvent.Create(
+                    var webhookEvent = PaymentWebhookEvent.Create(
                         Guid.NewGuid(),
                         notification.ProviderEventId,
                         notification.EventType,
                         notification.ProviderSetupIntentId,
-                        timeProvider.GetUtcNow()));
+                        timeProvider.GetUtcNow());
+                    dbContext.PaymentWebhookEvents.Add(webhookEvent);
+
+                    // Use the EF bus outbox in this same DbContext scope. SaveChanges atomically
+                    // persists both the durable webhook receipt and the processing command; RabbitMQ
+                    // availability is therefore not on the Stripe HTTP acknowledgement path.
+                    await commandSender.SendAsync(
+                        new ProcessStripeWebhook(webhookEvent.Id),
+                        new IntegrationMessageMetadata(MessageId: webhookEvent.Id),
+                        cancellationToken);
 
                     try
                     {
@@ -77,6 +88,8 @@ internal static class StripeWebhookEndpoint
                         exception.IsUniqueConstraintViolation(
                             PaymentDatabaseConstraints.ProviderWebhookEvent))
                     {
+                        // The first delivery already owns the durable receipt and outbox message.
+                        // The duplicate delivery is acknowledged without publishing a second command.
                         return Results.Ok();
                     }
 

@@ -41,12 +41,21 @@ builder.Services.AddMediatR(configuration =>
     configuration.LicenseKey = builder.Configuration["Licensing:MediatR"];
 });
 builder.Services.AddStripePayments(builder.Configuration);
-builder.Services.AddHostedService<StripeWebhookProcessor>();
 builder.Services.AddRabbitMqWithPostgresOutbox<PaymentDbContext>(
     builder.Configuration,
     "payment",
     configureRegistrations: registration =>
-        registration.AddConsumer<CustomerIdentitySynchronizedConsumer>());
+    {
+        registration.AddConsumer<CustomerIdentitySynchronizedConsumer>();
+        registration.AddConsumer<ProcessStripeWebhookConsumer>();
+    },
+    useConsumerOutbox: endpointName =>
+        !string.Equals(
+            endpointName,
+            ProcessStripeWebhook.EndpointName,
+            StringComparison.Ordinal));
+builder.Services.AddIntegrationCommandRoute<ProcessStripeWebhook>(
+    ProcessStripeWebhook.EndpointName);
 
 var app = builder.Build();
 

@@ -105,17 +105,10 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
         entity.Property(webhookEvent => webhookEvent.ProviderEventId).HasMaxLength(255).IsRequired();
         entity.Property(webhookEvent => webhookEvent.EventType).HasMaxLength(128).IsRequired();
         entity.Property(webhookEvent => webhookEvent.ProviderSetupIntentId).HasMaxLength(255).IsRequired();
-        entity.Property(webhookEvent => webhookEvent.LastErrorCode).HasMaxLength(128);
         entity.HasIndex(webhookEvent => webhookEvent.ProviderEventId)
             .IsUnique()
             .HasDatabaseName(PaymentDatabaseConstraints.ProviderWebhookEvent);
-        entity.HasIndex(webhookEvent => new
-        {
-            webhookEvent.ProcessedAt,
-            webhookEvent.DeadLetteredAt,
-            webhookEvent.NextAttemptAt,
-            webhookEvent.LeaseExpiresAt
-        });
+        entity.HasIndex(webhookEvent => webhookEvent.ProcessedAt);
         entity.HasIndex(webhookEvent => webhookEvent.ProviderSetupIntentId);
     }
 }
