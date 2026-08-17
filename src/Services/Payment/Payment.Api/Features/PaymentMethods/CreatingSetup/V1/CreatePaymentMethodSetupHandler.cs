@@ -113,7 +113,9 @@ internal sealed class CreatePaymentMethodSetupHandler(
             exception.IsUniqueConstraintViolation(
                 PaymentDatabaseConstraints.PaymentMethodSetupPrimaryKey))
         {
-            dbContext.ChangeTracker.Clear();
+            // Only the losing insert is invalid. Preserve the rest of the unit of work, especially
+            // the tracked PaymentCustomer that may still need its Stripe customer id persisted.
+            dbContext.Entry(created).State = EntityState.Detached;
             var concurrent = await dbContext.PaymentMethodSetupOperations
                 .SingleAsync(item => item.Id == requestId, cancellationToken);
 
