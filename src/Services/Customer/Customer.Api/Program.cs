@@ -4,6 +4,7 @@ using Customer.Api.Persistence;
 using FluentValidation;
 using MediatR;
 using Microservices.Application;
+using Microservices.Messaging;
 using Microservices.Persistence.Postgres;
 using Microservices.Security;
 using Microservices.ServiceDefaults;
@@ -33,9 +34,7 @@ builder.AddApiDocumentation(
         }));
 builder.Services.AddMicroserviceProblemDetails();
 builder.Services.AddApiSecurity(builder.Configuration, builder.Environment);
-builder.Services.AddPostgresDbContext<CustomerDbContext>(
-    builder.Configuration,
-    "customer-db");
+builder.Services.AddPostgresDbContext<CustomerDbContext>(builder.Configuration, "customer-db");
 builder.Services.AddHealthChecks().AddDbContextCheck<CustomerDbContext>(
     tags: [ServiceHealthCheckTags.Readiness]);
 builder.Services.AddSingleton(TimeProvider.System);
@@ -49,6 +48,9 @@ builder.Services.AddMediatR(configuration =>
     configuration.AddOpenBehavior(typeof(ValidationBehavior<,>));
     configuration.LicenseKey = builder.Configuration["Licensing:MediatR"];
 });
+builder.Services.AddRabbitMqWithPostgresOutbox<CustomerDbContext>(
+    builder.Configuration,
+    "customer");
 
 var app = builder.Build();
 

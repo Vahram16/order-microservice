@@ -13,6 +13,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../../Shared/Microservices.Application/Microservices.Application.csproj" />
+    <ProjectReference Include="../../../Shared/Microservices.Contracts/Microservices.Contracts.csproj" />
+    <ProjectReference Include="../../../Shared/Microservices.Messaging/Microservices.Messaging.csproj" />
     <ProjectReference Include="../../../Shared/Microservices.Persistence.Postgres/Microservices.Persistence.Postgres.csproj" />
     <ProjectReference Include="../../../Shared/Microservices.Primitives/Microservices.Primitives.csproj" />
     <ProjectReference Include="../../../Shared/Microservices.Security/Microservices.Security.csproj" />

@@ -23,40 +23,17 @@ partial class CustomerDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("Customer.Api.Domain.Customer", b =>
         {
-            b.Property<Guid>("Id")
-                .ValueGeneratedNever()
-                .HasColumnType("uuid");
-            b.Property<DateTimeOffset>("CreatedAt")
-                .HasColumnType("timestamp with time zone");
-            b.Property<string>("Email")
-                .HasMaxLength(320)
-                .HasColumnType("character varying(320)");
-            b.Property<string>("FirstName")
-                .HasMaxLength(100)
-                .HasColumnType("character varying(100)");
-            b.Property<string>("IdentityProvider")
-                .IsRequired()
-                .HasMaxLength(32)
-                .HasColumnType("character varying(32)");
-            b.Property<string>("IdentitySubject")
-                .IsRequired()
-                .HasMaxLength(255)
-                .HasColumnType("character varying(255)");
-            b.Property<string>("LastName")
-                .HasMaxLength(100)
-                .HasColumnType("character varying(100)");
-            b.Property<string>("PhoneNumber")
-                .HasMaxLength(32)
-                .HasColumnType("character varying(32)");
-            b.Property<CustomerStatus>("Status")
-                .HasConversion<string>()
-                .HasMaxLength(24)
-                .HasColumnType("character varying(24)");
-            b.Property<DateTimeOffset>("UpdatedAt")
-                .HasColumnType("timestamp with time zone");
-            b.Property<long>("Version")
-                .IsConcurrencyToken()
-                .HasColumnType("bigint");
+            b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAt").HasColumnType("timestamp with time zone");
+            b.Property<string>("Email").HasMaxLength(320).HasColumnType("character varying(320)");
+            b.Property<string>("FirstName").HasMaxLength(100).HasColumnType("character varying(100)");
+            b.Property<string>("IdentityProvider").IsRequired().HasMaxLength(32).HasColumnType("character varying(32)");
+            b.Property<string>("IdentitySubject").IsRequired().HasMaxLength(255).HasColumnType("character varying(255)");
+            b.Property<string>("LastName").HasMaxLength(100).HasColumnType("character varying(100)");
+            b.Property<string>("PhoneNumber").HasMaxLength(32).HasColumnType("character varying(32)");
+            b.Property<CustomerStatus>("Status").HasConversion<string>().HasMaxLength(24).HasColumnType("character varying(24)");
+            b.Property<DateTimeOffset>("UpdatedAt").HasColumnType("timestamp with time zone");
+            b.Property<long>("Version").IsConcurrencyToken().HasColumnType("bigint");
             b.HasKey("Id");
             b.HasIndex("IdentityProvider", "IdentitySubject").IsUnique();
             b.ToTable("customers");
@@ -64,112 +41,124 @@ partial class CustomerDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("Customer.Api.Domain.CustomerAddress", b =>
         {
-            b.Property<Guid>("Id")
-                .ValueGeneratedNever()
-                .HasColumnType("uuid");
-            b.Property<string>("City")
-                .IsRequired()
-                .HasMaxLength(100)
-                .HasColumnType("character varying(100)");
-            b.Property<CountryCode>("CountryCode")
-                .HasConversion<string>()
-                .IsRequired()
-                .IsFixedLength()
-                .HasMaxLength(2)
-                .HasColumnType("character(2)");
-            b.Property<DateTimeOffset>("CreatedAt")
-                .HasColumnType("timestamp with time zone");
-            b.Property<Guid>("CustomerId")
-                .HasColumnType("uuid");
-            b.Property<bool>("IsDefaultBilling")
-                .HasColumnType("boolean");
-            b.Property<bool>("IsDefaultShipping")
-                .HasColumnType("boolean");
-            b.Property<string>("Label")
-                .HasMaxLength(50)
-                .HasColumnType("character varying(50)");
-            b.Property<string>("Line1")
-                .IsRequired()
-                .HasMaxLength(200)
-                .HasColumnType("character varying(200)");
-            b.Property<string>("Line2")
-                .HasMaxLength(200)
-                .HasColumnType("character varying(200)");
-            b.Property<string>("PhoneNumber")
-                .HasMaxLength(32)
-                .HasColumnType("character varying(32)");
-            b.Property<string>("PostalCode")
-                .IsRequired()
-                .HasMaxLength(32)
-                .HasColumnType("character varying(32)");
-            b.Property<string>("RecipientName")
-                .IsRequired()
-                .HasMaxLength(200)
-                .HasColumnType("character varying(200)");
-            b.Property<string>("Region")
-                .HasMaxLength(100)
-                .HasColumnType("character varying(100)");
-            b.Property<DateTimeOffset>("UpdatedAt")
-                .HasColumnType("timestamp with time zone");
+            b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("uuid");
+            b.Property<string>("City").IsRequired().HasMaxLength(100).HasColumnType("character varying(100)");
+            b.Property<CountryCode>("CountryCode").HasConversion<string>().IsRequired().IsFixedLength().HasMaxLength(2).HasColumnType("character(2)");
+            b.Property<DateTimeOffset>("CreatedAt").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("CustomerId").HasColumnType("uuid");
+            b.Property<bool>("IsDefaultBilling").HasColumnType("boolean");
+            b.Property<bool>("IsDefaultShipping").HasColumnType("boolean");
+            b.Property<string>("Label").HasMaxLength(50).HasColumnType("character varying(50)");
+            b.Property<string>("Line1").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
+            b.Property<string>("Line2").HasMaxLength(200).HasColumnType("character varying(200)");
+            b.Property<string>("PhoneNumber").HasMaxLength(32).HasColumnType("character varying(32)");
+            b.Property<string>("PostalCode").IsRequired().HasMaxLength(32).HasColumnType("character varying(32)");
+            b.Property<string>("RecipientName").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
+            b.Property<string>("Region").HasMaxLength(100).HasColumnType("character varying(100)");
+            b.Property<DateTimeOffset>("UpdatedAt").HasColumnType("timestamp with time zone");
             b.HasKey("Id");
             b.HasIndex("CustomerId");
-            b.HasIndex("CustomerId", "IsDefaultBilling")
-                .IsUnique()
-                .HasDatabaseName("UX_customer_addresses_default_billing")
-                .HasFilter("\"IsDefaultBilling\"");
-            b.HasIndex("CustomerId", "IsDefaultShipping")
-                .IsUnique()
-                .HasDatabaseName("UX_customer_addresses_default_shipping")
-                .HasFilter("\"IsDefaultShipping\"");
+            b.HasIndex("CustomerId", "IsDefaultBilling").IsUnique().HasDatabaseName("UX_customer_addresses_default_billing").HasFilter("\"IsDefaultBilling\"");
+            b.HasIndex("CustomerId", "IsDefaultShipping").IsUnique().HasDatabaseName("UX_customer_addresses_default_shipping").HasFilter("\"IsDefaultShipping\"");
             b.ToTable("customer_addresses");
         });
 
         modelBuilder.Entity("Customer.Api.Domain.CustomerAuditEntry", b =>
         {
-            b.Property<Guid>("Id")
-                .ValueGeneratedNever()
-                .HasColumnType("uuid");
-            b.Property<string>("Action")
-                .IsRequired()
-                .HasMaxLength(64)
-                .HasColumnType("character varying(64)");
-            b.Property<string>("ActorSubject")
-                .IsRequired()
-                .HasMaxLength(255)
-                .HasColumnType("character varying(255)");
-            b.Property<Guid>("CustomerId")
-                .HasColumnType("uuid");
-            b.Property<long>("CustomerVersion")
-                .HasColumnType("bigint");
-            b.Property<DateTimeOffset>("OccurredAt")
-                .HasColumnType("timestamp with time zone");
+            b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("uuid");
+            b.Property<string>("Action").IsRequired().HasMaxLength(64).HasColumnType("character varying(64)");
+            b.Property<string>("ActorSubject").IsRequired().HasMaxLength(255).HasColumnType("character varying(255)");
+            b.Property<Guid>("CustomerId").HasColumnType("uuid");
+            b.Property<long>("CustomerVersion").HasColumnType("bigint");
+            b.Property<DateTimeOffset>("OccurredAt").HasColumnType("timestamp with time zone");
             b.HasKey("Id");
             b.HasIndex("CustomerId", "OccurredAt");
             b.ToTable("customer_audit_entries");
         });
 
+        modelBuilder.Entity("MassTransit.EntityFrameworkCoreIntegration.InboxState", b =>
+        {
+            b.Property<long>("Id").ValueGeneratedOnAdd().HasColumnType("bigint");
+            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+            b.Property<DateTime?>("Consumed").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("ConsumerId").HasColumnType("uuid");
+            b.Property<DateTime?>("Delivered").HasColumnType("timestamp with time zone");
+            b.Property<DateTime?>("ExpirationTime").HasColumnType("timestamp with time zone");
+            b.Property<long?>("LastSequenceNumber").HasColumnType("bigint");
+            b.Property<Guid>("LockId").HasColumnType("uuid");
+            b.Property<Guid>("MessageId").HasColumnType("uuid");
+            b.Property<int>("ReceiveCount").HasColumnType("integer");
+            b.Property<DateTime>("Received").HasColumnType("timestamp with time zone");
+            b.Property<byte[]>("RowVersion").IsConcurrencyToken().ValueGeneratedOnAddOrUpdate().HasColumnType("bytea");
+            b.HasKey("Id");
+            b.HasIndex("Delivered");
+            b.ToTable("InboxState");
+        });
+
+        modelBuilder.Entity("MassTransit.EntityFrameworkCoreIntegration.OutboxMessage", b =>
+        {
+            b.Property<long>("SequenceNumber").ValueGeneratedOnAdd().HasColumnType("bigint");
+            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("SequenceNumber"));
+            b.Property<string>("Body").IsRequired().HasColumnType("text");
+            b.Property<string>("ContentType").IsRequired().HasMaxLength(256).HasColumnType("character varying(256)");
+            b.Property<Guid?>("ConversationId").HasColumnType("uuid");
+            b.Property<Guid?>("CorrelationId").HasColumnType("uuid");
+            b.Property<string>("DestinationAddress").HasMaxLength(256).HasColumnType("character varying(256)");
+            b.Property<DateTime?>("EnqueueTime").HasColumnType("timestamp with time zone");
+            b.Property<DateTime?>("ExpirationTime").HasColumnType("timestamp with time zone");
+            b.Property<string>("FaultAddress").HasMaxLength(256).HasColumnType("character varying(256)");
+            b.Property<string>("Headers").HasColumnType("text");
+            b.Property<Guid?>("InboxConsumerId").HasColumnType("uuid");
+            b.Property<Guid?>("InboxMessageId").HasColumnType("uuid");
+            b.Property<Guid?>("InitiatorId").HasColumnType("uuid");
+            b.Property<Guid>("MessageId").HasColumnType("uuid");
+            b.Property<string>("MessageType").IsRequired().HasColumnType("text");
+            b.Property<Guid?>("OutboxId").HasColumnType("uuid");
+            b.Property<string>("Properties").HasColumnType("text");
+            b.Property<Guid?>("RequestId").HasColumnType("uuid");
+            b.Property<string>("ResponseAddress").HasMaxLength(256).HasColumnType("character varying(256)");
+            b.Property<DateTime>("SentTime").HasColumnType("timestamp with time zone");
+            b.Property<string>("SourceAddress").HasMaxLength(256).HasColumnType("character varying(256)");
+            b.HasKey("SequenceNumber");
+            b.HasIndex("EnqueueTime");
+            b.HasIndex("ExpirationTime");
+            b.HasIndex("OutboxId", "SequenceNumber").IsUnique();
+            b.HasIndex("InboxMessageId", "InboxConsumerId", "SequenceNumber").IsUnique();
+            b.ToTable("OutboxMessage");
+        });
+
+        modelBuilder.Entity("MassTransit.EntityFrameworkCoreIntegration.OutboxState", b =>
+        {
+            b.Property<Guid>("OutboxId").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTime>("Created").HasColumnType("timestamp with time zone");
+            b.Property<DateTime?>("Delivered").HasColumnType("timestamp with time zone");
+            b.Property<long?>("LastSequenceNumber").HasColumnType("bigint");
+            b.Property<Guid>("LockId").HasColumnType("uuid");
+            b.Property<byte[]>("RowVersion").IsConcurrencyToken().ValueGeneratedOnAddOrUpdate().HasColumnType("bytea");
+            b.HasKey("OutboxId");
+            b.HasIndex("Created");
+            b.ToTable("OutboxState");
+        });
+
         modelBuilder.Entity("Customer.Api.Domain.CustomerAddress", b =>
         {
-            b.HasOne("Customer.Api.Domain.Customer", null)
-                .WithMany("Addresses")
-                .HasForeignKey("CustomerId")
-                .OnDelete(DeleteBehavior.Cascade)
-                .IsRequired();
+            b.HasOne("Customer.Api.Domain.Customer", null).WithMany("Addresses").HasForeignKey("CustomerId").OnDelete(DeleteBehavior.Cascade).IsRequired();
         });
 
         modelBuilder.Entity("Customer.Api.Domain.CustomerAuditEntry", b =>
         {
-            b.HasOne("Customer.Api.Domain.Customer", null)
-                .WithMany()
-                .HasForeignKey("CustomerId")
-                .OnDelete(DeleteBehavior.Restrict)
-                .IsRequired();
+            b.HasOne("Customer.Api.Domain.Customer", null).WithMany().HasForeignKey("CustomerId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+
+        modelBuilder.Entity("MassTransit.EntityFrameworkCoreIntegration.OutboxMessage", b =>
+        {
+            b.HasOne("MassTransit.EntityFrameworkCoreIntegration.OutboxState", null).WithMany().HasForeignKey("OutboxId");
+            b.HasOne("MassTransit.EntityFrameworkCoreIntegration.InboxState", null).WithMany().HasForeignKey("InboxMessageId", "InboxConsumerId").HasPrincipalKey("MessageId", "ConsumerId");
         });
 
         modelBuilder.Entity("Customer.Api.Domain.Customer", b =>
         {
-            b.Navigation("Addresses")
-                .UsePropertyAccessMode(PropertyAccessMode.Field);
+            b.Navigation("Addresses").UsePropertyAccessMode(PropertyAccessMode.Field);
         });
 #pragma warning restore 612, 618
     }

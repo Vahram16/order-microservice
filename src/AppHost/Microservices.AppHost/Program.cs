@@ -5,6 +5,8 @@ const string keycloakIssuer = $"{keycloakBaseUrl}/realms/order";
 
 var postgresUser = builder.AddParameter("postgres-user", "postgres", publishValueAsDefault: true);
 var postgresPassword = builder.AddParameter("postgres-password", "postgres", secret: true);
+var stripeSecretKey = builder.AddParameter("stripe-secret-key", secret: true);
+var stripeWebhookSecret = builder.AddParameter("stripe-webhook-secret", secret: true);
 
 var postgres = builder
     .AddAzurePostgresFlexibleServer("postgres")
@@ -17,6 +19,7 @@ var postgres = builder
 
 var serviceDatabase = postgres.AddDatabase("service-template-db");
 var customerDatabase = postgres.AddDatabase("customer-db", "customer");
+var paymentDatabase = postgres.AddDatabase("payment-db", "payment");
 var productDatabase = postgres.AddDatabase("product-db", "product");
 var keycloakDatabase = postgres.AddDatabase("keycloak-db", "keycloak");
 var rabbitMq = builder.AddRabbitMQ("rabbitmq")
@@ -27,11 +30,7 @@ var rabbitMq = builder.AddRabbitMQ("rabbitmq")
 
 var keycloak = builder
     .AddKeycloak("keycloak")
-    .WithHttpsEndpoint(
-        port: 8080,
-        targetPort: 8443,
-        name: "public",
-        isProxied: false)
+    .WithHttpsEndpoint(port: 8080, targetPort: 8443, name: "public", isProxied: false)
     .WithImageTag("26.7.0")
     .WithRealmImport("Keycloak")
     .WithReference(keycloakDatabase)
@@ -44,14 +43,11 @@ var keycloak = builder
     .WithEnvironment("KC_METRICS_ENABLED", "true")
     .WaitFor(keycloakDatabase);
 
-var serviceMigrations = builder.AddProject<Projects.ServiceTemplate_Migrator>(
-        "service-template-migrator")
+var serviceMigrations = builder.AddProject<Projects.ServiceTemplate_Migrator>("service-template-migrator")
     .WithReference(serviceDatabase)
     .WaitFor(serviceDatabase);
 
-builder.AddProject<Projects.ServiceTemplate_Api>(
-        "service-template-api",
-        launchProfileName: "https")
+builder.AddProject<Projects.ServiceTemplate_Api>("service-template-api", launchProfileName: "https")
     .WithReference(serviceDatabase)
     .WithReference(rabbitMq)
     .WithReference(keycloak)
@@ -62,25 +58,19 @@ builder.AddProject<Projects.ServiceTemplate_Api>(
     .WithEnvironment("Security__ValidAuthorizedParties__1", "scalar-dev")
     .WithEnvironment("Security__RequireHttpsMetadata", "true")
     .WithHttpHealthCheck("/health", endpointName: "https")
-    .WithUrlForEndpoint("https", url =>
-    {
-        url.Url = "/scalar/v1";
-        url.DisplayText = "Scalar API";
-    })
+    .WithUrlForEndpoint("https", url => { url.Url = "/scalar/v1"; url.DisplayText = "Scalar API"; })
     .WaitFor(serviceDatabase)
     .WaitForCompletion(serviceMigrations)
     .WaitFor(rabbitMq)
     .WaitFor(keycloak);
 
-var customerMigrations = builder.AddProject<Projects.Customer_Migrator>(
-        "customer-migrator")
+var customerMigrations = builder.AddProject<Projects.Customer_Migrator>("customer-migrator")
     .WithReference(customerDatabase)
     .WaitFor(customerDatabase);
 
-builder.AddProject<Projects.Customer_Api>(
-        "customer-api",
-        launchProfileName: "https")
+builder.AddProject<Projects.Customer_Api>("customer-api", launchProfileName: "https")
     .WithReference(customerDatabase)
+    .WithReference(rabbitMq)
     .WithReference(keycloak)
     .WithEnvironment("Security__Authority", keycloakIssuer)
     .WithEnvironment("Security__Audience", "customer-api")
@@ -89,23 +79,40 @@ builder.AddProject<Projects.Customer_Api>(
     .WithEnvironment("Security__ValidAuthorizedParties__1", "customer-scalar-dev")
     .WithEnvironment("Security__RequireHttpsMetadata", "true")
     .WithHttpHealthCheck("/health", endpointName: "https")
-    .WithUrlForEndpoint("https", url =>
-    {
-        url.Url = "/scalar/v1";
-        url.DisplayText = "Customer Scalar API";
-    })
+    .WithUrlForEndpoint("https", url => { url.Url = "/scalar/v1"; url.DisplayText = "Customer Scalar API"; })
     .WaitFor(customerDatabase)
     .WaitForCompletion(customerMigrations)
+    .WaitFor(rabbitMq)
     .WaitFor(keycloak);
 
-var productMigrations = builder.AddProject<Projects.Product_Migrator>(
-        "product-migrator")
+var paymentMigrations = builder.AddProject<Projects.Payment_Migrator>("payment-migrator")
+    .WithReference(paymentDatabase)
+    .WaitFor(paymentDatabase);
+
+builder.AddProject<Projects.Payment_Api>("payment-api", launchProfileName: "https")
+    .WithReference(paymentDatabase)
+    .WithReference(rabbitMq)
+    .WithReference(keycloak)
+    .WithEnvironment("Security__Authority", keycloakIssuer)
+    .WithEnvironment("Security__Audience", "payment-api")
+    .WithEnvironment("Security__RoleClientId", "payment-api")
+    .WithEnvironment("Security__ValidAuthorizedParties__0", "order-mobile")
+    .WithEnvironment("Security__ValidAuthorizedParties__1", "payment-scalar-dev")
+    .WithEnvironment("Security__RequireHttpsMetadata", "true")
+    .WithEnvironment("Stripe__SecretKey", stripeSecretKey)
+    .WithEnvironment("Stripe__WebhookSecret", stripeWebhookSecret)
+    .WithHttpHealthCheck("/health", endpointName: "https")
+    .WithUrlForEndpoint("https", url => { url.Url = "/scalar/v1"; url.DisplayText = "Payment Scalar API"; })
+    .WaitFor(paymentDatabase)
+    .WaitForCompletion(paymentMigrations)
+    .WaitFor(rabbitMq)
+    .WaitFor(keycloak);
+
+var productMigrations = builder.AddProject<Projects.Product_Migrator>("product-migrator")
     .WithReference(productDatabase)
     .WaitFor(productDatabase);
 
-builder.AddProject<Projects.Product_Api>(
-        "product-api",
-        launchProfileName: "https")
+builder.AddProject<Projects.Product_Api>("product-api", launchProfileName: "https")
     .WithReference(productDatabase)
     .WithReference(keycloak)
     .WithEnvironment("Security__Authority", keycloakIssuer)
@@ -114,11 +121,7 @@ builder.AddProject<Projects.Product_Api>(
     .WithEnvironment("Security__ValidAuthorizedParties__0", "product-scalar-dev")
     .WithEnvironment("Security__RequireHttpsMetadata", "true")
     .WithHttpHealthCheck("/health", endpointName: "https")
-    .WithUrlForEndpoint("https", url =>
-    {
-        url.Url = "/scalar/v1";
-        url.DisplayText = "Product Scalar API";
-    })
+    .WithUrlForEndpoint("https", url => { url.Url = "/scalar/v1"; url.DisplayText = "Product Scalar API"; })
     .WaitFor(productDatabase)
     .WaitForCompletion(productMigrations)
     .WaitFor(keycloak);

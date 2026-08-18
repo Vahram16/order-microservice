@@ -1,12 +1,15 @@
 using Customer.Api.Features.Customers.Common;
 using Customer.Api.Persistence;
 using Microservices.Application;
+using Microservices.Application.Messaging;
+using Microservices.Contracts.Customers.V1;
 using Microsoft.EntityFrameworkCore;
 
 namespace Customer.Api.Features.Customers.Provisioning.V1;
 
 internal sealed class ProvisionCustomerHandler(
     CustomerDbContext dbContext,
+    IIntegrationEventPublisher eventPublisher,
     TimeProvider timeProvider)
     : ICommandHandler<ProvisionCustomerCommand, Result<ProvisionCustomerResult>>
 {
@@ -20,6 +23,8 @@ internal sealed class ProvisionCustomerHandler(
             cancellationToken);
         if (existing is not null)
         {
+            await PublishIdentityAsync(existing, timeProvider.GetUtcNow(), cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
             return Result.Success(new ProvisionCustomerResult(
                 CustomerMappings.ToResponse(existing),
                 false));
@@ -45,6 +50,7 @@ internal sealed class ProvisionCustomerHandler(
             command.Identity.Subject,
             Domain.CustomerAuditActions.Provisioned,
             now);
+        await PublishIdentityAsync(customer, now, cancellationToken);
 
         try
         {
@@ -56,6 +62,10 @@ internal sealed class ProvisionCustomerHandler(
         catch (DbUpdateException exception) when (
             exception.IsUniqueConstraintViolation(CustomerDatabaseConstraints.Identity))
         {
+            // The competing request that won the unique-key race committed both the Customer and
+            // CustomerIdentitySynchronized through the transactional bus outbox. The losing unit of
+            // work is discarded wholesale: continuing to publish from this DbContext would reuse
+            // MassTransit's failed outbox scope after its tracked OutboxState was cleared.
             dbContext.ChangeTracker.Clear();
             existing = await dbContext.Customers.FindByIdentityAsync(
                 command.Identity.Provider,
@@ -72,4 +82,16 @@ internal sealed class ProvisionCustomerHandler(
                 false));
         }
     }
+
+    private Task PublishIdentityAsync(
+        Domain.Customer customer,
+        DateTimeOffset occurredAtUtc,
+        CancellationToken cancellationToken) =>
+        eventPublisher.PublishAsync(
+            new CustomerIdentitySynchronized(
+                customer.Id,
+                customer.IdentityProvider,
+                customer.IdentitySubject,
+                occurredAtUtc),
+            cancellationToken: cancellationToken);
 }
