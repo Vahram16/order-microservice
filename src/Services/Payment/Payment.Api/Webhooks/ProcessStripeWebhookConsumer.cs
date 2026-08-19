@@ -26,9 +26,7 @@ internal sealed class ProcessStripeWebhookConsumer(
         }
         catch (PaymentProviderException exception)
         {
-            // Provider calls in this consumer are reads used for convergence. They are safe to replay;
-            // MassTransit owns bounded retry/redelivery instead of a service-owned retry scheduler.
-            throw WebhookProcessingException.Transient(exception.Code, exception);
+            throw ClassifyProviderFailure(exception);
         }
         catch (DbUpdateException exception)
         {
@@ -43,6 +41,11 @@ internal sealed class ProcessStripeWebhookConsumer(
                 exception);
         }
     }
+
+    internal static Exception ClassifyProviderFailure(PaymentProviderException exception) =>
+        exception.FailureKind == PaymentProviderFailureKind.Transient
+            ? WebhookProcessingException.Transient(exception.Code, exception)
+            : WebhookProcessingException.Permanent(exception.Code, exception);
 
     private async Task ConsumeCoreAsync(ConsumeContext<ProcessStripeWebhook> context)
     {
@@ -223,16 +226,20 @@ internal sealed class ProcessStripeWebhookConsumer(
     {
         public string Code { get; } = code;
 
-        public static WebhookProcessingException Permanent(string code) =>
-            new PermanentWebhookProcessingException(code);
+        public static WebhookProcessingException Permanent(
+            string code,
+            Exception? innerException = null) =>
+            new PermanentWebhookProcessingException(code, innerException);
 
         public static WebhookProcessingException Transient(
             string code,
             Exception? innerException = null) =>
             new TransientWebhookProcessingException(code, innerException);
 
-        private sealed class PermanentWebhookProcessingException(string code)
-            : WebhookProcessingException(code), IPermanentConsumerFailure;
+        private sealed class PermanentWebhookProcessingException(
+            string code,
+            Exception? innerException)
+            : WebhookProcessingException(code, innerException), IPermanentConsumerFailure;
 
         private sealed class TransientWebhookProcessingException(
             string code,

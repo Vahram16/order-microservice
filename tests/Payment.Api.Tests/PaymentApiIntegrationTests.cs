@@ -5,19 +5,23 @@ using Payment.Api.Domain;
 
 namespace Payment.Api.Tests;
 
-public sealed class PaymentApiIntegrationTests(PaymentApiFactory factory)
-    : IClassFixture<PaymentApiFactory>, IAsyncLifetime
+public sealed class PaymentApiIntegrationTests
 {
     private const string Subject = "payment-integration-subject";
     private const string WriteScope = "payments.methods.write";
+    private static readonly string[] RequiredInfrastructureVariables =
+    [
+        "PAYMENT_TEST_CONNECTION_STRING",
+        "MESSAGING_TEST_RABBITMQ_CONNECTION_STRING"
+    ];
 
-    public Task InitializeAsync() => factory.InitializeDatabaseAsync();
-
-    public Task DisposeAsync() => Task.CompletedTask;
-
-    [Fact]
+    [IntegrationFact]
+    [Trait("Category", "Integration")]
     public async Task SetupAndStripeWebhookConvergeThroughTransactionalOutbox()
     {
+        await using var factory = new PaymentApiFactory();
+        await factory.InitializeDatabaseAsync();
+
         var paymentCustomerId = Guid.NewGuid();
         var customer = PaymentCustomer.Create(
             paymentCustomerId,
@@ -51,7 +55,7 @@ public sealed class PaymentApiIntegrationTests(PaymentApiFactory factory)
         var firstWebhook = await SendWebhookAsync(client, providerEventId);
         Assert.Equal(HttpStatusCode.OK, firstWebhook.StatusCode);
 
-        await WaitForWebhookReconciliationAsync(providerEventId);
+        await WaitForWebhookReconciliationAsync(factory, providerEventId);
 
         await using (var dbContext = await factory.CreateDbContextAsync())
         {
@@ -98,7 +102,9 @@ public sealed class PaymentApiIntegrationTests(PaymentApiFactory factory)
         return await client.SendAsync(request);
     }
 
-    private async Task WaitForWebhookReconciliationAsync(string providerEventId)
+    private static async Task WaitForWebhookReconciliationAsync(
+        PaymentApiFactory factory,
+        string providerEventId)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
         do
@@ -120,5 +126,21 @@ public sealed class PaymentApiIntegrationTests(PaymentApiFactory factory)
 
         throw new TimeoutException(
             $"Stripe webhook '{providerEventId}' was not reconciled before the test deadline.");
+    }
+
+    private sealed class IntegrationFactAttribute : FactAttribute
+    {
+        public IntegrationFactAttribute()
+        {
+            var missingVariables = RequiredInfrastructureVariables
+                .Where(variable => string.IsNullOrWhiteSpace(
+                    Environment.GetEnvironmentVariable(variable)))
+                .ToArray();
+
+            if (missingVariables.Length > 0)
+            {
+                Skip = $"Integration infrastructure is not configured. Missing: {string.Join(", ", missingVariables)}.";
+            }
+        }
     }
 }
