@@ -46,9 +46,7 @@ internal static class CloseCustomerAccountEndpoint
                 })
             .WithName("CloseCurrentCustomerAccount")
             .WithSummary("Anonymizes Customer-owned PII, removes saved addresses, and deactivates the customer.")
-            .RequireAuthorization(
-                RolePolicy.For(CustomerAuthorization.Role),
-                ScopePolicy.For(CustomerAuthorization.DeleteScope))
+            .RequireAuthorization(RolePolicy.For(CustomerAuthorization.DeleteRole))
             .Produces<CustomerResponse>()
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)

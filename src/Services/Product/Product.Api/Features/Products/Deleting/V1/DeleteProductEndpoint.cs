@@ -1,4 +1,5 @@
 using MediatR;
+using Microservices.Security;
 using Product.Api.Features.Products.Common;
 
 namespace Product.Api.Features.Products.Deleting.V1;
@@ -30,7 +31,7 @@ internal static class DeleteProductEndpoint
                 })
             .WithName("DeleteProduct")
             .WithSummary("Deletes a product using optimistic concurrency.")
-            .RequireAuthorization()
+            .RequireAuthorization(RolePolicy.For(ProductAuthorization.ManageRole))
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)

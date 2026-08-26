@@ -17,20 +17,14 @@ builder.AddWebApiDefaults();
 builder.AddApiDocumentation(
     "Customer API",
     new ApiDocumentationOAuthOptions(
-        "customer-scalar-dev",
+        "mobile-app",
         "https://localhost:7050/scalar/v1",
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["openid"] = "Authenticate the user.",
             ["profile"] = "Read the user's basic identity profile.",
             ["email"] = "Read the user's verified email address.",
-            ["customer-api-audience"] = "Request a token for Customer API.",
-            ["customer-api-roles"] = "Request Customer API client roles.",
-            [CustomerAuthorization.ReadScope] = "Read the authenticated customer's data.",
-            [CustomerAuthorization.UpdateScope] = "Provision and update the authenticated customer.",
-            [CustomerAuthorization.AddressWriteScope] = "Manage the authenticated customer's saved addresses.",
-            [CustomerAuthorization.ExportScope] = "Export Customer-service-owned personal data.",
-            [CustomerAuthorization.DeleteScope] = "Close and anonymize the authenticated customer account."
+            ["backend-api-audience"] = "Request a token for the backend API."
         }));
 builder.Services.AddMicroserviceProblemDetails();
 builder.Services.AddApiSecurity(builder.Configuration, builder.Environment);

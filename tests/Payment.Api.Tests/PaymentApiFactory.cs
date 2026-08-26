@@ -21,7 +21,8 @@ namespace Payment.Api.Tests;
 public sealed class PaymentApiFactory : WebApplicationFactory<Program>
 {
     private const string Issuer = "https://payment-tests.example/realms/order";
-    private const string Audience = "payment-api";
+    private const string Audience = "backend-api";
+    private const string AuthorizedParty = "mobile-app";
     private const string ConnectionStringEnvironmentVariable = "ConnectionStrings__payment-db";
     private const string RabbitMqConnectionStringEnvironmentVariable = "ConnectionStrings__rabbitmq";
     private const string RabbitMqUseTlsEnvironmentVariable = "Messaging__UseTls";
@@ -58,7 +59,8 @@ public sealed class PaymentApiFactory : WebApplicationFactory<Program>
                 ["Security:Authority"] = Issuer,
                 ["Security:Audience"] = Audience,
                 ["Security:RoleClientId"] = Audience,
-                ["Security:ValidAuthorizedParties:0"] = "order-mobile",
+                ["Security:ValidAuthorizedParties:0"] = AuthorizedParty,
+                ["Security:MapRealmRoles"] = "false",
                 ["Security:RequireHttpsMetadata"] = "true"
             }));
 
@@ -114,7 +116,7 @@ public sealed class PaymentApiFactory : WebApplicationFactory<Program>
 
     public Task InitializeDatabaseAsync() => ResetAsync();
 
-    public HttpClient CreateAuthenticatedClient(string subject, params string[] scopes)
+    public HttpClient CreateAuthenticatedClient(string subject, params string[] roles)
     {
         var client = CreateClient(new WebApplicationFactoryClientOptions
         {
@@ -122,7 +124,7 @@ public sealed class PaymentApiFactory : WebApplicationFactory<Program>
         });
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
-            CreateAccessToken(subject, scopes));
+            CreateAccessToken(subject, roles));
         return client;
     }
 
@@ -146,7 +148,7 @@ public sealed class PaymentApiFactory : WebApplicationFactory<Program>
         return dbContext;
     }
 
-    private static string CreateAccessToken(string subject, IReadOnlyCollection<string> scopes)
+    private static string CreateAccessToken(string subject, IReadOnlyCollection<string> roles)
     {
         var now = DateTimeOffset.UtcNow;
         var claims = new Dictionary<string, object>
@@ -154,13 +156,12 @@ public sealed class PaymentApiFactory : WebApplicationFactory<Program>
             ["sub"] = subject,
             ["iat"] = now.ToUnixTimeSeconds(),
             ["jti"] = Guid.NewGuid().ToString("N"),
-            ["azp"] = "order-mobile",
-            ["scope"] = string.Join(' ', scopes),
+            ["azp"] = AuthorizedParty,
             ["resource_access"] = new Dictionary<string, object>
             {
                 [Audience] = new Dictionary<string, object>
                 {
-                    ["roles"] = new[] { "payment-user" }
+                    ["roles"] = roles
                 }
             }
         };

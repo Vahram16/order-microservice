@@ -23,7 +23,7 @@ Each API owns validation and authorization for its resource boundary:
 - issuer/audience/signature/lifetime/type validation;
 - required claims;
 - exact authorized-party (`azp`) policy;
-- application scopes and client roles;
+- roles issued for the configured resource client;
 - tenant/resource ownership and domain authorization;
 - state-transition authorization where business rules require it.
 
@@ -37,7 +37,8 @@ Never accept a caller-supplied subject/provider as trusted identity when the tok
 
 ## Customer least privilege
 
-Customer uses a required `customer-user` client role and optional capability scopes such as self-read/update/address-write/export/delete. Endpoints compose the role and capability scope required for the operation.
+Customer uses distinct `backend-api` client roles for self-read, self-update,
+address-write, export, and delete. Endpoints require the exact role for the operation.
 
 Do not broaden default client grants or accept unrelated client roles to make a test/request pass.
 
@@ -79,7 +80,7 @@ Authentication/authorization failures must not leak token contents, exception de
 1. Is identity derived only from validated token state?
 2. Is audience/authorized-party validation preserved?
 3. Are required claims still enforced?
-4. Is authorization least-privilege (role + exact capability scope + domain ownership where needed)?
+4. Is authorization least-privilege (exact client role + domain ownership where needed)?
 5. Does any new client grant increase blast radius unnecessarily?
 6. Could secrets/token details/diagnostics leak through logs or responses?
 7. Does the change affect production identity configuration or require manual rollout/reconciliation?

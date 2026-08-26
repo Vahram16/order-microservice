@@ -11,14 +11,20 @@ using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using Product.Api.Persistence;
+using Product.Api.Features.Products.Common;
 
 namespace Product.Api.Tests;
 
 public sealed class ProductApiFactory : WebApplicationFactory<Program>
 {
     private const string Issuer = "https://product-tests.example/realms/order";
-    private const string Audience = "product-api";
-    private const string AuthorizedParty = "product-scalar-dev";
+    private const string Audience = "backend-api";
+    private const string AuthorizedParty = "mobile-app";
+    private static readonly string[] AllRoles =
+    [
+        ProductAuthorization.ReadRole,
+        ProductAuthorization.ManageRole
+    ];
     private const string ConnectionStringEnvironmentVariable =
         "ConnectionStrings__product-db";
     private static readonly SymmetricSecurityKey SigningKey = new(
@@ -47,6 +53,7 @@ public sealed class ProductApiFactory : WebApplicationFactory<Program>
                 ["Security:Audience"] = Audience,
                 ["Security:RoleClientId"] = Audience,
                 ["Security:ValidAuthorizedParties:0"] = AuthorizedParty,
+                ["Security:MapRealmRoles"] = "false",
                 ["Security:RequireHttpsMetadata"] = "true"
             }));
         builder.ConfigureServices(services =>
@@ -85,7 +92,7 @@ public sealed class ProductApiFactory : WebApplicationFactory<Program>
         await dbContext.Products.ExecuteDeleteAsync();
     }
 
-    public HttpClient CreateAuthenticatedClient()
+    public HttpClient CreateAuthenticatedClient(params string[] roles)
     {
         var client = CreateClient(new WebApplicationFactoryClientOptions
         {
@@ -93,11 +100,11 @@ public sealed class ProductApiFactory : WebApplicationFactory<Program>
         });
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
-            CreateAccessToken());
+            CreateAccessToken(roles.Length == 0 ? AllRoles : roles));
         return client;
     }
 
-    private static string CreateAccessToken()
+    private static string CreateAccessToken(IReadOnlyCollection<string> roles)
     {
         var now = DateTimeOffset.UtcNow;
         var claims = new Dictionary<string, object>
@@ -105,7 +112,14 @@ public sealed class ProductApiFactory : WebApplicationFactory<Program>
             ["sub"] = "product-integration-user",
             ["iat"] = now.ToUnixTimeSeconds(),
             ["jti"] = Guid.NewGuid().ToString("N"),
-            ["azp"] = AuthorizedParty
+            ["azp"] = AuthorizedParty,
+            ["resource_access"] = new Dictionary<string, object>
+            {
+                [Audience] = new Dictionary<string, object>
+                {
+                    ["roles"] = roles
+                }
+            }
         };
 
         return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor

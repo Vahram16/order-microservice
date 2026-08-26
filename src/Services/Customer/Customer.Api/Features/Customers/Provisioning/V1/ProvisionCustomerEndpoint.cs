@@ -39,9 +39,7 @@ internal static class ProvisionCustomerEndpoint
                 })
             .WithName("ProvisionCurrentCustomer")
             .WithSummary("Idempotently provisions the customer bound to the current Keycloak subject.")
-            .RequireAuthorization(
-                RolePolicy.For(CustomerAuthorization.Role),
-                ScopePolicy.For(CustomerAuthorization.UpdateScope))
+            .RequireAuthorization(RolePolicy.For(CustomerAuthorization.UpdateRole))
             .Produces<CustomerResponse>(StatusCodes.Status200OK)
             .Produces<CustomerResponse>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status400BadRequest)

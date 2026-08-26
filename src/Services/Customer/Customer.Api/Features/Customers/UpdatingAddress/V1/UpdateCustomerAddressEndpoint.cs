@@ -50,9 +50,7 @@ internal static class UpdateCustomerAddressEndpoint
                 })
             .WithName("UpdateCurrentCustomerAddress")
             .WithSummary("Replaces an address owned by the current customer.")
-            .RequireAuthorization(
-                RolePolicy.For(CustomerAuthorization.Role),
-                ScopePolicy.For(CustomerAuthorization.AddressWriteScope))
+            .RequireAuthorization(RolePolicy.For(CustomerAuthorization.AddressWriteRole))
             .Produces<CustomerResponse>()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status400BadRequest)

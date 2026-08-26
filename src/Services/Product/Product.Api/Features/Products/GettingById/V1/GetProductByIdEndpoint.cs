@@ -1,4 +1,5 @@
 using MediatR;
+using Microservices.Security;
 using Product.Api.Features.Products.Common;
 
 namespace Product.Api.Features.Products.GettingById.V1;
@@ -28,7 +29,7 @@ internal static class GetProductByIdEndpoint
                 })
             .WithName("GetProductById")
             .WithSummary("Gets a product by identifier.")
-            .RequireAuthorization()
+            .RequireAuthorization(RolePolicy.For(ProductAuthorization.ReadRole))
             .Produces<ProductResponse>()
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status401Unauthorized)

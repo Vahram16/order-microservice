@@ -48,9 +48,7 @@ internal static class RemoveCustomerAddressEndpoint
                 })
             .WithName("RemoveCurrentCustomerAddress")
             .WithSummary("Removes an address owned by the current customer.")
-            .RequireAuthorization(
-                RolePolicy.For(CustomerAuthorization.Role),
-                ScopePolicy.For(CustomerAuthorization.AddressWriteScope))
+            .RequireAuthorization(RolePolicy.For(CustomerAuthorization.AddressWriteRole))
             .Produces<CustomerResponse>()
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)

@@ -13,7 +13,7 @@ public sealed class CustomerApiIntegrationTests(CustomerApiFactory factory)
     : IClassFixture<CustomerApiFactory>, IAsyncLifetime
 {
     private const string Subject = "integration-subject";
-    private static readonly string[] AllScopes =
+    private static readonly string[] AllRoles =
     [
         "customers.self.read",
         "customers.self.update",
@@ -74,8 +74,8 @@ public sealed class CustomerApiIntegrationTests(CustomerApiFactory factory)
     public async Task ProvisioningIsConcurrentAndIdempotent()
     {
         await factory.ResetAsync();
-        using var firstClient = factory.CreateAuthenticatedClient(Subject, AllScopes);
-        using var secondClient = factory.CreateAuthenticatedClient(Subject, AllScopes);
+        using var firstClient = factory.CreateAuthenticatedClient(Subject, AllRoles);
+        using var secondClient = factory.CreateAuthenticatedClient(Subject, AllRoles);
 
         var responses = await Task.WhenAll(
             firstClient.PutAsync("/api/v1/customers/me", null),
@@ -104,7 +104,7 @@ public sealed class CustomerApiIntegrationTests(CustomerApiFactory factory)
     }
 
     [Fact]
-    public async Task MutationsRequireValidationCurrentStrongEtagAndAuthorizationScope()
+    public async Task MutationsRequireValidationCurrentStrongEtagAndAuthorizationRole()
     {
         await factory.ResetAsync();
         using var updateOnlyClient = factory.CreateAuthenticatedClient(
@@ -180,7 +180,7 @@ public sealed class CustomerApiIntegrationTests(CustomerApiFactory factory)
     public async Task DefaultAddressSwitchAndIdempotentRetryArePersistedCorrectly()
     {
         await factory.ResetAsync();
-        using var client = factory.CreateAuthenticatedClient(Subject, AllScopes);
+        using var client = factory.CreateAuthenticatedClient(Subject, AllRoles);
         var provision = await client.PutAsync("/api/v1/customers/me", null);
         var versionOne = Assert.Single(provision.Headers.GetValues("ETag"));
 
@@ -220,7 +220,7 @@ public sealed class CustomerApiIntegrationTests(CustomerApiFactory factory)
     public async Task AccountClosureAnonymizesPiiRemovesAddressesAndWritesAudit()
     {
         await factory.ResetAsync();
-        using var client = factory.CreateAuthenticatedClient(Subject, AllScopes);
+        using var client = factory.CreateAuthenticatedClient(Subject, AllRoles);
         var provision = await client.PutAsync("/api/v1/customers/me", null);
         var versionOne = Assert.Single(provision.Headers.GetValues("ETag"));
         var address = await AddAddressAsync(client, versionOne, Guid.NewGuid(), "Home");

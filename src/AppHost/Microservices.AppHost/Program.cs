@@ -5,6 +5,9 @@ const string keycloakIssuer = $"{keycloakBaseUrl}/realms/order";
 
 var postgresUser = builder.AddParameter("postgres-user", "postgres", publishValueAsDefault: true);
 var postgresPassword = builder.AddParameter("postgres-password", "postgres", secret: true);
+var keycloakPassword = builder.AddParameter("keycloak-password", secret: true);
+var rabbitMqUser = builder.AddParameter("rabbitmq-user", "guest", publishValueAsDefault: true);
+var rabbitMqPassword = builder.AddParameter("rabbitmq-password", "guest", secret: true);
 var stripeSecretKey = builder.AddParameter("stripe-secret-key", secret: true);
 var stripeWebhookSecret = builder.AddParameter("stripe-webhook-secret", secret: true);
 
@@ -22,14 +25,14 @@ var customerDatabase = postgres.AddDatabase("customer-db", "customer");
 var paymentDatabase = postgres.AddDatabase("payment-db", "payment");
 var productDatabase = postgres.AddDatabase("product-db", "product");
 var keycloakDatabase = postgres.AddDatabase("keycloak-db", "keycloak");
-var rabbitMq = builder.AddRabbitMQ("rabbitmq")
+var rabbitMq = builder.AddRabbitMQ("rabbitmq", rabbitMqUser, rabbitMqPassword)
     .WithManagementPlugin()
     .WithDockerfile("../../../infrastructure/rabbitmq", "Containerfile")
     .WithHttpEndpoint(targetPort: 15692, name: "prometheus")
     .WithDataVolume();
 
 var keycloak = builder
-    .AddKeycloak("keycloak")
+    .AddKeycloak("keycloak", adminPassword: keycloakPassword)
     .WithHttpsEndpoint(port: 8080, targetPort: 8443, name: "public", isProxied: false)
     .WithImageTag("26.7.0")
     .WithRealmImport("Keycloak")
@@ -52,10 +55,9 @@ builder.AddProject<Projects.ServiceTemplate_Api>("service-template-api", launchP
     .WithReference(rabbitMq)
     .WithReference(keycloak)
     .WithEnvironment("Security__Authority", keycloakIssuer)
-    .WithEnvironment("Security__Audience", "order-api")
-    .WithEnvironment("Security__RoleClientId", "order-api")
-    .WithEnvironment("Security__ValidAuthorizedParties__0", "order-mobile")
-    .WithEnvironment("Security__ValidAuthorizedParties__1", "scalar-dev")
+    .WithEnvironment("Security__Audience", "backend-api")
+    .WithEnvironment("Security__RoleClientId", "backend-api")
+    .WithEnvironment("Security__ValidAuthorizedParties__0", "mobile-app")
     .WithEnvironment("Security__RequireHttpsMetadata", "true")
     .WithHttpHealthCheck("/health", endpointName: "https")
     .WithUrlForEndpoint("https", url => { url.Url = "/scalar/v1"; url.DisplayText = "Scalar API"; })
@@ -73,10 +75,9 @@ builder.AddProject<Projects.Customer_Api>("customer-api", launchProfileName: "ht
     .WithReference(rabbitMq)
     .WithReference(keycloak)
     .WithEnvironment("Security__Authority", keycloakIssuer)
-    .WithEnvironment("Security__Audience", "customer-api")
-    .WithEnvironment("Security__RoleClientId", "customer-api")
-    .WithEnvironment("Security__ValidAuthorizedParties__0", "order-mobile")
-    .WithEnvironment("Security__ValidAuthorizedParties__1", "customer-scalar-dev")
+    .WithEnvironment("Security__Audience", "backend-api")
+    .WithEnvironment("Security__RoleClientId", "backend-api")
+    .WithEnvironment("Security__ValidAuthorizedParties__0", "mobile-app")
     .WithEnvironment("Security__RequireHttpsMetadata", "true")
     .WithHttpHealthCheck("/health", endpointName: "https")
     .WithUrlForEndpoint("https", url => { url.Url = "/scalar/v1"; url.DisplayText = "Customer Scalar API"; })
@@ -94,10 +95,9 @@ builder.AddProject<Projects.Payment_Api>("payment-api", launchProfileName: "http
     .WithReference(rabbitMq)
     .WithReference(keycloak)
     .WithEnvironment("Security__Authority", keycloakIssuer)
-    .WithEnvironment("Security__Audience", "payment-api")
-    .WithEnvironment("Security__RoleClientId", "payment-api")
-    .WithEnvironment("Security__ValidAuthorizedParties__0", "order-mobile")
-    .WithEnvironment("Security__ValidAuthorizedParties__1", "payment-scalar-dev")
+    .WithEnvironment("Security__Audience", "backend-api")
+    .WithEnvironment("Security__RoleClientId", "backend-api")
+    .WithEnvironment("Security__ValidAuthorizedParties__0", "mobile-app")
     .WithEnvironment("Security__RequireHttpsMetadata", "true")
     .WithEnvironment("Stripe__SecretKey", stripeSecretKey)
     .WithEnvironment("Stripe__WebhookSecret", stripeWebhookSecret)
@@ -116,9 +116,9 @@ builder.AddProject<Projects.Product_Api>("product-api", launchProfileName: "http
     .WithReference(productDatabase)
     .WithReference(keycloak)
     .WithEnvironment("Security__Authority", keycloakIssuer)
-    .WithEnvironment("Security__Audience", "product-api")
-    .WithEnvironment("Security__RoleClientId", "product-api")
-    .WithEnvironment("Security__ValidAuthorizedParties__0", "product-scalar-dev")
+    .WithEnvironment("Security__Audience", "backend-api")
+    .WithEnvironment("Security__RoleClientId", "backend-api")
+    .WithEnvironment("Security__ValidAuthorizedParties__0", "mobile-app")
     .WithEnvironment("Security__RequireHttpsMetadata", "true")
     .WithHttpHealthCheck("/health", endpointName: "https")
     .WithUrlForEndpoint("https", url => { url.Url = "/scalar/v1"; url.DisplayText = "Product Scalar API"; })

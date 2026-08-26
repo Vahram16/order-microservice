@@ -51,9 +51,7 @@ internal static class UpdateCustomerDetailsEndpoint
                 })
             .WithName("UpdateCurrentCustomerDetails")
             .WithSummary("Replaces the current customer's business-owned contact details.")
-            .RequireAuthorization(
-                RolePolicy.For(CustomerAuthorization.Role),
-                ScopePolicy.For(CustomerAuthorization.UpdateScope))
+            .RequireAuthorization(RolePolicy.For(CustomerAuthorization.UpdateRole))
             .Produces<CustomerResponse>()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status400BadRequest)

@@ -1,4 +1,5 @@
 using MediatR;
+using Microservices.Security;
 using Product.Api.Features.Products.Common;
 
 namespace Product.Api.Features.Products.Creating.V1;
@@ -33,7 +34,7 @@ internal static class CreateProductEndpoint
                 })
             .WithName("CreateProduct")
             .WithSummary("Creates a product.")
-            .RequireAuthorization()
+            .RequireAuthorization(RolePolicy.For(ProductAuthorization.ManageRole))
             .Produces<ProductResponse>(StatusCodes.Status201Created)
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status400BadRequest)

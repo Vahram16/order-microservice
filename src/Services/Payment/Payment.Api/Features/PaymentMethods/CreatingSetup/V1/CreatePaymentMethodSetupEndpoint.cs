@@ -44,9 +44,7 @@ internal static class CreatePaymentMethodSetupEndpoint
                 })
             .WithName("CreatePaymentMethodSetup")
             .WithSummary("Creates or resumes a future-use payment method setup session.")
-            .RequireAuthorization(
-                RolePolicy.For(PaymentAuthorization.Role),
-                ScopePolicy.For(PaymentAuthorization.WriteScope))
+            .RequireAuthorization(RolePolicy.For(PaymentAuthorization.ManageRole))
             .Produces<CreatePaymentMethodSetupResult>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)

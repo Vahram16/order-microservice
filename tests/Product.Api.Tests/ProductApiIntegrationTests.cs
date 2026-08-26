@@ -29,6 +29,16 @@ public sealed class ProductApiIntegrationTests(ProductApiFactory factory)
     }
 
     [Fact]
+    public async Task ProductReadsRequireProductReadRole()
+    {
+        using var client = factory.CreateAuthenticatedClient(ProductAuthorization.ManageRole);
+
+        var response = await client.GetAsync("/api/v1/products?page=1&pageSize=20");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
     public async Task CrudFlowUsesStrongEtagsAndBoundedListing()
     {
         using var client = factory.CreateAuthenticatedClient();

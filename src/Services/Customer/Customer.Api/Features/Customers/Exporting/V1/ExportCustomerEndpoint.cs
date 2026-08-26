@@ -39,9 +39,7 @@ internal static class ExportCustomerEndpoint
                 })
             .WithName("ExportCurrentCustomer")
             .WithSummary("Exports all Customer-service-owned data for the authenticated customer.")
-            .RequireAuthorization(
-                RolePolicy.For(CustomerAuthorization.Role),
-                ScopePolicy.For(CustomerAuthorization.ExportScope))
+            .RequireAuthorization(RolePolicy.For(CustomerAuthorization.ExportRole))
             .Produces<CustomerExportResponse>()
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status401Unauthorized)

@@ -22,8 +22,7 @@ A resource API owns authorization enforcement:
 - signature, issuer, audience, token-type, expiration, and not-before validation;
 - required access-token claim validation;
 - authorized-party (`azp`) allow-list validation;
-- capability checks using OAuth scopes;
-- application-role checks;
+- `backend-api` client-role checks;
 - tenant, ownership, state-transition, and other domain rules once those concepts exist;
 - `401` for missing/invalid tokens and `403` for insufficient authorization.
 
@@ -88,9 +87,9 @@ Required production configuration:
 {
   "Security": {
     "Authority": "https://identity.example.com/realms/order",
-    "Audience": "order-api",
-    "RoleClientId": "order-api",
-    "ValidAuthorizedParties": [ "order-mobile" ],
+    "Audience": "backend-api",
+    "RoleClientId": "backend-api",
+    "ValidAuthorizedParties": [ "mobile-app" ],
     "RequiredClaims": [ "sub", "iat", "jti" ],
     "MapRealmRoles": false,
     "NameClaimType": "preferred_username",
@@ -113,25 +112,25 @@ Add future trusted web, worker, or administration clients explicitly rather than
 Keycloak client roles are read only from `resource_access.<RoleClientId>.roles`; roles for other
 clients are ignored. Realm roles are not trusted unless `MapRealmRoles` is explicitly enabled.
 
+For development-user assignment, the realm's `customer` and `admin` roles are composite roles. They
+grant resolved `backend-api` client roles, which are then emitted in `resource_access.backend-api.roles`.
+`customer` has the normal self-service, payment-management, and product-read permissions; `admin`
+contains every current `backend-api` permission. Assign one of these realm roles to a user rather
+than selecting individual permissions. The APIs still authorize only the resulting client roles.
+
 `Security:Authority` must be the exact externally visible realm issuer. Production must use HTTPS. Do
 not point production APIs at an internal hostname when tokens contain a public issuer.
 
 ## Policies
 
-Use capability scopes at future endpoint boundaries:
+Use `backend-api` client roles at endpoint boundaries:
 
 ```csharp
-endpoint.RequireAuthorization(ScopePolicy.For("orders.read"));
-```
-
-Use client roles only for organizational privilege:
-
-```csharp
-adminGroup.RequireAuthorization(RolePolicy.For("order-admin"));
+endpoint.RequireAuthorization(RolePolicy.For("orders.read"));
 ```
 
 These snippets describe how a future domain service consumes the shared infrastructure. They are not
-existing Order endpoints. Scopes and roles never replace resource authorization; a real handler must
+existing Order endpoints. Roles never replace resource authorization; a real handler must
 apply its actual subject, tenant, ownership, and state-transition rules.
 
 Authentication is the fallback policy. Only intentionally public endpoints may call

@@ -37,9 +37,7 @@ internal static class GetCurrentCustomerEndpoint
                 })
             .WithName("GetCurrentCustomer")
             .WithSummary("Gets the customer bound to the current Keycloak subject.")
-            .RequireAuthorization(
-                RolePolicy.For(CustomerAuthorization.Role),
-                ScopePolicy.For(CustomerAuthorization.ReadScope))
+            .RequireAuthorization(RolePolicy.For(CustomerAuthorization.ReadRole))
             .Produces<CustomerResponse>()
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status401Unauthorized)

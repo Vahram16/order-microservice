@@ -1,4 +1,5 @@
 using MediatR;
+using Microservices.Security;
 using Product.Api.Features.Products.Common;
 
 namespace Product.Api.Features.Products.Updating.V1;
@@ -42,7 +43,7 @@ internal static class UpdateProductEndpoint
                 })
             .WithName("UpdateProduct")
             .WithSummary("Replaces a product using optimistic concurrency.")
-            .RequireAuthorization()
+            .RequireAuthorization(RolePolicy.For(ProductAuthorization.ManageRole))
             .Produces<ProductResponse>()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status400BadRequest)

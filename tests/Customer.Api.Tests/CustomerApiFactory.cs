@@ -17,7 +17,8 @@ namespace Customer.Api.Tests;
 public sealed class CustomerApiFactory : WebApplicationFactory<Program>
 {
     private const string Issuer = "https://customer-tests.example/realms/order";
-    private const string Audience = "customer-api";
+    private const string Audience = "backend-api";
+    private const string AuthorizedParty = "mobile-app";
     private const string ConnectionStringEnvironmentVariable =
         "ConnectionStrings__customer-db";
     private const string RabbitMqConnectionStringEnvironmentVariable =
@@ -59,7 +60,8 @@ public sealed class CustomerApiFactory : WebApplicationFactory<Program>
                 ["Security:Authority"] = Issuer,
                 ["Security:Audience"] = Audience,
                 ["Security:RoleClientId"] = Audience,
-                ["Security:ValidAuthorizedParties:0"] = "order-mobile",
+                ["Security:ValidAuthorizedParties:0"] = AuthorizedParty,
+                ["Security:MapRealmRoles"] = "false",
                 ["Security:RequireHttpsMetadata"] = "true"
             }));
         builder.ConfigureServices(services =>
@@ -100,7 +102,7 @@ public sealed class CustomerApiFactory : WebApplicationFactory<Program>
 
     public HttpClient CreateAuthenticatedClient(
         string subject,
-        params string[] scopes)
+        params string[] roles)
     {
         var client = CreateClient(new WebApplicationFactoryClientOptions
         {
@@ -108,7 +110,7 @@ public sealed class CustomerApiFactory : WebApplicationFactory<Program>
         });
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
-            CreateAccessToken(subject, scopes));
+            CreateAccessToken(subject, roles));
         return client;
     }
 
@@ -131,7 +133,7 @@ public sealed class CustomerApiFactory : WebApplicationFactory<Program>
         return dbContext;
     }
 
-    private static string CreateAccessToken(string subject, IReadOnlyCollection<string> scopes)
+    private static string CreateAccessToken(string subject, IReadOnlyCollection<string> roles)
     {
         var now = DateTimeOffset.UtcNow;
         var claims = new Dictionary<string, object>
@@ -139,8 +141,7 @@ public sealed class CustomerApiFactory : WebApplicationFactory<Program>
             ["sub"] = subject,
             ["iat"] = now.ToUnixTimeSeconds(),
             ["jti"] = Guid.NewGuid().ToString("N"),
-            ["azp"] = "order-mobile",
-            ["scope"] = string.Join(' ', scopes),
+            ["azp"] = AuthorizedParty,
             ["given_name"] = "Ada",
             ["family_name"] = "Lovelace",
             ["email"] = "ada@example.com",
@@ -149,7 +150,7 @@ public sealed class CustomerApiFactory : WebApplicationFactory<Program>
             {
                 [Audience] = new Dictionary<string, object>
                 {
-                    ["roles"] = new[] { "customer-user" }
+                    ["roles"] = roles
                 }
             }
         };

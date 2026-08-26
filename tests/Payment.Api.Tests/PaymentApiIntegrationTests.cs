@@ -8,7 +8,7 @@ namespace Payment.Api.Tests;
 public sealed class PaymentApiIntegrationTests
 {
     private const string Subject = "payment-integration-subject";
-    private const string WriteScope = "payments.methods.write";
+    private const string ManageRole = "payments.manage";
     private static readonly string[] RequiredInfrastructureVariables =
     [
         "PAYMENT_TEST_CONNECTION_STRING",
@@ -37,7 +37,7 @@ public sealed class PaymentApiIntegrationTests
             await dbContext.SaveChangesAsync();
         }
 
-        using var client = factory.CreateAuthenticatedClient(Subject, WriteScope);
+        using var client = factory.CreateAuthenticatedClient(Subject, ManageRole);
         var idempotencyKey = Guid.NewGuid();
 
         using var setupRequest = new HttpRequestMessage(

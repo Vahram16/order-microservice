@@ -18,16 +18,13 @@ builder.AddWebApiDefaults();
 builder.AddApiDocumentation(
     "Payment API",
     new ApiDocumentationOAuthOptions(
-        "payment-scalar-dev",
+        "mobile-app",
         "https://localhost:7070/scalar/v1",
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["openid"] = "Authenticate the user.",
             ["profile"] = "Read the user's basic identity profile.",
-            ["payment-api-audience"] = "Request a token for Payment API.",
-            ["payment-api-roles"] = "Request Payment API client roles.",
-            [PaymentAuthorization.ReadScope] = "Read payment methods.",
-            [PaymentAuthorization.WriteScope] = "Manage payment methods."
+            ["backend-api-audience"] = "Request a token for the backend API."
         }));
 builder.Services.AddMicroserviceProblemDetails();
 builder.Services.AddApiSecurity(builder.Configuration, builder.Environment);

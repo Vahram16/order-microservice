@@ -15,12 +15,12 @@ builder.AddWebApiDefaults();
 builder.AddApiDocumentation(
     "Product API",
     new ApiDocumentationOAuthOptions(
-        "product-scalar-dev",
+        "mobile-app",
         "https://localhost:7060/scalar/v1",
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["openid"] = "Authenticate the user.",
-            ["product-api-audience"] = "Request a token for Product API."
+            ["backend-api-audience"] = "Request a token for the backend API."
         }));
 builder.Services.AddMicroserviceProblemDetails();
 builder.Services.AddApiSecurity(builder.Configuration, builder.Environment);

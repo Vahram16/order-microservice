@@ -59,9 +59,7 @@ internal static class AddCustomerAddressEndpoint
                 })
             .WithName("AddCurrentCustomerAddress")
             .WithSummary("Idempotently adds a saved address to the current customer.")
-            .RequireAuthorization(
-                RolePolicy.For(CustomerAuthorization.Role),
-                ScopePolicy.For(CustomerAuthorization.AddressWriteScope))
+            .RequireAuthorization(RolePolicy.For(CustomerAuthorization.AddressWriteRole))
             .Produces<CustomerResponse>(StatusCodes.Status200OK)
             .Produces<CustomerResponse>(StatusCodes.Status201Created)
             .ProducesValidationProblem()
