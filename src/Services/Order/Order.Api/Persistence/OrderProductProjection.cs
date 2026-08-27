@@ -85,10 +85,7 @@ internal sealed class OrderProductProjection
         long sourceVersion,
         DateTimeOffset now)
     {
-        if (snapshotId == Guid.Empty)
-        {
-            throw new ArgumentOutOfRangeException(nameof(snapshotId));
-        }
+        ArgumentOutOfRangeException.ThrowIfEqual(snapshotId, Guid.Empty);
 
         LastSnapshotId = snapshotId;
         if (sourceVersion > SourceVersion)

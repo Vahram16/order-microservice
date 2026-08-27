@@ -1,4 +1,5 @@
 using MassTransit;
+using Microservices.Messaging;
 using Microsoft.EntityFrameworkCore;
 using Payment.Api.Domain;
 

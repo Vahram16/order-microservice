@@ -42,10 +42,7 @@ internal sealed class OrderReferenceDataSynchronization
 
     public void BeginCycle(Guid snapshotId, DateTimeOffset now)
     {
-        if (snapshotId == Guid.Empty)
-        {
-            throw new ArgumentOutOfRangeException(nameof(snapshotId));
-        }
+        ArgumentOutOfRangeException.ThrowIfEqual(snapshotId, Guid.Empty);
 
         SnapshotId = snapshotId;
         CustomerAfterCustomerId = null;

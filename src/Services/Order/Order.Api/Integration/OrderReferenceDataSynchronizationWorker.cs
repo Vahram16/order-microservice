@@ -17,6 +17,10 @@ internal sealed class OrderReferenceDataSynchronizationWorker(
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RequestRetryInterval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ReconciliationInterval = TimeSpan.FromHours(6);
+    private static readonly Action<ILogger, Exception?> LogSynchronizationFailure = LoggerMessage.Define(
+        LogLevel.Error,
+        new EventId(1, nameof(OrderReferenceDataSynchronizationWorker)),
+        "Order reference-data synchronization iteration failed.");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -32,9 +36,7 @@ internal sealed class OrderReferenceDataSynchronizationWorker(
             }
             catch (Exception exception)
             {
-                logger.LogError(
-                    exception,
-                    "Order reference-data synchronization iteration failed.");
+                LogSynchronizationFailure(logger, exception);
             }
 
             await Task.Delay(PollInterval, timeProvider, stoppingToken);
