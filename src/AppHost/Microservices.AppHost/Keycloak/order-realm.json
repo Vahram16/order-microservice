@@ -54,11 +54,19 @@
         },
         {
           "name": "payments.read",
-          "description": "Read the authenticated customer's saved payment methods"
+          "description": "Read the authenticated customer's payment methods and payment actions"
         },
         {
           "name": "payments.manage",
-          "description": "Manage the authenticated customer's saved payment methods"
+          "description": "Manage the authenticated customer's payment methods"
+        },
+        {
+          "name": "orders.read",
+          "description": "Read the authenticated customer's orders"
+        },
+        {
+          "name": "orders.write",
+          "description": "Create and manage the authenticated customer's orders"
         },
         {
           "name": "product.read",
@@ -83,6 +91,8 @@
               "customers.addresses.write",
               "payments.read",
               "payments.manage",
+              "orders.read",
+              "orders.write",
               "product.read"
             ]
           }
@@ -102,6 +112,8 @@
               "customers.self.delete",
               "payments.read",
               "payments.manage",
+              "orders.read",
+              "orders.write",
               "product.read",
               "product.manage"
             ]
@@ -325,12 +337,14 @@
         "com.example.order:/oauth2redirect",
         "https://localhost:7050/scalar/v1",
         "https://localhost:7060/scalar/v1",
-        "https://localhost:7070/scalar/v1"
+        "https://localhost:7070/scalar/v1",
+        "https://localhost:7090/scalar/v1"
       ],
       "webOrigins": [
         "https://localhost:7050",
         "https://localhost:7060",
-        "https://localhost:7070"
+        "https://localhost:7070",
+        "https://localhost:7090"
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
@@ -372,6 +386,8 @@
           "customers.self.delete",
           "payments.read",
           "payments.manage",
+          "orders.read",
+          "orders.write",
           "product.read",
           "product.manage"
         ]

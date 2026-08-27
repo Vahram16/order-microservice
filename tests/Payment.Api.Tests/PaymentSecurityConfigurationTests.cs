@@ -38,7 +38,10 @@ public sealed class PaymentSecurityConfigurationTests
             .ToArray();
         Assert.Contains(backendMappings, mapping =>
             mapping.GetProperty("client").GetString() == "mobile-app" &&
-            mapping.GetProperty("roles").EnumerateArray().Select(role => role.GetString()).ToHashSet()
+            mapping.GetProperty("roles")
+                .EnumerateArray()
+                .Select(role => role.GetString())
+                .ToHashSet()
                 .IsSupersetOf(["payments.read", "payments.manage"]));
     }
 
@@ -54,15 +57,21 @@ public sealed class PaymentSecurityConfigurationTests
             "order-realm.json");
         using var document = JsonDocument.Parse(File.ReadAllText(path));
 
-        var realmRoles = document.RootElement.GetProperty("roles").GetProperty("realm")
+        var realmRoles = document.RootElement
+            .GetProperty("roles")
+            .GetProperty("realm")
             .EnumerateArray()
-            .ToDictionary(role => role.GetProperty("name").GetString()!, StringComparer.Ordinal);
+            .ToDictionary(
+                role => role.GetProperty("name").GetString()!,
+                StringComparer.Ordinal);
 
         Assert.Equal(
             [
                 "customers.addresses.write",
                 "customers.self.read",
                 "customers.self.update",
+                "orders.read",
+                "orders.write",
                 "payments.manage",
                 "payments.read",
                 "product.read"
@@ -75,6 +84,8 @@ public sealed class PaymentSecurityConfigurationTests
                 "customers.self.export",
                 "customers.self.read",
                 "customers.self.update",
+                "orders.read",
+                "orders.write",
                 "payments.manage",
                 "payments.read",
                 "product.manage",
@@ -84,7 +95,9 @@ public sealed class PaymentSecurityConfigurationTests
     }
 
     private static string[] BackendApiComposites(JsonElement realmRole) =>
-        realmRole.GetProperty("composites").GetProperty("client").GetProperty("backend-api")
+        realmRole.GetProperty("composites")
+            .GetProperty("client")
+            .GetProperty("backend-api")
             .EnumerateArray()
             .Select(role => role.GetString()!)
             .Order(StringComparer.Ordinal)

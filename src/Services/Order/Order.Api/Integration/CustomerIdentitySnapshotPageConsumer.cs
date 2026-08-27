@@ -13,6 +13,7 @@ internal sealed class CustomerIdentitySnapshotPageConsumer(
     : IConsumer<CustomerIdentitySnapshotPage>
 {
     private const int MaximumPageSize = 500;
+    private const int ContinuationPageSize = 200;
 
     public async Task Consume(ConsumeContext<CustomerIdentitySnapshotPage> context)
     {
@@ -101,7 +102,7 @@ internal sealed class CustomerIdentitySnapshotPageConsumer(
                 new SynchronizeCustomerIdentitySnapshot(
                     state.SnapshotId,
                     state.CustomerAfterCustomerId,
-                    MaximumPageSize),
+                    ContinuationPageSize),
                 new IntegrationMessageMetadata(CorrelationId: state.SnapshotId),
                 context.CancellationToken);
         }
