@@ -80,10 +80,12 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
         entity.HasKey(webhookEvent => webhookEvent.Id);
         entity.Property(webhookEvent => webhookEvent.ProviderEventId).HasMaxLength(255).IsRequired();
         entity.Property(webhookEvent => webhookEvent.EventType).HasMaxLength(128).IsRequired();
-        entity.Property(webhookEvent => webhookEvent.ProviderSetupIntentId).HasMaxLength(255).IsRequired();
+        entity.Property(webhookEvent => webhookEvent.ProviderSetupIntentId).HasMaxLength(255);
+        entity.Property(webhookEvent => webhookEvent.ProviderPaymentIntentId).HasMaxLength(255);
         entity.HasIndex(webhookEvent => webhookEvent.ProviderEventId).IsUnique().HasDatabaseName(PaymentDatabaseConstraints.ProviderWebhookEvent);
         entity.HasIndex(webhookEvent => webhookEvent.ProcessedAt);
         entity.HasIndex(webhookEvent => webhookEvent.ProviderSetupIntentId);
+        entity.HasIndex(webhookEvent => webhookEvent.ProviderPaymentIntentId);
     }
 
     private static void ConfigureOrderPaymentAttempt(ModelBuilder modelBuilder)

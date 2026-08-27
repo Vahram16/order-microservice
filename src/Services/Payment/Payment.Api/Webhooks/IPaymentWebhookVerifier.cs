@@ -5,10 +5,17 @@ internal interface IPaymentWebhookVerifier
     PaymentWebhookNotification? Verify(string payload, string signature);
 }
 
+internal enum PaymentWebhookObjectKind
+{
+    PaymentMethodSetup = 1,
+    OrderPayment = 2
+}
+
 internal sealed record PaymentWebhookNotification(
     string ProviderEventId,
     string EventType,
-    string ProviderSetupIntentId);
+    PaymentWebhookObjectKind ObjectKind,
+    string ProviderObjectId);
 
 internal sealed class PaymentWebhookVerificationException(Exception innerException)
     : Exception("Payment webhook signature verification failed.", innerException);
