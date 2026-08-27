@@ -19,41 +19,83 @@ internal static class StripeWebhookEndpoint
                 TimeProvider timeProvider,
                 CancellationToken cancellationToken) =>
             {
-                if (request.ContentLength is > MaximumPayloadBytes) return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
-                if (request.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } bodySizeFeature)
+                if (request.ContentLength is > MaximumPayloadBytes)
+                {
+                    return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+                }
+
+                if (request.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>() is
+                    { IsReadOnly: false } bodySizeFeature)
                 {
                     bodySizeFeature.MaxRequestBodySize = MaximumPayloadBytes;
                 }
 
-                if (!request.Headers.TryGetValue("Stripe-Signature", out var signatures) || signatures.Count != 1) return Results.BadRequest();
+                if (!request.Headers.TryGetValue("Stripe-Signature", out var signatures) ||
+                    signatures.Count != 1)
+                {
+                    return Results.BadRequest();
+                }
 
                 string payload;
-                using (var reader = new StreamReader(request.Body, Encoding.UTF8, false, 4096, leaveOpen: true))
+                using (var reader = new StreamReader(
+                           request.Body,
+                           Encoding.UTF8,
+                           detectEncodingFromByteOrderMarks: false,
+                           bufferSize: 4096,
+                           leaveOpen: true))
                 {
                     payload = await reader.ReadToEndAsync(cancellationToken);
                 }
 
                 PaymentWebhookNotification? notification;
-                try { notification = verifier.Verify(payload, signatures[0]!); }
-                catch (PaymentWebhookVerificationException) { return Results.BadRequest(); }
-                if (notification is null) return Results.Ok();
+                try
+                {
+                    notification = verifier.Verify(payload, signatures[0]!);
+                }
+                catch (PaymentWebhookVerificationException)
+                {
+                    return Results.BadRequest();
+                }
+
+                if (notification is null)
+                {
+                    return Results.Ok();
+                }
 
                 var id = Guid.NewGuid();
                 var now = timeProvider.GetUtcNow();
                 var webhookEvent = notification.ObjectKind switch
                 {
-                    PaymentWebhookObjectKind.PaymentMethodSetup => PaymentWebhookEvent.CreateSetup(id, notification.ProviderEventId, notification.EventType, notification.ProviderObjectId, now),
-                    PaymentWebhookObjectKind.OrderPayment => PaymentWebhookEvent.CreateOrderPayment(id, notification.ProviderEventId, notification.EventType, notification.ProviderObjectId, now),
-                    _ => throw new ArgumentOutOfRangeException(nameof(notification.ObjectKind), notification.ObjectKind, "Unknown payment webhook object kind.")
+                    PaymentWebhookObjectKind.PaymentMethodSetup =>
+                        PaymentWebhookEvent.CreateSetup(
+                            id,
+                            notification.ProviderEventId,
+                            notification.EventType,
+                            notification.ProviderObjectId,
+                            now),
+                    PaymentWebhookObjectKind.OrderPayment =>
+                        PaymentWebhookEvent.CreateOrderPayment(
+                            id,
+                            notification.ProviderEventId,
+                            notification.EventType,
+                            notification.ProviderObjectId,
+                            now),
+                    _ => throw new InvalidOperationException("Unknown payment webhook object kind.")
                 };
+
                 dbContext.PaymentWebhookEvents.Add(webhookEvent);
                 await commandSender.SendAsync(
                     new ProcessStripeWebhook(webhookEvent.Id),
                     new IntegrationMessageMetadata(MessageId: webhookEvent.Id),
                     cancellationToken);
 
-                try { await dbContext.SaveChangesAsync(cancellationToken); }
-                catch (DbUpdateException exception) when (exception.IsUniqueConstraintViolation(PaymentDatabaseConstraints.ProviderWebhookEvent))
+                try
+                {
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
+                catch (DbUpdateException exception) when (
+                    exception.IsUniqueConstraintViolation(
+                        PaymentDatabaseConstraints.ProviderWebhookEvent))
                 {
                     return Results.Ok();
                 }

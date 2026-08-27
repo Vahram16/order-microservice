@@ -27,11 +27,6 @@ internal sealed class AuthorizeOrderConsumer(
             throw PaymentWorkflowException.Transient("payment.order.customer_not_synchronized");
         }
 
-        if (string.IsNullOrWhiteSpace(customer.ProviderCustomerId))
-        {
-            throw PaymentWorkflowException.Transient("payment.order.provider_customer_not_ready");
-        }
-
         var attempt = await dbContext.OrderPaymentAttempts.SingleOrDefaultAsync(
             item => item.OrderId == message.OrderId,
             cancellationToken);
@@ -57,11 +52,16 @@ internal sealed class AuthorizeOrderConsumer(
             {
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
-            catch (DbUpdateException exception) when (exception.IsUniqueConstraintViolation(PaymentDatabaseConstraints.OrderPaymentOrder))
+            catch (DbUpdateException exception) when (
+                exception.IsUniqueConstraintViolation(PaymentDatabaseConstraints.OrderPaymentOrder))
             {
                 dbContext.ChangeTracker.Clear();
-                customer = await dbContext.PaymentCustomers.SingleAsync(item => item.CustomerId == message.CustomerId, cancellationToken);
-                attempt = await dbContext.OrderPaymentAttempts.SingleAsync(item => item.OrderId == message.OrderId, cancellationToken);
+                customer = await dbContext.PaymentCustomers.SingleAsync(
+                    item => item.CustomerId == message.CustomerId,
+                    cancellationToken);
+                attempt = await dbContext.OrderPaymentAttempts.SingleAsync(
+                    item => item.OrderId == message.OrderId,
+                    cancellationToken);
             }
         }
 
@@ -83,6 +83,12 @@ internal sealed class AuthorizeOrderConsumer(
             return;
         }
 
+        var providerCustomerId = customer.ProviderCustomerId;
+        if (string.IsNullOrWhiteSpace(providerCustomerId))
+        {
+            throw PaymentWorkflowException.Transient("payment.order.provider_customer_not_ready");
+        }
+
         var method = await dbContext.PaymentMethods.AsNoTracking().SingleOrDefaultAsync(
             item => item.Id == attempt.PaymentMethodId &&
                     item.PaymentCustomerId == customer.Id &&
@@ -101,22 +107,27 @@ internal sealed class AuthorizeOrderConsumer(
             {
                 session = await provider.CreateAsync(
                     attempt.OrderId,
-                    customer.ProviderCustomerId,
+                    providerCustomerId,
                     method.ProviderPaymentMethodId,
                     attempt.Amount,
                     attempt.CurrencyCode,
                     OrderPaymentProviderIdempotencyKeys.Create(attempt.OrderId),
                     cancellationToken);
-                var assigned = attempt.AssignProviderPaymentIntent(session.ProviderPaymentIntentId, timeProvider.GetUtcNow());
+                var assigned = attempt.AssignProviderPaymentIntent(
+                    session.ProviderPaymentIntentId,
+                    timeProvider.GetUtcNow());
                 if (assigned.IsFailure)
                 {
                     throw PaymentWorkflowException.Permanent(assigned.Error.Code);
                 }
+
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
             else
             {
-                session = await provider.GetAsync(attempt.ProviderPaymentIntentId, cancellationToken);
+                session = await provider.GetAsync(
+                    attempt.ProviderPaymentIntentId,
+                    cancellationToken);
             }
 
             if (string.Equals(session.Status, "requires_confirmation", StringComparison.Ordinal))
@@ -127,7 +138,11 @@ internal sealed class AuthorizeOrderConsumer(
                     cancellationToken);
             }
 
-            ValidateProviderOwnership(session, customer.ProviderCustomerId, method.ProviderPaymentMethodId, attempt);
+            ValidateProviderOwnership(
+                session,
+                providerCustomerId,
+                method.ProviderPaymentMethodId,
+                attempt);
             await ApplyProviderStateAsync(attempt, session, cancellationToken);
         }
         catch (PaymentProviderException exception)
@@ -138,7 +153,7 @@ internal sealed class AuthorizeOrderConsumer(
         }
     }
 
-    private void ValidateProviderOwnership(
+    private static void ValidateProviderOwnership(
         OrderPaymentProviderSession session,
         string providerCustomerId,
         string providerPaymentMethodId,
@@ -171,13 +186,22 @@ internal sealed class AuthorizeOrderConsumer(
             case "succeeded":
                 Ensure(attempt.Authorize(now));
                 await eventPublisher.PublishAsync(
-                    new PaymentAuthorized(attempt.OrderId, attempt.Id, attempt.Amount, attempt.CurrencyCode, now),
+                    new PaymentAuthorized(
+                        attempt.OrderId,
+                        attempt.Id,
+                        attempt.Amount,
+                        attempt.CurrencyCode,
+                        now),
                     cancellationToken: cancellationToken);
                 break;
             case "requires_payment_method":
                 Ensure(attempt.Reject("payment_method_rejected", now));
                 await eventPublisher.PublishAsync(
-                    new PaymentRejected(attempt.OrderId, attempt.Id, "payment_method_rejected", now),
+                    new PaymentRejected(
+                        attempt.OrderId,
+                        attempt.Id,
+                        "payment_method_rejected",
+                        now),
                     cancellationToken: cancellationToken);
                 break;
             case "canceled":
@@ -195,7 +219,10 @@ internal sealed class AuthorizeOrderConsumer(
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task RejectAsync(OrderPaymentAttempt attempt, string code, CancellationToken cancellationToken)
+    private async Task RejectAsync(
+        OrderPaymentAttempt attempt,
+        string code,
+        CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
         Ensure(attempt.Reject(code, now));
@@ -214,21 +241,43 @@ internal sealed class AuthorizeOrderConsumer(
         switch (attempt.Status)
         {
             case OrderPaymentStatus.RequiresCustomerAction:
-                await publisher.PublishAsync(new PaymentActionRequired(attempt.OrderId, attempt.Id, attempt.ExpiresAt, occurredAt), cancellationToken: cancellationToken);
+                await publisher.PublishAsync(
+                    new PaymentActionRequired(
+                        attempt.OrderId,
+                        attempt.Id,
+                        attempt.ExpiresAt,
+                        occurredAt),
+                    cancellationToken: cancellationToken);
                 break;
             case OrderPaymentStatus.Authorized:
-                await publisher.PublishAsync(new PaymentAuthorized(attempt.OrderId, attempt.Id, attempt.Amount, attempt.CurrencyCode, occurredAt), cancellationToken: cancellationToken);
+                await publisher.PublishAsync(
+                    new PaymentAuthorized(
+                        attempt.OrderId,
+                        attempt.Id,
+                        attempt.Amount,
+                        attempt.CurrencyCode,
+                        occurredAt),
+                    cancellationToken: cancellationToken);
                 break;
             case OrderPaymentStatus.Rejected:
-                await publisher.PublishAsync(new PaymentRejected(attempt.OrderId, attempt.Id, attempt.RejectionCode ?? "rejected", occurredAt), cancellationToken: cancellationToken);
+                await publisher.PublishAsync(
+                    new PaymentRejected(
+                        attempt.OrderId,
+                        attempt.Id,
+                        attempt.RejectionCode ?? "rejected",
+                        occurredAt),
+                    cancellationToken: cancellationToken);
                 break;
             case OrderPaymentStatus.Cancelled:
-                await publisher.PublishAsync(new PaymentCancelled(attempt.OrderId, attempt.Id, occurredAt), cancellationToken: cancellationToken);
+                await publisher.PublishAsync(
+                    new PaymentCancelled(attempt.OrderId, attempt.Id, occurredAt),
+                    cancellationToken: cancellationToken);
                 break;
         }
     }
 
-    private static long ToMinorUnits(decimal amount) => checked(decimal.ToInt64(amount * 100m));
+    private static long ToMinorUnits(decimal amount) =>
+        checked(decimal.ToInt64(amount * 100m));
 
     private static void Ensure(Result result)
     {
