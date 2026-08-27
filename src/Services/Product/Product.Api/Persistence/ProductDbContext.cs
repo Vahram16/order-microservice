@@ -1,3 +1,4 @@
+using Microservices.Messaging;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -12,6 +13,7 @@ public sealed class ProductDbContext(DbContextOptions<ProductDbContext> options)
     {
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ProductDbContext).Assembly);
+        modelBuilder.AddMassTransitOutboxEntities();
     }
 }
 

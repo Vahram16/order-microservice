@@ -1,6 +1,7 @@
 using FluentValidation;
 using MediatR;
 using Microservices.Application;
+using Microservices.Messaging;
 using Microservices.Persistence.Postgres;
 using Microservices.Security;
 using Microservices.ServiceDefaults;
@@ -37,6 +38,9 @@ builder.Services.AddMediatR(configuration =>
     configuration.AddOpenBehavior(typeof(ValidationBehavior<,>));
     configuration.LicenseKey = builder.Configuration["Licensing:MediatR"];
 });
+builder.Services.AddRabbitMqWithPostgresOutbox<ProductDbContext>(
+    builder.Configuration,
+    "product");
 
 var app = builder.Build();
 

@@ -1,4 +1,6 @@
 using Microservices.Application;
+using Microservices.Application.Messaging;
+using Microservices.Contracts.Products.V1;
 using Microsoft.EntityFrameworkCore;
 using Product.Api.Features.Products.Common;
 using Product.Api.Persistence;
@@ -7,6 +9,7 @@ namespace Product.Api.Features.Products.Creating.V1;
 
 internal sealed class CreateProductHandler(
     ProductDbContext dbContext,
+    IIntegrationEventPublisher eventPublisher,
     TimeProvider timeProvider)
     : ICommandHandler<CreateProductCommand, Result<ProductResponse>>
 {
@@ -14,13 +17,14 @@ internal sealed class CreateProductHandler(
         CreateProductCommand command,
         CancellationToken cancellationToken)
     {
+        var now = timeProvider.GetUtcNow();
         var creation = Domain.Product.Create(
             command.Sku,
             command.Name,
             command.Description,
             command.Price,
             command.CurrencyCode,
-            timeProvider.GetUtcNow());
+            now);
         if (creation.IsFailure)
         {
             return creation.Error;
@@ -28,6 +32,18 @@ internal sealed class CreateProductHandler(
 
         var product = creation.Value;
         dbContext.Products.Add(product);
+        await eventPublisher.PublishAsync(
+            new ProductCatalogChanged(
+                product.Id,
+                product.Sku,
+                product.Name,
+                product.Price,
+                product.CurrencyCode,
+                product.Version,
+                IsAvailable: true,
+                now),
+            cancellationToken: cancellationToken);
+
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);

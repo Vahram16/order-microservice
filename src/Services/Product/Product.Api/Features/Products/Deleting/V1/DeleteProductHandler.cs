@@ -1,11 +1,16 @@
 using Microservices.Application;
+using Microservices.Application.Messaging;
+using Microservices.Contracts.Products.V1;
 using Microsoft.EntityFrameworkCore;
 using Product.Api.Features.Products.Common;
 using Product.Api.Persistence;
 
 namespace Product.Api.Features.Products.Deleting.V1;
 
-internal sealed class DeleteProductHandler(ProductDbContext dbContext)
+internal sealed class DeleteProductHandler(
+    ProductDbContext dbContext,
+    IIntegrationEventPublisher eventPublisher,
+    TimeProvider timeProvider)
     : ICommandHandler<DeleteProductCommand, Result>
 {
     public async Task<Result> Handle(
@@ -26,7 +31,20 @@ internal sealed class DeleteProductHandler(ProductDbContext dbContext)
             return version.Error;
         }
 
+        var now = timeProvider.GetUtcNow();
+        await eventPublisher.PublishAsync(
+            new ProductCatalogChanged(
+                product.Id,
+                product.Sku,
+                product.Name,
+                product.Price,
+                product.CurrencyCode,
+                product.Version,
+                IsAvailable: false,
+                now),
+            cancellationToken: cancellationToken);
         dbContext.Products.Remove(product);
+
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
