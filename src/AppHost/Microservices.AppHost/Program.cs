@@ -14,14 +14,12 @@ var stripeWebhookSecret = builder.AddParameter("stripe-webhook-secret", secret: 
 var postgres = builder
     .AddAzurePostgresFlexibleServer("postgres")
     .WithPasswordAuthentication(postgresUser, postgresPassword)
-    .RunAsContainer(container =>
-        container
-            .WithImageTag("18")
-            .WithHostPort(5432)
-            .WithDataVolume("microservices-postgres-data"));
+    .RunAsContainer(container => container.WithImageTag("18").WithHostPort(5432).WithDataVolume("microservices-postgres-data"));
 
 var serviceDatabase = postgres.AddDatabase("service-template-db");
 var customerDatabase = postgres.AddDatabase("customer-db", "customer");
+var inventoryDatabase = postgres.AddDatabase("inventory-db", "inventory");
+var orderDatabase = postgres.AddDatabase("order-db", "orders");
 var paymentDatabase = postgres.AddDatabase("payment-db", "payment");
 var productDatabase = postgres.AddDatabase("product-db", "product");
 var keycloakDatabase = postgres.AddDatabase("keycloak-db", "keycloak");
@@ -47,83 +45,70 @@ var keycloak = builder
     .WaitFor(keycloakDatabase);
 
 var serviceMigrations = builder.AddProject<Projects.ServiceTemplate_Migrator>("service-template-migrator")
-    .WithReference(serviceDatabase)
-    .WaitFor(serviceDatabase);
-
+    .WithReference(serviceDatabase).WaitFor(serviceDatabase);
 builder.AddProject<Projects.ServiceTemplate_Api>("service-template-api", launchProfileName: "https")
-    .WithReference(serviceDatabase)
-    .WithReference(rabbitMq)
-    .WithReference(keycloak)
-    .WithEnvironment("Security__Authority", keycloakIssuer)
-    .WithEnvironment("Security__Audience", "backend-api")
-    .WithEnvironment("Security__RoleClientId", "backend-api")
-    .WithEnvironment("Security__ValidAuthorizedParties__0", "mobile-app")
+    .WithReference(serviceDatabase).WithReference(rabbitMq).WithReference(keycloak)
+    .WithEnvironment("Security__Authority", keycloakIssuer).WithEnvironment("Security__Audience", "backend-api")
+    .WithEnvironment("Security__RoleClientId", "backend-api").WithEnvironment("Security__ValidAuthorizedParties__0", "mobile-app")
     .WithEnvironment("Security__RequireHttpsMetadata", "true")
     .WithHttpHealthCheck("/health", endpointName: "https")
     .WithUrlForEndpoint("https", url => { url.Url = "/scalar/v1"; url.DisplayText = "Scalar API"; })
-    .WaitFor(serviceDatabase)
-    .WaitForCompletion(serviceMigrations)
-    .WaitFor(rabbitMq)
-    .WaitFor(keycloak);
+    .WaitFor(serviceDatabase).WaitForCompletion(serviceMigrations).WaitFor(rabbitMq).WaitFor(keycloak);
 
 var customerMigrations = builder.AddProject<Projects.Customer_Migrator>("customer-migrator")
-    .WithReference(customerDatabase)
-    .WaitFor(customerDatabase);
-
+    .WithReference(customerDatabase).WaitFor(customerDatabase);
 builder.AddProject<Projects.Customer_Api>("customer-api", launchProfileName: "https")
-    .WithReference(customerDatabase)
-    .WithReference(rabbitMq)
-    .WithReference(keycloak)
-    .WithEnvironment("Security__Authority", keycloakIssuer)
-    .WithEnvironment("Security__Audience", "backend-api")
-    .WithEnvironment("Security__RoleClientId", "backend-api")
-    .WithEnvironment("Security__ValidAuthorizedParties__0", "mobile-app")
+    .WithReference(customerDatabase).WithReference(rabbitMq).WithReference(keycloak)
+    .WithEnvironment("Security__Authority", keycloakIssuer).WithEnvironment("Security__Audience", "backend-api")
+    .WithEnvironment("Security__RoleClientId", "backend-api").WithEnvironment("Security__ValidAuthorizedParties__0", "mobile-app")
     .WithEnvironment("Security__RequireHttpsMetadata", "true")
     .WithHttpHealthCheck("/health", endpointName: "https")
     .WithUrlForEndpoint("https", url => { url.Url = "/scalar/v1"; url.DisplayText = "Customer Scalar API"; })
-    .WaitFor(customerDatabase)
-    .WaitForCompletion(customerMigrations)
-    .WaitFor(rabbitMq)
-    .WaitFor(keycloak);
+    .WaitFor(customerDatabase).WaitForCompletion(customerMigrations).WaitFor(rabbitMq).WaitFor(keycloak);
+
+var inventoryMigrations = builder.AddProject<Projects.Inventory_Migrator>("inventory-migrator")
+    .WithReference(inventoryDatabase).WaitFor(inventoryDatabase);
+builder.AddProject<Projects.Inventory_Api>("inventory-api", launchProfileName: "https")
+    .WithReference(inventoryDatabase).WithReference(rabbitMq).WithReference(keycloak)
+    .WithEnvironment("Security__Authority", keycloakIssuer).WithEnvironment("Security__Audience", "backend-api")
+    .WithEnvironment("Security__RoleClientId", "backend-api").WithEnvironment("Security__ValidAuthorizedParties__0", "mobile-app")
+    .WithEnvironment("Security__RequireHttpsMetadata", "true")
+    .WithHttpHealthCheck("/health", endpointName: "https")
+    .WithUrlForEndpoint("https", url => { url.Url = "/scalar/v1"; url.DisplayText = "Inventory Scalar API"; })
+    .WaitFor(inventoryDatabase).WaitForCompletion(inventoryMigrations).WaitFor(rabbitMq).WaitFor(keycloak);
+
+var orderMigrations = builder.AddProject<Projects.Order_Migrator>("order-migrator")
+    .WithReference(orderDatabase).WaitFor(orderDatabase);
+builder.AddProject<Projects.Order_Api>("order-api", launchProfileName: "https")
+    .WithReference(orderDatabase).WithReference(rabbitMq).WithReference(keycloak)
+    .WithEnvironment("Security__Authority", keycloakIssuer).WithEnvironment("Security__Audience", "backend-api")
+    .WithEnvironment("Security__RoleClientId", "backend-api").WithEnvironment("Security__ValidAuthorizedParties__0", "mobile-app")
+    .WithEnvironment("Security__RequireHttpsMetadata", "true")
+    .WithHttpHealthCheck("/health", endpointName: "https")
+    .WithUrlForEndpoint("https", url => { url.Url = "/scalar/v1"; url.DisplayText = "Order Scalar API"; })
+    .WaitFor(orderDatabase).WaitForCompletion(orderMigrations).WaitFor(rabbitMq).WaitFor(keycloak);
 
 var paymentMigrations = builder.AddProject<Projects.Payment_Migrator>("payment-migrator")
-    .WithReference(paymentDatabase)
-    .WaitFor(paymentDatabase);
-
+    .WithReference(paymentDatabase).WaitFor(paymentDatabase);
 builder.AddProject<Projects.Payment_Api>("payment-api", launchProfileName: "https")
-    .WithReference(paymentDatabase)
-    .WithReference(rabbitMq)
-    .WithReference(keycloak)
-    .WithEnvironment("Security__Authority", keycloakIssuer)
-    .WithEnvironment("Security__Audience", "backend-api")
-    .WithEnvironment("Security__RoleClientId", "backend-api")
-    .WithEnvironment("Security__ValidAuthorizedParties__0", "mobile-app")
+    .WithReference(paymentDatabase).WithReference(rabbitMq).WithReference(keycloak)
+    .WithEnvironment("Security__Authority", keycloakIssuer).WithEnvironment("Security__Audience", "backend-api")
+    .WithEnvironment("Security__RoleClientId", "backend-api").WithEnvironment("Security__ValidAuthorizedParties__0", "mobile-app")
     .WithEnvironment("Security__RequireHttpsMetadata", "true")
-    .WithEnvironment("Stripe__SecretKey", stripeSecretKey)
-    .WithEnvironment("Stripe__WebhookSecret", stripeWebhookSecret)
+    .WithEnvironment("Stripe__SecretKey", stripeSecretKey).WithEnvironment("Stripe__WebhookSecret", stripeWebhookSecret)
     .WithHttpHealthCheck("/health", endpointName: "https")
     .WithUrlForEndpoint("https", url => { url.Url = "/scalar/v1"; url.DisplayText = "Payment Scalar API"; })
-    .WaitFor(paymentDatabase)
-    .WaitForCompletion(paymentMigrations)
-    .WaitFor(rabbitMq)
-    .WaitFor(keycloak);
+    .WaitFor(paymentDatabase).WaitForCompletion(paymentMigrations).WaitFor(rabbitMq).WaitFor(keycloak);
 
 var productMigrations = builder.AddProject<Projects.Product_Migrator>("product-migrator")
-    .WithReference(productDatabase)
-    .WaitFor(productDatabase);
-
+    .WithReference(productDatabase).WaitFor(productDatabase);
 builder.AddProject<Projects.Product_Api>("product-api", launchProfileName: "https")
-    .WithReference(productDatabase)
-    .WithReference(keycloak)
-    .WithEnvironment("Security__Authority", keycloakIssuer)
-    .WithEnvironment("Security__Audience", "backend-api")
-    .WithEnvironment("Security__RoleClientId", "backend-api")
-    .WithEnvironment("Security__ValidAuthorizedParties__0", "mobile-app")
+    .WithReference(productDatabase).WithReference(rabbitMq).WithReference(keycloak)
+    .WithEnvironment("Security__Authority", keycloakIssuer).WithEnvironment("Security__Audience", "backend-api")
+    .WithEnvironment("Security__RoleClientId", "backend-api").WithEnvironment("Security__ValidAuthorizedParties__0", "mobile-app")
     .WithEnvironment("Security__RequireHttpsMetadata", "true")
     .WithHttpHealthCheck("/health", endpointName: "https")
     .WithUrlForEndpoint("https", url => { url.Url = "/scalar/v1"; url.DisplayText = "Product Scalar API"; })
-    .WaitFor(productDatabase)
-    .WaitForCompletion(productMigrations)
-    .WaitFor(keycloak);
+    .WaitFor(productDatabase).WaitForCompletion(productMigrations).WaitFor(rabbitMq).WaitFor(keycloak);
 
 await builder.Build().RunAsync();

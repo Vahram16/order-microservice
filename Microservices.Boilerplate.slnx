@@ -8,6 +8,14 @@
     <Project Path="src/Services/Customer/Customer.Api/Customer.Api.csproj" />
     <Project Path="src/Services/Customer/Customer.Migrator/Customer.Migrator.csproj" />
   </Folder>
+  <Folder Name="/src/Services/Inventory/">
+    <Project Path="src/Services/Inventory/Inventory.Api/Inventory.Api.csproj" />
+    <Project Path="src/Services/Inventory/Inventory.Migrator/Inventory.Migrator.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/Order/">
+    <Project Path="src/Services/Order/Order.Api/Order.Api.csproj" />
+    <Project Path="src/Services/Order/Order.Migrator/Order.Migrator.csproj" />
+  </Folder>
   <Folder Name="/src/Services/Payment/">
     <Project Path="src/Services/Payment/Payment.Api/Payment.Api.csproj" />
     <Project Path="src/Services/Payment/Payment.Migrator/Payment.Migrator.csproj" />
