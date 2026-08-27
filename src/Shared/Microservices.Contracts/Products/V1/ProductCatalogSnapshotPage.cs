@@ -16,4 +16,5 @@ public sealed record ProductCatalogSnapshotPage(
     Guid? AfterProductId,
     IReadOnlyList<ProductCatalogSnapshotItem> Items,
     Guid? NextAfterProductId,
-    bool IsLastPage) : IIntegrationEvent;
+    bool IsLastPage,
+    DateTimeOffset OccurredAtUtc) : IIntegrationEvent;

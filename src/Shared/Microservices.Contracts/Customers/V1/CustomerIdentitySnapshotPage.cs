@@ -13,4 +13,5 @@ public sealed record CustomerIdentitySnapshotPage(
     Guid? AfterCustomerId,
     IReadOnlyList<CustomerIdentitySnapshotItem> Items,
     Guid? NextAfterCustomerId,
-    bool IsLastPage) : IIntegrationEvent;
+    bool IsLastPage,
+    DateTimeOffset OccurredAtUtc) : IIntegrationEvent;

@@ -9,7 +9,8 @@ namespace Product.Api.Integration;
 
 internal sealed class ProductCatalogSnapshotConsumer(
     ProductDbContext dbContext,
-    IIntegrationEventPublisher eventPublisher)
+    IIntegrationEventPublisher eventPublisher,
+    TimeProvider timeProvider)
     : IConsumer<SynchronizeProductCatalogSnapshot>
 {
     private const int MaximumPageSize = 500;
@@ -56,7 +57,8 @@ internal sealed class ProductCatalogSnapshotConsumer(
                 message.AfterProductId,
                 items,
                 nextAfterProductId,
-                IsLastPage: !hasMore),
+                IsLastPage: !hasMore,
+                OccurredAtUtc: timeProvider.GetUtcNow()),
             new IntegrationMessageMetadata(CorrelationId: message.SnapshotId),
             context.CancellationToken);
     }

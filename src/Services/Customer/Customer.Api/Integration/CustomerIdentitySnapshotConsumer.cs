@@ -9,7 +9,8 @@ namespace Customer.Api.Integration;
 
 internal sealed class CustomerIdentitySnapshotConsumer(
     CustomerDbContext dbContext,
-    IIntegrationEventPublisher eventPublisher)
+    IIntegrationEventPublisher eventPublisher,
+    TimeProvider timeProvider)
     : IConsumer<SynchronizeCustomerIdentitySnapshot>
 {
     private const int MaximumPageSize = 500;
@@ -53,7 +54,8 @@ internal sealed class CustomerIdentitySnapshotConsumer(
                 message.AfterCustomerId,
                 items,
                 nextAfterCustomerId,
-                IsLastPage: !hasMore),
+                IsLastPage: !hasMore,
+                OccurredAtUtc: timeProvider.GetUtcNow()),
             new IntegrationMessageMetadata(CorrelationId: message.SnapshotId),
             context.CancellationToken);
     }
