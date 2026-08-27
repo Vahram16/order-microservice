@@ -41,9 +41,9 @@ builder.Services.AddRabbitMqWithPostgresOutbox<InventoryDbContext>(
     "inventory",
     configureRegistrations: registration =>
     {
-        registration.AddConsumer<ReserveInventoryConsumer>();
-        registration.AddConsumer<ReleaseInventoryConsumer>();
-        registration.AddConsumer<CommitInventoryReservationConsumer>();
+        registration.AddConsumer<ReserveInventoryConsumer, ReserveInventoryConsumerDefinition>();
+        registration.AddConsumer<ReleaseInventoryConsumer, ReleaseInventoryConsumerDefinition>();
+        registration.AddConsumer<CommitInventoryReservationConsumer, CommitInventoryReservationConsumerDefinition>();
     });
 builder.Services.AddHostedService<InventoryReservationExpirationWorker>();
 
