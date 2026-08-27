@@ -83,6 +83,15 @@ internal sealed class StripePaymentProvider : IPaymentProvider, IOrderPaymentPro
     public async Task<OrderPaymentProviderSession> CancelAsync(string providerPaymentIntentId, string idempotencyKey, CancellationToken cancellationToken) =>
         await ExecuteAsync(async token => Map(await new PaymentIntentService(_client).CancelAsync(providerPaymentIntentId, options: null, requestOptions: new RequestOptions { IdempotencyKey = idempotencyKey }, cancellationToken: token)), "stripe.payment_intent_cancel_failed", cancellationToken);
 
+    public async Task<OrderPaymentRefundSession> RefundAsync(string providerPaymentIntentId, string idempotencyKey, CancellationToken cancellationToken) =>
+        await ExecuteAsync(async token => Map(await new RefundService(_client).CreateAsync(
+            new RefundCreateOptions { PaymentIntent = providerPaymentIntentId },
+            new RequestOptions { IdempotencyKey = idempotencyKey },
+            token)), "stripe.refund_create_failed", cancellationToken);
+
+    public async Task<OrderPaymentRefundSession> GetRefundAsync(string providerRefundId, CancellationToken cancellationToken) =>
+        await ExecuteAsync(async token => Map(await new RefundService(_client).GetAsync(providerRefundId, cancellationToken: token)), "stripe.refund_get_failed", cancellationToken);
+
     private static async Task<T> ExecuteAsync<T>(Func<CancellationToken, Task<T>> operation, string failureCode, CancellationToken cancellationToken)
     {
         try { return await operation(cancellationToken); }
@@ -105,10 +114,18 @@ internal sealed class StripePaymentProvider : IPaymentProvider, IOrderPaymentPro
     }
 
     private static PaymentMethodSetupSession Map(SetupIntent intent) => new(intent.Id, intent.ClientSecret ?? string.Empty, intent.Status, intent.CustomerId, intent.PaymentMethodId);
+
     private static OrderPaymentProviderSession Map(PaymentIntent intent)
     {
         if (!StripeMoneyConverter.TryFromProviderUnits(intent.Amount, intent.Currency, out var amount))
             throw PaymentProviderException.Permanent("stripe.invalid_payment_amount", new InvalidOperationException("Stripe returned an amount that cannot be represented safely."));
         return new OrderPaymentProviderSession(intent.Id, intent.Status, intent.ClientSecret, intent.CustomerId, intent.PaymentMethodId, amount, intent.Currency.ToUpperInvariant());
+    }
+
+    private static OrderPaymentRefundSession Map(Refund refund)
+    {
+        if (!StripeMoneyConverter.TryFromProviderUnits(refund.Amount, refund.Currency, out var amount))
+            throw PaymentProviderException.Permanent("stripe.invalid_refund_amount", new InvalidOperationException("Stripe returned a refund amount that cannot be represented safely."));
+        return new OrderPaymentRefundSession(refund.Id, refund.PaymentIntentId, refund.Status, amount, refund.Currency.ToUpperInvariant(), refund.FailureReason);
     }
 }

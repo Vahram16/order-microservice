@@ -8,5 +8,9 @@ public enum OrderPaymentStatus
     Rejected = 4,
     Cancelled = 5,
     Captured = 6,
-    CaptureFailed = 7
+    CaptureFailed = 7,
+    CancellationRequested = 8,
+    RefundPending = 9,
+    Refunded = 10,
+    RefundFailed = 11
 }

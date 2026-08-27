@@ -81,4 +81,61 @@ public sealed class PaymentDomainTests
         Assert.True(creation.IsFailure);
         Assert.Equal("payment.validation", creation.Error.Code);
     }
+
+    [Fact]
+    public void CapturedPaymentCancellationTracksRefundToFinanciallyNeutralTerminalState()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var creation = OrderPaymentAttempt.Create(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            42.50m,
+            "USD",
+            now.AddMinutes(15),
+            now);
+        Assert.True(creation.IsSuccess);
+        var attempt = creation.Value;
+        Assert.True(attempt.AssignProviderPaymentIntent("pi_123", now).IsSuccess);
+        Assert.True(attempt.Authorize(now).IsSuccess);
+        Assert.True(attempt.Capture(now).IsSuccess);
+
+        Assert.True(attempt.RequestCancellation(now.AddSeconds(1)).IsSuccess);
+        Assert.Equal(OrderPaymentStatus.CancellationRequested, attempt.Status);
+        Assert.True(attempt.MarkRefundPending("re_123", now.AddSeconds(2)).IsSuccess);
+        Assert.Equal(OrderPaymentStatus.RefundPending, attempt.Status);
+        Assert.True(attempt.MarkRefunded("re_123", now.AddSeconds(3)).IsSuccess);
+        Assert.Equal(OrderPaymentStatus.Refunded, attempt.Status);
+        Assert.Equal("re_123", attempt.ProviderRefundId);
+    }
+
+    [Fact]
+    public void RefundProviderIdentityCannotBeRebound()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var creation = OrderPaymentAttempt.Create(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            10m,
+            "USD",
+            now.AddMinutes(15),
+            now);
+        Assert.True(creation.IsSuccess);
+        var attempt = creation.Value;
+        Assert.True(attempt.AssignProviderPaymentIntent("pi_123", now).IsSuccess);
+        Assert.True(attempt.Authorize(now).IsSuccess);
+        Assert.True(attempt.Capture(now).IsSuccess);
+        Assert.True(attempt.RequestCancellation(now).IsSuccess);
+        Assert.True(attempt.MarkRefundPending("re_one", now).IsSuccess);
+
+        var conflict = attempt.MarkRefunded("re_two", now.AddSeconds(1));
+
+        Assert.True(conflict.IsFailure);
+        Assert.Equal("payment.order.conflict", conflict.Error.Code);
+        Assert.Equal("re_one", attempt.ProviderRefundId);
+        Assert.Equal(OrderPaymentStatus.RefundPending, attempt.Status);
+    }
 }

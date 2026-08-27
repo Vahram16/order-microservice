@@ -1,11 +1,11 @@
 using MassTransit;
-using Microservices.Messaging;
 using Microsoft.EntityFrameworkCore;
 using Payment.Api.Domain;
 
 namespace Payment.Api.Persistence;
 
-public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options) : DbContext(options)
+public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
+    : DbContext(options)
 {
     internal DbSet<PaymentCustomer> PaymentCustomers => Set<PaymentCustomer>();
     internal DbSet<PaymentMethod> PaymentMethods => Set<PaymentMethod>();
@@ -30,7 +30,6 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
         var entity = modelBuilder.Entity<PaymentCustomer>();
         entity.ToTable("payment_customers");
         entity.HasKey(customer => customer.Id);
-        entity.Property(customer => customer.CustomerId).IsRequired();
         entity.Property(customer => customer.IdentityProvider).HasMaxLength(32).IsRequired();
         entity.Property(customer => customer.IdentitySubject).HasMaxLength(255).IsRequired();
         entity.Property(customer => customer.ProviderCustomerId).HasMaxLength(255);
@@ -48,9 +47,9 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
         entity.ToTable("payment_methods");
         entity.HasKey(method => method.Id);
         entity.Property(method => method.ProviderPaymentMethodId).HasMaxLength(255).IsRequired();
-        entity.Property(method => method.Brand).HasMaxLength(32).IsRequired();
-        entity.Property(method => method.Last4).HasMaxLength(4).IsRequired();
-        entity.Property(method => method.WalletType).HasMaxLength(32);
+        entity.Property(method => method.Brand).HasMaxLength(64).IsRequired();
+        entity.Property(method => method.Last4).HasMaxLength(4).IsFixedLength().IsRequired();
+        entity.Property(method => method.WalletType).HasMaxLength(64);
         entity.Property(method => method.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
         entity.Property(method => method.CreatedAt).IsRequired();
         entity.Property(method => method.UpdatedAt).IsRequired();
@@ -94,6 +93,7 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
         entity.ToTable("order_payment_attempts");
         entity.HasKey(attempt => attempt.Id);
         entity.Property(attempt => attempt.ProviderPaymentIntentId).HasMaxLength(255);
+        entity.Property(attempt => attempt.ProviderRefundId).HasMaxLength(255);
         entity.Property(attempt => attempt.Amount).HasPrecision(18, 2).IsRequired();
         entity.Property(attempt => attempt.CurrencyCode).HasMaxLength(3).IsFixedLength().IsRequired();
         entity.Property(attempt => attempt.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
@@ -104,6 +104,7 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
         entity.Property(attempt => attempt.Version).IsConcurrencyToken().IsRequired();
         entity.HasIndex(attempt => attempt.OrderId).IsUnique().HasDatabaseName(PaymentDatabaseConstraints.OrderPaymentOrder);
         entity.HasIndex(attempt => attempt.ProviderPaymentIntentId).IsUnique().HasFilter("\"ProviderPaymentIntentId\" IS NOT NULL").HasDatabaseName(PaymentDatabaseConstraints.ProviderPaymentIntent);
+        entity.HasIndex(attempt => attempt.ProviderRefundId).IsUnique().HasFilter("\"ProviderRefundId\" IS NOT NULL").HasDatabaseName(PaymentDatabaseConstraints.ProviderRefund);
         entity.HasIndex(attempt => attempt.PaymentCustomerId);
         entity.HasOne<PaymentCustomer>().WithMany().HasForeignKey(attempt => attempt.PaymentCustomerId).OnDelete(DeleteBehavior.Restrict);
         entity.HasOne<PaymentMethod>().WithMany().HasForeignKey(attempt => attempt.PaymentMethodId).OnDelete(DeleteBehavior.Restrict);

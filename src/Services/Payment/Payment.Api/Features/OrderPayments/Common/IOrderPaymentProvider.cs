@@ -7,6 +7,8 @@ internal interface IOrderPaymentProvider
     Task<OrderPaymentProviderSession> CaptureAsync(string providerPaymentIntentId, string idempotencyKey, CancellationToken cancellationToken);
     Task<OrderPaymentProviderSession> GetAsync(string providerPaymentIntentId, CancellationToken cancellationToken);
     Task<OrderPaymentProviderSession> CancelAsync(string providerPaymentIntentId, string idempotencyKey, CancellationToken cancellationToken);
+    Task<OrderPaymentRefundSession> RefundAsync(string providerPaymentIntentId, string idempotencyKey, CancellationToken cancellationToken);
+    Task<OrderPaymentRefundSession> GetRefundAsync(string providerRefundId, CancellationToken cancellationToken);
 }
 
 internal sealed record OrderPaymentProviderSession(
@@ -17,3 +19,11 @@ internal sealed record OrderPaymentProviderSession(
     string? ProviderPaymentMethodId,
     decimal Amount,
     string CurrencyCode);
+
+internal sealed record OrderPaymentRefundSession(
+    string ProviderRefundId,
+    string? ProviderPaymentIntentId,
+    string Status,
+    decimal Amount,
+    string CurrencyCode,
+    string? FailureReason);

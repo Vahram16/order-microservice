@@ -26,6 +26,7 @@ public sealed class OrderPaymentAttempt
     public Guid PaymentCustomerId { get; private set; }
     public Guid PaymentMethodId { get; private set; }
     public string? ProviderPaymentIntentId { get; private set; }
+    public string? ProviderRefundId { get; private set; }
     public decimal Amount { get; private set; }
     public string CurrencyCode { get; private set; } = string.Empty;
     public OrderPaymentStatus Status { get; private set; }
@@ -50,7 +51,7 @@ public sealed class OrderPaymentAttempt
 
     public Result AssignProviderPaymentIntent(string providerPaymentIntentId, DateTimeOffset now)
     {
-        if (string.IsNullOrWhiteSpace(providerPaymentIntentId) || !string.Equals(providerPaymentIntentId, providerPaymentIntentId.Trim(), StringComparison.Ordinal) || providerPaymentIntentId.Length > 255)
+        if (!IsValidProviderId(providerPaymentIntentId))
             return PaymentErrors.Validation(nameof(providerPaymentIntentId), "Provider payment intent identifier is invalid.");
         if (ProviderPaymentIntentId is not null)
             return string.Equals(ProviderPaymentIntentId, providerPaymentIntentId, StringComparison.Ordinal) ? Result.Success() : PaymentErrors.OrderPaymentConflict;
@@ -114,15 +115,93 @@ public sealed class OrderPaymentAttempt
         return Result.Success();
     }
 
+    public Result RequestCancellation(DateTimeOffset now)
+    {
+        if (Status is OrderPaymentStatus.Cancelled or OrderPaymentStatus.Rejected or OrderPaymentStatus.Refunded or OrderPaymentStatus.CancellationRequested or OrderPaymentStatus.RefundPending or OrderPaymentStatus.RefundFailed)
+            return Result.Success();
+        if (Status is not (OrderPaymentStatus.Pending or OrderPaymentStatus.RequiresCustomerAction or OrderPaymentStatus.Authorized or OrderPaymentStatus.Captured or OrderPaymentStatus.CaptureFailed))
+            return PaymentErrors.OrderPaymentInvalidState;
+        Status = OrderPaymentStatus.CancellationRequested;
+        RejectionCode = null;
+        Touch(now);
+        return Result.Success();
+    }
+
+    public Result ObserveCapturedDuringCancellation(DateTimeOffset now)
+    {
+        if (Status == OrderPaymentStatus.Captured) return Result.Success();
+        if (Status != OrderPaymentStatus.CancellationRequested) return PaymentErrors.OrderPaymentInvalidState;
+        Status = OrderPaymentStatus.Captured;
+        RejectionCode = null;
+        Touch(now);
+        return Result.Success();
+    }
+
+    public Result MarkRefundPending(string providerRefundId, DateTimeOffset now)
+    {
+        var assigned = AssignProviderRefund(providerRefundId);
+        if (assigned.IsFailure) return assigned.Error;
+        if (Status == OrderPaymentStatus.Refunded) return Result.Success();
+        if (Status is not (OrderPaymentStatus.Captured or OrderPaymentStatus.CancellationRequested or OrderPaymentStatus.RefundPending or OrderPaymentStatus.RefundFailed))
+            return PaymentErrors.OrderPaymentInvalidState;
+        Status = OrderPaymentStatus.RefundPending;
+        RejectionCode = null;
+        Touch(now);
+        return Result.Success();
+    }
+
+    public Result MarkRefunded(string providerRefundId, DateTimeOffset now)
+    {
+        var assigned = AssignProviderRefund(providerRefundId);
+        if (assigned.IsFailure) return assigned.Error;
+        if (Status == OrderPaymentStatus.Refunded) return Result.Success();
+        if (Status is not (OrderPaymentStatus.Captured or OrderPaymentStatus.CancellationRequested or OrderPaymentStatus.RefundPending or OrderPaymentStatus.RefundFailed))
+            return PaymentErrors.OrderPaymentInvalidState;
+        Status = OrderPaymentStatus.Refunded;
+        RejectionCode = null;
+        Touch(now);
+        return Result.Success();
+    }
+
+    public Result FailRefund(string providerRefundId, string rejectionCode, DateTimeOffset now)
+    {
+        var validation = ValidateRejectionCode(rejectionCode);
+        if (validation.IsFailure) return validation.Error;
+        var assigned = AssignProviderRefund(providerRefundId);
+        if (assigned.IsFailure) return assigned.Error;
+        if (Status == OrderPaymentStatus.RefundFailed)
+            return string.Equals(RejectionCode, rejectionCode, StringComparison.Ordinal) ? Result.Success() : PaymentErrors.OrderPaymentConflict;
+        if (Status is not (OrderPaymentStatus.Captured or OrderPaymentStatus.CancellationRequested or OrderPaymentStatus.RefundPending))
+            return PaymentErrors.OrderPaymentInvalidState;
+        Status = OrderPaymentStatus.RefundFailed;
+        RejectionCode = rejectionCode;
+        Touch(now);
+        return Result.Success();
+    }
+
     public Result Cancel(DateTimeOffset now)
     {
         if (Status is OrderPaymentStatus.Cancelled or OrderPaymentStatus.Rejected) return Result.Success();
-        if (Status == OrderPaymentStatus.Captured) return PaymentErrors.OrderPaymentInvalidState;
+        if (Status is OrderPaymentStatus.Captured or OrderPaymentStatus.RefundPending or OrderPaymentStatus.Refunded or OrderPaymentStatus.RefundFailed)
+            return PaymentErrors.OrderPaymentInvalidState;
         Status = OrderPaymentStatus.Cancelled;
         RejectionCode = null;
         Touch(now);
         return Result.Success();
     }
+
+    private Result AssignProviderRefund(string providerRefundId)
+    {
+        if (!IsValidProviderId(providerRefundId))
+            return PaymentErrors.Validation(nameof(providerRefundId), "Provider refund identifier is invalid.");
+        if (ProviderRefundId is not null && !string.Equals(ProviderRefundId, providerRefundId, StringComparison.Ordinal))
+            return PaymentErrors.OrderPaymentConflict;
+        ProviderRefundId ??= providerRefundId;
+        return Result.Success();
+    }
+
+    private static bool IsValidProviderId(string value) =>
+        !string.IsNullOrWhiteSpace(value) && string.Equals(value, value.Trim(), StringComparison.Ordinal) && value.Length <= 255;
 
     private static Result ValidateRejectionCode(string rejectionCode) =>
         string.IsNullOrWhiteSpace(rejectionCode) || rejectionCode.Length > 128
