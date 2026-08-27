@@ -1,16 +1,16 @@
+using Customer.Api.Persistence;
 using MassTransit;
 using Microservices.Application.Messaging;
 using Microservices.Contracts.Customers.V1;
-using Customer.Api.Persistence;
+using Microservices.Messaging;
 using Microsoft.EntityFrameworkCore;
 
 namespace Customer.Api.Integration;
 
 internal sealed class CustomerIdentitySnapshotConsumer(
     CustomerDbContext dbContext,
-    IIntegrationEventPublisher eventPublisher,
-    IIntegrationCommandSender<SynchronizeCustomerIdentitySnapshot> commandSender,
-    TimeProvider timeProvider) : IConsumer<SynchronizeCustomerIdentitySnapshot>
+    IIntegrationEventPublisher eventPublisher)
+    : IConsumer<SynchronizeCustomerIdentitySnapshot>
 {
     private const int MaximumPageSize = 500;
 
@@ -18,35 +18,55 @@ internal sealed class CustomerIdentitySnapshotConsumer(
     {
         var message = context.Message;
         if (message.SnapshotId == Guid.Empty || message.PageSize is <= 0 or > MaximumPageSize)
+        {
             throw new CustomerSnapshotException("customer.snapshot.invalid_request");
+        }
 
-        var query = dbContext.Customers.AsNoTracking().OrderBy(customer => customer.Id);
+        IQueryable<Domain.Customer> query = dbContext.Customers
+            .AsNoTracking()
+            .OrderBy(customer => customer.Id);
+
         if (message.AfterCustomerId is { } afterCustomerId)
-            query = (IOrderedQueryable<Domain.Customer>)query.Where(customer => customer.Id.CompareTo(afterCustomerId) > 0).OrderBy(customer => customer.Id);
-
-        var page = await query.Take(message.PageSize + 1).ToListAsync(context.CancellationToken);
-        var current = page.Take(message.PageSize).ToArray();
-        foreach (var customer in current)
         {
-            await eventPublisher.PublishAsync(
-                new CustomerIdentitySynchronized(customer.Id, customer.IdentityProvider, customer.IdentitySubject, customer.UpdatedAt),
-                cancellationToken: context.CancellationToken);
+            query = query
+                .Where(customer => customer.Id.CompareTo(afterCustomerId) > 0)
+                .OrderBy(customer => customer.Id);
         }
 
-        if (page.Count > message.PageSize)
-        {
-            await commandSender.SendAsync(
-                new SynchronizeCustomerIdentitySnapshot(message.SnapshotId, current[^1].Id, message.PageSize),
-                new IntegrationMessageMetadata(CorrelationId: message.SnapshotId),
-                context.CancellationToken);
-            return;
-        }
+        var page = await query
+            .Take(message.PageSize + 1)
+            .ToListAsync(context.CancellationToken);
+        var items = page
+            .Take(message.PageSize)
+            .Select(customer => new CustomerIdentitySnapshotItem(
+                customer.Id,
+                customer.IdentityProvider,
+                customer.IdentitySubject,
+                customer.UpdatedAt))
+            .ToArray();
+        var hasMore = page.Count > message.PageSize;
+        var nextAfterCustomerId = hasMore ? items[^1].CustomerId : (Guid?)null;
 
         await eventPublisher.PublishAsync(
-            new CustomerIdentitySnapshotCompleted(message.SnapshotId, timeProvider.GetUtcNow()),
+            new CustomerIdentitySnapshotPage(
+                message.SnapshotId,
+                message.AfterCustomerId,
+                items,
+                nextAfterCustomerId,
+                IsLastPage: !hasMore),
             new IntegrationMessageMetadata(CorrelationId: message.SnapshotId),
             context.CancellationToken);
     }
 
-    private sealed class CustomerSnapshotException(string code) : Exception(code), Microservices.Messaging.IPermanentConsumerFailure;
+    private sealed class CustomerSnapshotException(string code)
+        : Exception(code), IPermanentConsumerFailure;
+}
+
+internal sealed class CustomerIdentitySnapshotConsumerDefinition
+    : ConsumerDefinition<CustomerIdentitySnapshotConsumer>
+{
+    public CustomerIdentitySnapshotConsumerDefinition()
+    {
+        EndpointName = SynchronizeCustomerIdentitySnapshot.EndpointName;
+    }
 }

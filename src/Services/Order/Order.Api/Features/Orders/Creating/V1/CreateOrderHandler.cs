@@ -19,10 +19,26 @@ internal sealed class CreateOrderHandler(
     TimeProvider timeProvider)
     : ICommandHandler<CreateOrderCommand, Result<OrderResponse>>
 {
-    public async Task<Result<OrderResponse>> Handle(CreateOrderCommand command, CancellationToken cancellationToken)
+    public async Task<Result<OrderResponse>> Handle(
+        CreateOrderCommand command,
+        CancellationToken cancellationToken)
     {
+        var referenceDataReady = await dbContext.Set<OrderReferenceDataSynchronization>()
+            .AsNoTracking()
+            .AnyAsync(
+                item =>
+                    item.Id == OrderReferenceDataSynchronization.SingletonId &&
+                    item.ReadyAt != null,
+                cancellationToken);
+        if (!referenceDataReady)
+        {
+            return OrderApplicationErrors.ReferenceDataSynchronizing;
+        }
+
         var customer = await dbContext.OrderCustomers.SingleOrDefaultAsync(
-            item => item.IdentityProvider == command.IdentityProvider && item.IdentitySubject == command.IdentitySubject,
+            item =>
+                item.IdentityProvider == command.IdentityProvider &&
+                item.IdentitySubject == command.IdentitySubject,
             cancellationToken);
         if (customer is null)
         {
@@ -38,7 +54,10 @@ internal sealed class CreateOrderHandler(
             return await ResolveExistingAsync(existingSubmission, fingerprint, cancellationToken);
         }
 
-        var productIds = command.Items.Select(item => item.ProductId).Distinct().ToArray();
+        var productIds = command.Items
+            .Select(item => item.ProductId)
+            .Distinct()
+            .ToArray();
         var products = await dbContext.OrderProducts
             .Where(item => productIds.Contains(item.ProductId))
             .ToDictionaryAsync(item => item.ProductId, cancellationToken);
@@ -99,9 +118,13 @@ internal sealed class CreateOrderHandler(
         await inventorySender.SendAsync(
             new ReserveInventory(
                 order.Id,
-                order.Items.Select(item => new InventoryReservationItem(item.ProductId, item.Quantity)).ToArray(),
+                order.Items
+                    .Select(item => new InventoryReservationItem(item.ProductId, item.Quantity))
+                    .ToArray(),
                 order.ExpiresAt),
-            new IntegrationMessageMetadata(MessageId: order.Id, CorrelationId: order.Id),
+            new IntegrationMessageMetadata(
+                MessageId: order.Id,
+                CorrelationId: order.Id),
             cancellationToken);
 
         try
@@ -109,7 +132,8 @@ internal sealed class CreateOrderHandler(
             await dbContext.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException exception) when (
-            exception.IsUniqueConstraintViolation(OrderDatabaseConstraints.SubmissionPrimaryKey))
+            exception.IsUniqueConstraintViolation(
+                OrderDatabaseConstraints.SubmissionPrimaryKey))
         {
             dbContext.ChangeTracker.Clear();
             existingSubmission = await dbContext.OrderSubmissions.FindAsync(
@@ -120,7 +144,10 @@ internal sealed class CreateOrderHandler(
                 throw;
             }
 
-            return await ResolveExistingAsync(existingSubmission, fingerprint, cancellationToken);
+            return await ResolveExistingAsync(
+                existingSubmission,
+                fingerprint,
+                cancellationToken);
         }
 
         return Result.Success(OrderMappings.ToResponse(order));
@@ -131,7 +158,10 @@ internal sealed class CreateOrderHandler(
         string fingerprint,
         CancellationToken cancellationToken)
     {
-        if (!string.Equals(submission.RequestFingerprint, fingerprint, StringComparison.Ordinal))
+        if (!string.Equals(
+                submission.RequestFingerprint,
+                fingerprint,
+                StringComparison.Ordinal))
         {
             return OrderApplicationErrors.IdempotencyKeyReused;
         }
@@ -148,8 +178,10 @@ internal sealed class CreateOrderHandler(
         builder.Append(command.PaymentMethodId.ToString("N", CultureInfo.InvariantCulture));
         foreach (var item in command.Items.OrderBy(item => item.ProductId))
         {
-            builder.Append('|').Append(item.ProductId.ToString("N", CultureInfo.InvariantCulture))
-                .Append(':').Append(item.Quantity.ToString(CultureInfo.InvariantCulture));
+            builder.Append('|')
+                .Append(item.ProductId.ToString("N", CultureInfo.InvariantCulture))
+                .Append(':')
+                .Append(item.Quantity.ToString(CultureInfo.InvariantCulture));
         }
 
         Append(builder, command.ShippingAddress.RecipientName);
@@ -161,9 +193,16 @@ internal sealed class CreateOrderHandler(
         Append(builder, command.ShippingAddress.CountryCode?.ToUpperInvariant());
         Append(builder, command.ShippingAddress.PhoneNumber);
 
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
+        return Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
     }
 
-    private static void Append(StringBuilder builder, string? value) =>
-        builder.Append('|').Append(value?.Trim().Length ?? 0).Append(':').Append(value?.Trim());
+    private static void Append(StringBuilder builder, string? value)
+    {
+        var normalized = value?.Trim();
+        builder.Append('|')
+            .Append(normalized?.Length ?? 0)
+            .Append(':')
+            .Append(normalized);
+    }
 }

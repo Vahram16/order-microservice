@@ -2,7 +2,9 @@ namespace Order.Api.Persistence;
 
 internal sealed class OrderProductProjection
 {
-    private OrderProductProjection() { }
+    private OrderProductProjection()
+    {
+    }
 
     private OrderProductProjection(
         Guid productId,
@@ -12,7 +14,8 @@ internal sealed class OrderProductProjection
         string currencyCode,
         long sourceVersion,
         bool isAvailable,
-        DateTimeOffset updatedAt)
+        DateTimeOffset updatedAt,
+        Guid? lastSnapshotId)
     {
         ProductId = productId;
         Sku = sku;
@@ -22,6 +25,7 @@ internal sealed class OrderProductProjection
         SourceVersion = sourceVersion;
         IsAvailable = isAvailable;
         UpdatedAt = updatedAt;
+        LastSnapshotId = lastSnapshotId;
     }
 
     public Guid ProductId { get; private set; }
@@ -32,6 +36,7 @@ internal sealed class OrderProductProjection
     public long SourceVersion { get; private set; }
     public bool IsAvailable { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
+    public Guid? LastSnapshotId { get; private set; }
 
     public static OrderProductProjection Create(
         Guid productId,
@@ -41,16 +46,73 @@ internal sealed class OrderProductProjection
         string currencyCode,
         long sourceVersion,
         bool isAvailable,
-        DateTimeOffset now) =>
-        new(productId, sku, name, price, currencyCode, sourceVersion, isAvailable, now);
+        DateTimeOffset now,
+        Guid? lastSnapshotId = null) =>
+        new(
+            productId,
+            sku,
+            name,
+            price,
+            currencyCode,
+            sourceVersion,
+            isAvailable,
+            now,
+            lastSnapshotId);
 
-    public void Apply(string sku, string name, decimal price, string currencyCode, long sourceVersion, bool isAvailable, DateTimeOffset now)
+    public void Apply(
+        string sku,
+        string name,
+        decimal price,
+        string currencyCode,
+        long sourceVersion,
+        bool isAvailable,
+        DateTimeOffset now)
     {
         if (sourceVersion <= SourceVersion)
         {
             return;
         }
 
+        ApplyValues(sku, name, price, currencyCode, sourceVersion, isAvailable, now);
+    }
+
+    public void ObserveSnapshot(
+        Guid snapshotId,
+        string sku,
+        string name,
+        decimal price,
+        string currencyCode,
+        long sourceVersion,
+        DateTimeOffset now)
+    {
+        if (snapshotId == Guid.Empty)
+        {
+            throw new ArgumentOutOfRangeException(nameof(snapshotId));
+        }
+
+        LastSnapshotId = snapshotId;
+        if (sourceVersion > SourceVersion)
+        {
+            ApplyValues(
+                sku,
+                name,
+                price,
+                currencyCode,
+                sourceVersion,
+                isAvailable: true,
+                now);
+        }
+    }
+
+    private void ApplyValues(
+        string sku,
+        string name,
+        decimal price,
+        string currencyCode,
+        long sourceVersion,
+        bool isAvailable,
+        DateTimeOffset now)
+    {
         Sku = sku;
         Name = name;
         Price = price;

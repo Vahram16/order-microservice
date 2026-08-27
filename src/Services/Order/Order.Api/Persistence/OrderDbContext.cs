@@ -123,5 +123,6 @@ internal sealed class OrderProductProjectionConfiguration : IEntityTypeConfigura
         builder.Property(item => item.SourceVersion).IsRequired();
         builder.Property(item => item.IsAvailable).IsRequired();
         builder.Property(item => item.UpdatedAt).IsRequired();
+        builder.Property(item => item.LastSnapshotId);
     }
 }

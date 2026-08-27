@@ -1,6 +1,7 @@
 using MassTransit;
 using Microservices.Application.Messaging;
 using Microservices.Contracts.Products.V1;
+using Microservices.Messaging;
 using Microsoft.EntityFrameworkCore;
 using Product.Api.Persistence;
 
@@ -8,9 +9,8 @@ namespace Product.Api.Integration;
 
 internal sealed class ProductCatalogSnapshotConsumer(
     ProductDbContext dbContext,
-    IIntegrationEventPublisher eventPublisher,
-    IIntegrationCommandSender<SynchronizeProductCatalogSnapshot> commandSender,
-    TimeProvider timeProvider) : IConsumer<SynchronizeProductCatalogSnapshot>
+    IIntegrationEventPublisher eventPublisher)
+    : IConsumer<SynchronizeProductCatalogSnapshot>
 {
     private const int MaximumPageSize = 500;
 
@@ -18,35 +18,58 @@ internal sealed class ProductCatalogSnapshotConsumer(
     {
         var message = context.Message;
         if (message.SnapshotId == Guid.Empty || message.PageSize is <= 0 or > MaximumPageSize)
+        {
             throw new ProductSnapshotException("product.snapshot.invalid_request");
+        }
 
-        var query = dbContext.Products.AsNoTracking().OrderBy(product => product.Id);
+        IQueryable<Domain.Product> query = dbContext.Products
+            .AsNoTracking()
+            .OrderBy(product => product.Id);
+
         if (message.AfterProductId is { } afterProductId)
-            query = (IOrderedQueryable<Domain.Product>)query.Where(product => product.Id.CompareTo(afterProductId) > 0).OrderBy(product => product.Id);
-
-        var page = await query.Take(message.PageSize + 1).ToListAsync(context.CancellationToken);
-        var current = page.Take(message.PageSize).ToArray();
-        foreach (var product in current)
         {
-            await eventPublisher.PublishAsync(
-                new ProductCatalogChanged(product.Id, product.Sku, product.Name, product.Price, product.CurrencyCode, product.Version, IsAvailable: true, product.UpdatedAt),
-                cancellationToken: context.CancellationToken);
+            query = query
+                .Where(product => product.Id.CompareTo(afterProductId) > 0)
+                .OrderBy(product => product.Id);
         }
 
-        if (page.Count > message.PageSize)
-        {
-            await commandSender.SendAsync(
-                new SynchronizeProductCatalogSnapshot(message.SnapshotId, current[^1].Id, message.PageSize),
-                new IntegrationMessageMetadata(CorrelationId: message.SnapshotId),
-                context.CancellationToken);
-            return;
-        }
+        var page = await query
+            .Take(message.PageSize + 1)
+            .ToListAsync(context.CancellationToken);
+        var items = page
+            .Take(message.PageSize)
+            .Select(product => new ProductCatalogSnapshotItem(
+                product.Id,
+                product.Sku,
+                product.Name,
+                product.Price,
+                product.CurrencyCode,
+                product.Version,
+                product.UpdatedAt))
+            .ToArray();
+        var hasMore = page.Count > message.PageSize;
+        var nextAfterProductId = hasMore ? items[^1].ProductId : (Guid?)null;
 
         await eventPublisher.PublishAsync(
-            new ProductCatalogSnapshotCompleted(message.SnapshotId, timeProvider.GetUtcNow()),
+            new ProductCatalogSnapshotPage(
+                message.SnapshotId,
+                message.AfterProductId,
+                items,
+                nextAfterProductId,
+                IsLastPage: !hasMore),
             new IntegrationMessageMetadata(CorrelationId: message.SnapshotId),
             context.CancellationToken);
     }
 
-    private sealed class ProductSnapshotException(string code) : Exception(code), Microservices.Messaging.IPermanentConsumerFailure;
+    private sealed class ProductSnapshotException(string code)
+        : Exception(code), IPermanentConsumerFailure;
+}
+
+internal sealed class ProductCatalogSnapshotConsumerDefinition
+    : ConsumerDefinition<ProductCatalogSnapshotConsumer>
+{
+    public ProductCatalogSnapshotConsumerDefinition()
+    {
+        EndpointName = SynchronizeProductCatalogSnapshot.EndpointName;
+    }
 }

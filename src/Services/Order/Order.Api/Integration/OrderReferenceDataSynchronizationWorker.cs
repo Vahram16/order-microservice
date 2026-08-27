@@ -7,7 +7,11 @@ using Order.Api.Persistence;
 
 namespace Order.Api.Integration;
 
-internal sealed class OrderReferenceDataSynchronizationWorker(IServiceScopeFactory scopeFactory, TimeProvider timeProvider) : BackgroundService
+internal sealed class OrderReferenceDataSynchronizationWorker(
+    IServiceScopeFactory scopeFactory,
+    TimeProvider timeProvider,
+    ILogger<OrderReferenceDataSynchronizationWorker> logger)
+    : BackgroundService
 {
     private const int PageSize = 200;
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
@@ -18,7 +22,21 @@ internal sealed class OrderReferenceDataSynchronizationWorker(IServiceScopeFacto
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            await EnsureSynchronizationAsync(stoppingToken);
+            try
+            {
+                await EnsureSynchronizationAsync(stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(
+                    exception,
+                    "Order reference-data synchronization iteration failed.");
+            }
+
             await Task.Delay(PollInterval, timeProvider, stoppingToken);
         }
     }
@@ -27,47 +45,107 @@ internal sealed class OrderReferenceDataSynchronizationWorker(IServiceScopeFacto
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
-        var customerSender = scope.ServiceProvider.GetRequiredService<IIntegrationCommandSender<SynchronizeCustomerIdentitySnapshot>>();
-        var productSender = scope.ServiceProvider.GetRequiredService<IIntegrationCommandSender<SynchronizeProductCatalogSnapshot>>();
+        var customerSender = scope.ServiceProvider.GetRequiredService<
+            IIntegrationCommandSender<SynchronizeCustomerIdentitySnapshot>>();
+        var productSender = scope.ServiceProvider.GetRequiredService<
+            IIntegrationCommandSender<SynchronizeProductCatalogSnapshot>>();
         var now = timeProvider.GetUtcNow();
-        var state = await dbContext.Set<OrderReferenceDataSynchronization>().SingleOrDefaultAsync(item => item.Id == OrderReferenceDataSynchronization.SingletonId, cancellationToken);
+        var state = await dbContext.Set<OrderReferenceDataSynchronization>()
+            .SingleOrDefaultAsync(
+                item => item.Id == OrderReferenceDataSynchronization.SingletonId,
+                cancellationToken);
 
         if (state is null)
         {
             state = OrderReferenceDataSynchronization.Start(Guid.NewGuid(), now);
             dbContext.Add(state);
-            await SendRequestsAsync(state, customerSender, productSender, cancellationToken);
+            await SendCustomerRequestAsync(state, customerSender, cancellationToken);
+            await SendProductRequestAsync(state, productSender, cancellationToken);
+            await SaveInitialStateAsync(dbContext, cancellationToken);
+            return;
         }
-        else if (state.CycleCompletedAt is null && now - state.LastRequestedAt >= RequestRetryInterval)
-        {
-            state.MarkRequested(now);
-            await SendRequestsAsync(state, customerSender, productSender, cancellationToken);
-        }
-        else if (state.CycleCompletedAt is { } completedAt && now - completedAt >= ReconciliationInterval)
+
+        if (state.CustomerCompleted &&
+            state.ProductCompleted &&
+            state.LastCompletedAt is { } completedAt &&
+            now - completedAt >= ReconciliationInterval)
         {
             state.BeginCycle(Guid.NewGuid(), now);
-            await SendRequestsAsync(state, customerSender, productSender, cancellationToken);
+            await SendCustomerRequestAsync(state, customerSender, cancellationToken);
+            await SendProductRequestAsync(state, productSender, cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return;
         }
-        else
+
+        var changed = false;
+        if (!state.CustomerCompleted &&
+            now - state.CustomerLastRequestedAt >= RequestRetryInterval)
+        {
+            state.MarkCustomerRequested(now);
+            await SendCustomerRequestAsync(state, customerSender, cancellationToken);
+            changed = true;
+        }
+
+        if (!state.ProductCompleted &&
+            now - state.ProductLastRequestedAt >= RequestRetryInterval)
+        {
+            state.MarkProductRequested(now);
+            await SendProductRequestAsync(state, productSender, cancellationToken);
+            changed = true;
+        }
+
+        if (!changed)
         {
             return;
         }
 
-        try { await dbContext.SaveChangesAsync(cancellationToken); }
-        catch (DbUpdateConcurrencyException) { dbContext.ChangeTracker.Clear(); }
-        catch (DbUpdateException exception) when (exception.IsUniqueConstraintViolation(OrderDatabaseConstraints.ReferenceDataSynchronizationPrimaryKey)) { dbContext.ChangeTracker.Clear(); }
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            dbContext.ChangeTracker.Clear();
+        }
     }
 
-    private static async Task SendRequestsAsync(
-        OrderReferenceDataSynchronization state,
-        IIntegrationCommandSender<SynchronizeCustomerIdentitySnapshot> customerSender,
-        IIntegrationCommandSender<SynchronizeProductCatalogSnapshot> productSender,
+    private static async Task SaveInitialStateAsync(
+        OrderDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        var metadata = new IntegrationMessageMetadata(CorrelationId: state.SnapshotId);
-        if (!state.CustomerCompleted)
-            await customerSender.SendAsync(new SynchronizeCustomerIdentitySnapshot(state.SnapshotId, null, PageSize), metadata, cancellationToken);
-        if (!state.ProductCompleted)
-            await productSender.SendAsync(new SynchronizeProductCatalogSnapshot(state.SnapshotId, null, PageSize), metadata, cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (
+            exception.IsUniqueConstraintViolation(
+                OrderDatabaseConstraints.ReferenceDataSynchronizationPrimaryKey))
+        {
+            dbContext.ChangeTracker.Clear();
+        }
     }
+
+    private static Task SendCustomerRequestAsync(
+        OrderReferenceDataSynchronization state,
+        IIntegrationCommandSender<SynchronizeCustomerIdentitySnapshot> sender,
+        CancellationToken cancellationToken) =>
+        sender.SendAsync(
+            new SynchronizeCustomerIdentitySnapshot(
+                state.SnapshotId,
+                state.CustomerAfterCustomerId,
+                PageSize),
+            new IntegrationMessageMetadata(CorrelationId: state.SnapshotId),
+            cancellationToken);
+
+    private static Task SendProductRequestAsync(
+        OrderReferenceDataSynchronization state,
+        IIntegrationCommandSender<SynchronizeProductCatalogSnapshot> sender,
+        CancellationToken cancellationToken) =>
+        sender.SendAsync(
+            new SynchronizeProductCatalogSnapshot(
+                state.SnapshotId,
+                state.ProductAfterProductId,
+                PageSize),
+            new IntegrationMessageMetadata(CorrelationId: state.SnapshotId),
+            cancellationToken);
 }

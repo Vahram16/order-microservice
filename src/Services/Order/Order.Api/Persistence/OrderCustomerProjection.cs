@@ -2,9 +2,15 @@ namespace Order.Api.Persistence;
 
 internal sealed class OrderCustomerProjection
 {
-    private OrderCustomerProjection() { }
+    private OrderCustomerProjection()
+    {
+    }
 
-    private OrderCustomerProjection(Guid customerId, string identityProvider, string identitySubject, DateTimeOffset updatedAt)
+    private OrderCustomerProjection(
+        Guid customerId,
+        string identityProvider,
+        string identitySubject,
+        DateTimeOffset updatedAt)
     {
         CustomerId = customerId;
         IdentityProvider = identityProvider;
@@ -17,10 +23,28 @@ internal sealed class OrderCustomerProjection
     public string IdentitySubject { get; private set; } = null!;
     public DateTimeOffset UpdatedAt { get; private set; }
 
-    public static OrderCustomerProjection Create(Guid customerId, string identityProvider, string identitySubject, DateTimeOffset now) =>
+    public static OrderCustomerProjection Create(
+        Guid customerId,
+        string identityProvider,
+        string identitySubject,
+        DateTimeOffset now) =>
         new(customerId, identityProvider, identitySubject, now);
 
     public bool Matches(string identityProvider, string identitySubject) =>
         string.Equals(IdentityProvider, identityProvider, StringComparison.Ordinal) &&
         string.Equals(IdentitySubject, identitySubject, StringComparison.Ordinal);
+
+    public bool Synchronize(
+        string identityProvider,
+        string identitySubject,
+        DateTimeOffset updatedAt)
+    {
+        if (!Matches(identityProvider, identitySubject))
+        {
+            return false;
+        }
+
+        UpdatedAt = updatedAt > UpdatedAt ? updatedAt : UpdatedAt;
+        return true;
+    }
 }
