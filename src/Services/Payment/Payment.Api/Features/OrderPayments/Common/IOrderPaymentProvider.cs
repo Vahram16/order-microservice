@@ -2,28 +2,11 @@ namespace Payment.Api.Features.OrderPayments.Common;
 
 internal interface IOrderPaymentProvider
 {
-    Task<OrderPaymentProviderSession> CreateAsync(
-        Guid orderId,
-        string providerCustomerId,
-        string providerPaymentMethodId,
-        decimal amount,
-        string currencyCode,
-        string idempotencyKey,
-        CancellationToken cancellationToken);
-
-    Task<OrderPaymentProviderSession> ConfirmAsync(
-        string providerPaymentIntentId,
-        string idempotencyKey,
-        CancellationToken cancellationToken);
-
-    Task<OrderPaymentProviderSession> GetAsync(
-        string providerPaymentIntentId,
-        CancellationToken cancellationToken);
-
-    Task<OrderPaymentProviderSession> CancelAsync(
-        string providerPaymentIntentId,
-        string idempotencyKey,
-        CancellationToken cancellationToken);
+    Task<OrderPaymentProviderSession> CreateAsync(Guid orderId, string providerCustomerId, string providerPaymentMethodId, decimal amount, string currencyCode, string idempotencyKey, CancellationToken cancellationToken);
+    Task<OrderPaymentProviderSession> ConfirmAsync(string providerPaymentIntentId, string idempotencyKey, CancellationToken cancellationToken);
+    Task<OrderPaymentProviderSession> CaptureAsync(string providerPaymentIntentId, string idempotencyKey, CancellationToken cancellationToken);
+    Task<OrderPaymentProviderSession> GetAsync(string providerPaymentIntentId, CancellationToken cancellationToken);
+    Task<OrderPaymentProviderSession> CancelAsync(string providerPaymentIntentId, string idempotencyKey, CancellationToken cancellationToken);
 }
 
 internal sealed record OrderPaymentProviderSession(
@@ -32,5 +15,5 @@ internal sealed record OrderPaymentProviderSession(
     string? ClientSecret,
     string? ProviderCustomerId,
     string? ProviderPaymentMethodId,
-    long AmountMinor,
+    decimal Amount,
     string CurrencyCode);

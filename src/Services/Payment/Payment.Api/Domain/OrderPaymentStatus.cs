@@ -6,5 +6,7 @@ public enum OrderPaymentStatus
     RequiresCustomerAction = 2,
     Authorized = 3,
     Rejected = 4,
-    Cancelled = 5
+    Cancelled = 5,
+    Captured = 6,
+    CaptureFailed = 7
 }

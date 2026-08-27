@@ -8,5 +8,6 @@ public enum OrderStatus
     PaymentAuthorized = 4,
     Confirmed = 5,
     Cancelled = 6,
-    Expired = 7
+    Expired = 7,
+    PaymentCapturing = 8
 }
