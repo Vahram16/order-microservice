@@ -80,6 +80,13 @@ internal static class StripeWebhookEndpoint
                             notification.EventType,
                             notification.ProviderObjectId,
                             now),
+                    PaymentWebhookObjectKind.OrderPaymentRefund =>
+                        PaymentWebhookEvent.CreateOrderPaymentRefund(
+                            id,
+                            notification.ProviderEventId,
+                            notification.EventType,
+                            notification.ProviderObjectId,
+                            now),
                     _ => throw new InvalidOperationException("Unknown payment webhook object kind.")
                 };
 

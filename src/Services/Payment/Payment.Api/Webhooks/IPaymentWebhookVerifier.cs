@@ -8,7 +8,8 @@ internal interface IPaymentWebhookVerifier
 internal enum PaymentWebhookObjectKind
 {
     PaymentMethodSetup = 1,
-    OrderPayment = 2
+    OrderPayment = 2,
+    OrderPaymentRefund = 3
 }
 
 internal sealed record PaymentWebhookNotification(

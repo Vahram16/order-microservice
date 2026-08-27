@@ -81,10 +81,12 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
         entity.Property(webhookEvent => webhookEvent.EventType).HasMaxLength(128).IsRequired();
         entity.Property(webhookEvent => webhookEvent.ProviderSetupIntentId).HasMaxLength(255);
         entity.Property(webhookEvent => webhookEvent.ProviderPaymentIntentId).HasMaxLength(255);
+        entity.Property(webhookEvent => webhookEvent.ProviderRefundId).HasMaxLength(255);
         entity.HasIndex(webhookEvent => webhookEvent.ProviderEventId).IsUnique().HasDatabaseName(PaymentDatabaseConstraints.ProviderWebhookEvent);
         entity.HasIndex(webhookEvent => webhookEvent.ProcessedAt);
         entity.HasIndex(webhookEvent => webhookEvent.ProviderSetupIntentId);
         entity.HasIndex(webhookEvent => webhookEvent.ProviderPaymentIntentId);
+        entity.HasIndex(webhookEvent => webhookEvent.ProviderRefundId);
     }
 
     private static void ConfigureOrderPaymentAttempt(ModelBuilder modelBuilder)

@@ -25,6 +25,7 @@ public sealed class PaymentWebhookEventTests
         Assert.Equal("setup_intent.succeeded", webhookEvent.EventType);
         Assert.Equal("seti_123", webhookEvent.ProviderSetupIntentId);
         Assert.Null(webhookEvent.ProviderPaymentIntentId);
+        Assert.Null(webhookEvent.ProviderRefundId);
         Assert.Equal(receivedAt, webhookEvent.ReceivedAt);
         Assert.Null(webhookEvent.ProcessedAt);
     }
@@ -45,6 +46,28 @@ public sealed class PaymentWebhookEventTests
 
         Assert.Equal("pi_123", webhookEvent.ProviderPaymentIntentId);
         Assert.Null(webhookEvent.ProviderSetupIntentId);
+        Assert.Null(webhookEvent.ProviderRefundId);
+        Assert.Equal(receivedAt, webhookEvent.ReceivedAt);
+        Assert.Null(webhookEvent.ProcessedAt);
+    }
+
+    [Fact]
+    public void RefundReceiptKeepsRefundIdentity()
+    {
+        var receivedAt = DateTimeOffset.Parse(
+            "2026-08-17T00:00:00Z",
+            CultureInfo.InvariantCulture);
+
+        var webhookEvent = PaymentWebhookEvent.CreateOrderPaymentRefund(
+            Guid.NewGuid(),
+            "evt_refund_123",
+            "refund.updated",
+            "re_123",
+            receivedAt);
+
+        Assert.Equal("re_123", webhookEvent.ProviderRefundId);
+        Assert.Null(webhookEvent.ProviderSetupIntentId);
+        Assert.Null(webhookEvent.ProviderPaymentIntentId);
         Assert.Equal(receivedAt, webhookEvent.ReceivedAt);
         Assert.Null(webhookEvent.ProcessedAt);
     }

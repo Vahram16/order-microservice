@@ -16,6 +16,12 @@ internal sealed class StripeWebhookVerifier(IOptions<StripeOptions> options) : I
         "payment_intent.succeeded",
         "payment_intent.canceled"
     };
+    private static readonly HashSet<string> RefundEvents = new(StringComparer.Ordinal)
+    {
+        "refund.created",
+        "refund.updated",
+        "refund.failed"
+    };
 
     private readonly string _webhookSecret = options.Value.WebhookSecret;
 
@@ -44,6 +50,17 @@ internal sealed class StripeWebhookVerifier(IOptions<StripeOptions> options) : I
                     stripeEvent.Type,
                     PaymentWebhookObjectKind.OrderPayment,
                     paymentIntent.Id);
+            }
+
+            if (RefundEvents.Contains(stripeEvent.Type) &&
+                stripeEvent.Data.Object is Refund refund &&
+                !string.IsNullOrWhiteSpace(refund.Id))
+            {
+                return new PaymentWebhookNotification(
+                    stripeEvent.Id,
+                    stripeEvent.Type,
+                    PaymentWebhookObjectKind.OrderPaymentRefund,
+                    refund.Id);
             }
 
             return null;

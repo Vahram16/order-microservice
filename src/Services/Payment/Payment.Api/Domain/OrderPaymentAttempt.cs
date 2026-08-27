@@ -130,7 +130,8 @@ public sealed class OrderPaymentAttempt
     public Result ObserveCapturedDuringCancellation(DateTimeOffset now)
     {
         if (Status == OrderPaymentStatus.Captured) return Result.Success();
-        if (Status != OrderPaymentStatus.CancellationRequested) return PaymentErrors.OrderPaymentInvalidState;
+        if (Status is not (OrderPaymentStatus.CancellationRequested or OrderPaymentStatus.Cancelled or OrderPaymentStatus.Rejected or OrderPaymentStatus.CaptureFailed))
+            return PaymentErrors.OrderPaymentInvalidState;
         Status = OrderPaymentStatus.Captured;
         RejectionCode = null;
         Touch(now);
