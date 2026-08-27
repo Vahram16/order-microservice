@@ -31,9 +31,9 @@ builder.Services.AddRabbitMqWithPostgresOutbox<PaymentDbContext>(builder.Configu
 {
     registration.AddConsumer<CustomerIdentitySynchronizedConsumer>();
     registration.AddConsumer<ProcessStripeWebhookConsumer>();
-    registration.AddConsumer<AuthorizeOrderConsumer>();
-    registration.AddConsumer<CaptureOrderPaymentConsumer>();
-    registration.AddConsumer<CancelOrderConsumer>();
+    registration.AddConsumer<AuthorizeOrderConsumer, AuthorizeOrderConsumerDefinition>();
+    registration.AddConsumer<CaptureOrderPaymentConsumer, CaptureOrderPaymentConsumerDefinition>();
+    registration.AddConsumer<CancelOrderConsumer, CancelOrderConsumerDefinition>();
 }, useConsumerOutbox: endpointName =>
     !string.Equals(endpointName, ProcessStripeWebhook.EndpointName, StringComparison.Ordinal) &&
     !string.Equals(endpointName, AuthorizeOrderPayment.EndpointName, StringComparison.Ordinal) &&
