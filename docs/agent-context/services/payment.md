@@ -51,7 +51,8 @@ The browser/Stripe SDK performs the challenge, but the browser is never authorit
 - MassTransit PostgreSQL bus/consumer outbox closes local DB/message gaps;
 - provider I/O remains outside database atomicity and therefore uses stable idempotency plus authoritative re-fetch/reconciliation;
 - webhook receipt is a durable idempotency fence and RabbitMQ retry/redelivery/error queues own asynchronous delivery policy;
-- late provider authorization after Order compensation is cancelled when it remains uncaptured; impossible/already-captured late states are surfaced for explicit reconciliation rather than silently mutating Order.
+- late provider authorization after Order compensation is cancelled when it remains uncaptured; impossible/already-captured late states are surfaced for explicit reconciliation rather than silently mutating Order;
+- `RefundPending` remains automatically reconciled from authoritative provider state. A provider refund that becomes `failed` or `canceled` is persisted as `RefundFailed` and emits a Critical `RefundRequiresManualReconciliation` log after the durable save. It is deliberately not blindly retried: Stripe treats a failed refund as requiring an alternative customer reimbursement path. Operations must alert on this event and close the financial obligation through the approved reconciliation runbook.
 
 The Order-payment flow currently authorizes with manual capture. Capture timing is a separate fulfillment/business policy and must not be invented inside Order or Stripe infrastructure; a future explicit capture requirement extends the Payment contract.
 
