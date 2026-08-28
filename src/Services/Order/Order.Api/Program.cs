@@ -55,6 +55,7 @@ builder.Services.AddMediatR(configuration =>
     configuration.AddOpenBehavior(typeof(ValidationBehavior<,>));
     configuration.LicenseKey = builder.Configuration["Licensing:MediatR"];
 });
+builder.Services.AddSingleton<IConsumerExceptionRule, OrderPersistenceExceptionRule>();
 builder.Services.AddRabbitMqWithPostgresOutbox<OrderDbContext>(
     builder.Configuration,
     "order",
@@ -91,6 +92,7 @@ builder.Services.AddIntegrationCommandRoute<CancelOrderPayment>(
     CancelOrderPayment.EndpointName);
 builder.Services.AddHostedService<OrderReferenceDataSynchronizationWorker>();
 builder.Services.AddHostedService<OrderExpirationWorker>();
+builder.Services.AddHostedService<OrderWorkflowRecoveryWorker>();
 
 var app = builder.Build();
 
