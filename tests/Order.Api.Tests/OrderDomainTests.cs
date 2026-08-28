@@ -1,4 +1,5 @@
 using Order.Api.Domain;
+using OrderAggregate = Order.Api.Domain.Order;
 
 namespace Order.Api.Tests;
 
@@ -59,9 +60,9 @@ public sealed class OrderDomainTests
         Assert.True(order.MarkPaymentAuthorized(paymentAttemptId, order.Total, order.CurrencyCode, Now.AddSeconds(4)).IsSuccess);
     }
 
-    private static Order CreateOrder()
+    private static OrderAggregate CreateOrder()
     {
-        var result = Order.Place(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), [new OrderItemDraft(Guid.NewGuid(), "SKU-1", "Historical product", 2, 12.50m, "USD")], new ShippingAddressData("Recipient", "Line 1", null, "Yerevan", null, "0010", "AM", null), Now.AddMinutes(15), Now);
+        var result = OrderAggregate.Place(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), [new OrderItemDraft(Guid.NewGuid(), "SKU-1", "Historical product", 2, 12.50m, "USD")], new ShippingAddressData("Recipient", "Line 1", null, "Yerevan", null, "0010", "AM", null), Now.AddMinutes(15), Now);
         Assert.True(result.IsSuccess); return result.Value;
     }
 }
