@@ -15,7 +15,7 @@ public sealed class OrderPersistenceIntegrationTests
         first.OrderSubmissions.Add(OrderSubmission.Create(customerId, key, new string('A', 64), Guid.NewGuid(), now));
         second.OrderSubmissions.Add(OrderSubmission.Create(customerId, key, new string('A', 64), Guid.NewGuid(), now));
         var results = await Task.WhenAll(TrySaveAsync(first), TrySaveAsync(second));
-        Assert.Single(results.Where(value => value)); Assert.Single(results.Where(value => !value));
+        Assert.Single(results, value => value); Assert.Single(results, value => !value);
         await using var verification = CreateContext(); Assert.Equal(1, await verification.OrderSubmissions.CountAsync());
     }
 
