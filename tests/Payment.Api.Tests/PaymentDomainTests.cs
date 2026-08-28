@@ -22,6 +22,25 @@ public sealed class PaymentDomainTests
     }
 
     [Fact]
+    public void FailedRefundRemainsDurableManualReconciliationState()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var attempt = CreateCapturedAttempt(now);
+
+        Assert.True(attempt.RequestCancellation(now.AddSeconds(1)).IsSuccess);
+        Assert.True(attempt.MarkRefundPending("re_failed", now.AddSeconds(2)).IsSuccess);
+        Assert.True(attempt.FailRefund("re_failed", "declined", now.AddSeconds(3)).IsSuccess);
+
+        Assert.Equal(OrderPaymentStatus.RefundFailed, attempt.Status);
+        Assert.Equal("re_failed", attempt.ProviderRefundId);
+        Assert.Equal("declined", attempt.RejectionCode);
+
+        Assert.True(attempt.RequestCancellation(now.AddSeconds(4)).IsSuccess);
+        Assert.Equal(OrderPaymentStatus.RefundFailed, attempt.Status);
+        Assert.Equal("re_failed", attempt.ProviderRefundId);
+    }
+
+    [Fact]
     public void RefundProviderIdentityCannotBeRebound()
     {
         var now = DateTimeOffset.UtcNow; var attempt = CreateCapturedAttempt(now); Assert.True(attempt.RequestCancellation(now).IsSuccess); Assert.True(attempt.MarkRefundPending("re_one", now).IsSuccess); var conflict = attempt.MarkRefunded("re_two", now.AddSeconds(1)); Assert.True(conflict.IsFailure); Assert.Equal("payment.order_payment_conflict", conflict.Error.Code); Assert.Equal("re_one", attempt.ProviderRefundId); Assert.Equal(OrderPaymentStatus.RefundPending, attempt.Status);
