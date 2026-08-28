@@ -46,6 +46,24 @@ internal sealed class OrderWorkflowRecoveryWorker(
     private static readonly TimeSpan StaleAfter = TimeSpan.FromMinutes(5);
     private const int BatchSize = 20;
 
+    private static readonly Action<ILogger, Guid, OrderStatus, Exception?> LogInventoryRedrive =
+        LoggerMessage.Define<Guid, OrderStatus>(
+            LogLevel.Warning,
+            new EventId(1, nameof(LogInventoryRedrive)),
+            "Re-driving inventory commit for stale order {OrderId} in state {OrderStatus}.");
+
+    private static readonly Action<ILogger, Guid, OrderStatus, Exception?> LogPaymentRedrive =
+        LoggerMessage.Define<Guid, OrderStatus>(
+            LogLevel.Warning,
+            new EventId(2, nameof(LogPaymentRedrive)),
+            "Re-driving payment capture reconciliation for stale order {OrderId} in state {OrderStatus}.");
+
+    private static readonly Action<ILogger, Guid, OrderStatus, Exception?> LogMissingRecoveryIdentity =
+        LoggerMessage.Define<Guid, OrderStatus>(
+            LogLevel.Critical,
+            new EventId(3, nameof(LogMissingRecoveryIdentity)),
+            "Order {OrderId} is stuck in {OrderStatus} but is missing the workflow identity required for recovery.");
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -83,10 +101,7 @@ internal sealed class OrderWorkflowRecoveryWorker(
                         new CommitInventoryReservation(order.Id, reservationId),
                         new IntegrationMessageMetadata(CorrelationId: order.Id),
                         cancellationToken);
-                    logger.LogWarning(
-                        "Re-driving inventory commit for stale order {OrderId} in state {OrderStatus}.",
-                        order.Id,
-                        order.Status);
+                    LogInventoryRedrive(logger, order.Id, order.Status, null);
                     queued++;
                     break;
 
@@ -97,19 +112,13 @@ internal sealed class OrderWorkflowRecoveryWorker(
                         new CaptureOrderPayment(order.Id, paymentAttemptId),
                         new IntegrationMessageMetadata(CorrelationId: order.Id),
                         cancellationToken);
-                    logger.LogWarning(
-                        "Re-driving payment capture reconciliation for stale order {OrderId} in state {OrderStatus}.",
-                        order.Id,
-                        order.Status);
+                    LogPaymentRedrive(logger, order.Id, order.Status, null);
                     queued++;
                     break;
 
                 case OrderWorkflowRecoveryAction.CommitInventory:
                 case OrderWorkflowRecoveryAction.CapturePayment:
-                    logger.LogCritical(
-                        "Order {OrderId} is stuck in {OrderStatus} but is missing the workflow identity required for recovery.",
-                        order.Id,
-                        order.Status);
+                    LogMissingRecoveryIdentity(logger, order.Id, order.Status, null);
                     break;
             }
         }
