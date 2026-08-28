@@ -20,6 +20,13 @@ internal sealed class CommitInventoryReservationConsumer(
             ?? throw new InventoryWorkflowException("inventory.reservation_not_found");
         if (reservation.Status == InventoryReservationStatus.Committed)
         {
+            // Re-publish the durable outcome on a recovery command. This repairs the case where
+            // Inventory committed successfully but Order never observed the original event.
+            await eventPublisher.PublishAsync(
+                new InventoryReservationCommitted(reservation.OrderId, reservation.Id, reservation.UpdatedAt),
+                new IntegrationMessageMetadata(CorrelationId: reservation.OrderId),
+                context.CancellationToken);
+            await dbContext.SaveChangesAsync(context.CancellationToken);
             return;
         }
 
