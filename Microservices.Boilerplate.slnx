@@ -1,51 +1,13 @@
 <Solution>
   <Folder Name="/src/" />
-  <Folder Name="/src/AppHost/">
-    <Project Path="src/AppHost/Microservices.AppHost/Microservices.AppHost.csproj" />
-  </Folder>
+  <Folder Name="/src/AppHost/"><Project Path="src/AppHost/Microservices.AppHost/Microservices.AppHost.csproj" /></Folder>
   <Folder Name="/src/Services/" />
-  <Folder Name="/src/Services/Customer/">
-    <Project Path="src/Services/Customer/Customer.Api/Customer.Api.csproj" />
-    <Project Path="src/Services/Customer/Customer.Migrator/Customer.Migrator.csproj" />
-  </Folder>
-  <Folder Name="/src/Services/Inventory/">
-    <Project Path="src/Services/Inventory/Inventory.Api/Inventory.Api.csproj" />
-    <Project Path="src/Services/Inventory/Inventory.Migrator/Inventory.Migrator.csproj" />
-  </Folder>
-  <Folder Name="/src/Services/Order/">
-    <Project Path="src/Services/Order/Order.Api/Order.Api.csproj" />
-    <Project Path="src/Services/Order/Order.Migrator/Order.Migrator.csproj" />
-  </Folder>
-  <Folder Name="/src/Services/Payment/">
-    <Project Path="src/Services/Payment/Payment.Api/Payment.Api.csproj" />
-    <Project Path="src/Services/Payment/Payment.Migrator/Payment.Migrator.csproj" />
-  </Folder>
-  <Folder Name="/src/Services/Product/">
-    <Project Path="src/Services/Product/Product.Api/Product.Api.csproj" />
-    <Project Path="src/Services/Product/Product.Migrator/Product.Migrator.csproj" />
-  </Folder>
-  <Folder Name="/src/Services/ServiceTemplate/">
-    <Project Path="src/Services/ServiceTemplate/ServiceTemplate.Api/ServiceTemplate.Api.csproj" />
-    <Project Path="src/Services/ServiceTemplate/ServiceTemplate.Migrator/ServiceTemplate.Migrator.csproj" />
-  </Folder>
-  <Folder Name="/src/Shared/">
-    <Project Path="src/Shared/Microservices.Application/Microservices.Application.csproj" />
-    <Project Path="src/Shared/Microservices.Contracts/Microservices.Contracts.csproj" />
-    <Project Path="src/Shared/Microservices.Messaging/Microservices.Messaging.csproj" />
-    <Project Path="src/Shared/Microservices.Persistence.Postgres/Microservices.Persistence.Postgres.csproj" />
-    <Project Path="src/Shared/Microservices.Primitives/Microservices.Primitives.csproj" />
-    <Project Path="src/Shared/Microservices.Security/Microservices.Security.csproj" />
-    <Project Path="src/Shared/Microservices.ServiceDefaults/Microservices.ServiceDefaults.csproj" />
-  </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/Microservices.Application.Tests/Microservices.Application.Tests.csproj" />
-    <Project Path="tests/Customer.Api.Tests/Customer.Api.Tests.csproj" />
-    <Project Path="tests/Microservices.ArchitectureTests/Microservices.ArchitectureTests.csproj" />
-    <Project Path="tests/Microservices.Messaging.Tests/Microservices.Messaging.Tests.csproj" />
-    <Project Path="tests/Microservices.Primitives.Tests/Microservices.Primitives.Tests.csproj" />
-    <Project Path="tests/Microservices.Security.Tests/Microservices.Security.Tests.csproj" />
-    <Project Path="tests/Microservices.ServiceDefaults.Tests/Microservices.ServiceDefaults.Tests.csproj" />
-    <Project Path="tests/Payment.Api.Tests/Payment.Api.Tests.csproj" />
-    <Project Path="tests/Product.Api.Tests/Product.Api.Tests.csproj" />
-  </Folder>
+  <Folder Name="/src/Services/Customer/"><Project Path="src/Services/Customer/Customer.Api/Customer.Api.csproj" /><Project Path="src/Services/Customer/Customer.Migrator/Customer.Migrator.csproj" /></Folder>
+  <Folder Name="/src/Services/Inventory/"><Project Path="src/Services/Inventory/Inventory.Api/Inventory.Api.csproj" /><Project Path="src/Services/Inventory/Inventory.Migrator/Inventory.Migrator.csproj" /></Folder>
+  <Folder Name="/src/Services/Order/"><Project Path="src/Services/Order/Order.Api/Order.Api.csproj" /><Project Path="src/Services/Order/Order.Migrator/Order.Migrator.csproj" /></Folder>
+  <Folder Name="/src/Services/Payment/"><Project Path="src/Services/Payment/Payment.Api/Payment.Api.csproj" /><Project Path="src/Services/Payment/Payment.Migrator/Payment.Migrator.csproj" /></Folder>
+  <Folder Name="/src/Services/Product/"><Project Path="src/Services/Product/Product.Api/Product.Api.csproj" /><Project Path="src/Services/Product/Product.Migrator/Product.Migrator.csproj" /></Folder>
+  <Folder Name="/src/Services/ServiceTemplate/"><Project Path="src/Services/ServiceTemplate/ServiceTemplate.Api/ServiceTemplate.Api.csproj" /><Project Path="src/Services/ServiceTemplate/ServiceTemplate.Migrator/ServiceTemplate.Migrator.csproj" /></Folder>
+  <Folder Name="/src/Shared/"><Project Path="src/Shared/Microservices.Application/Microservices.Application.csproj" /><Project Path="src/Shared/Microservices.Contracts/Microservices.Contracts.csproj" /><Project Path="src/Shared/Microservices.Messaging/Microservices.Messaging.csproj" /><Project Path="src/Shared/Microservices.Persistence.Postgres/Microservices.Persistence.Postgres.csproj" /><Project Path="src/Shared/Microservices.Primitives/Microservices.Primitives.csproj" /><Project Path="src/Shared/Microservices.Security/Microservices.Security.csproj" /><Project Path="src/Shared/Microservices.ServiceDefaults/Microservices.ServiceDefaults.csproj" /></Folder>
+  <Folder Name="/tests/"><Project Path="tests/Microservices.Application.Tests/Microservices.Application.Tests.csproj" /><Project Path="tests/Customer.Api.Tests/Customer.Api.Tests.csproj" /><Project Path="tests/Inventory.Api.Tests/Inventory.Api.Tests.csproj" /><Project Path="tests/Microservices.ArchitectureTests/Microservices.ArchitectureTests.csproj" /><Project Path="tests/Microservices.Messaging.Tests/Microservices.Messaging.Tests.csproj" /><Project Path="tests/Microservices.Primitives.Tests/Microservices.Primitives.Tests.csproj" /><Project Path="tests/Microservices.Security.Tests/Microservices.Security.Tests.csproj" /><Project Path="tests/Microservices.ServiceDefaults.Tests/Microservices.ServiceDefaults.Tests.csproj" /><Project Path="tests/Order.Api.Tests/Order.Api.Tests.csproj" /><Project Path="tests/Payment.Api.Tests/Payment.Api.Tests.csproj" /><Project Path="tests/Product.Api.Tests/Product.Api.Tests.csproj" /></Folder>
 </Solution>

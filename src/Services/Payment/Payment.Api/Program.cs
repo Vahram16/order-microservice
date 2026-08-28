@@ -16,10 +16,7 @@ using Payment.Api.Webhooks;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddWebApiDefaults();
-builder.AddApiDocumentation("Payment API", new ApiDocumentationOAuthOptions("mobile-app", "https://localhost:7070/scalar/v1", new Dictionary<string, string>(StringComparer.Ordinal)
-{
-    ["openid"] = "Authenticate the user.", ["profile"] = "Read the user's basic identity profile.", ["backend-api-audience"] = "Request a token for the backend API."
-}));
+builder.AddApiDocumentation("Payment API", new ApiDocumentationOAuthOptions("mobile-app", "https://localhost:7070/scalar/v1", new Dictionary<string, string>(StringComparer.Ordinal) { ["openid"] = "Authenticate the user.", ["profile"] = "Read the user's basic identity profile.", ["backend-api-audience"] = "Request a token for the backend API." }));
 builder.Services.AddMicroserviceProblemDetails();
 builder.Services.AddApiSecurity(builder.Configuration, builder.Environment);
 builder.Services.AddPostgresDbContext<PaymentDbContext>(builder.Configuration, "payment-db");
@@ -27,6 +24,8 @@ builder.Services.AddHealthChecks().AddDbContextCheck<PaymentDbContext>(tags: [Se
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddMediatR(configuration => { configuration.RegisterServicesFromAssemblyContaining<Program>(); configuration.LicenseKey = builder.Configuration["Licensing:MediatR"]; });
 builder.Services.AddStripePayments(builder.Configuration);
+builder.Services.AddScoped<OrderPaymentCompensationService>();
+builder.Services.AddHostedService<PaymentCompensationWorker>();
 builder.Services.AddRabbitMqWithPostgresOutbox<PaymentDbContext>(builder.Configuration, "payment", configureRegistrations: registration =>
 {
     registration.AddConsumer<CustomerIdentitySynchronizedConsumer>();

@@ -51,8 +51,7 @@ public sealed class OrderPaymentAttempt
 
     public Result AssignProviderPaymentIntent(string providerPaymentIntentId, DateTimeOffset now)
     {
-        if (!IsValidProviderId(providerPaymentIntentId))
-            return PaymentErrors.Validation(nameof(providerPaymentIntentId), "Provider payment intent identifier is invalid.");
+        if (!IsValidProviderId(providerPaymentIntentId)) return PaymentErrors.Validation(nameof(providerPaymentIntentId), "Provider payment intent identifier is invalid.");
         if (ProviderPaymentIntentId is not null)
             return string.Equals(ProviderPaymentIntentId, providerPaymentIntentId, StringComparison.Ordinal) ? Result.Success() : PaymentErrors.OrderPaymentConflict;
         ProviderPaymentIntentId = providerPaymentIntentId;
@@ -127,6 +126,17 @@ public sealed class OrderPaymentAttempt
         return Result.Success();
     }
 
+    public Result RecordCompensationFailure(string failureCode, DateTimeOffset now)
+    {
+        var validation = ValidateRejectionCode(failureCode);
+        if (validation.IsFailure) return validation.Error;
+        if (Status is not (OrderPaymentStatus.CancellationRequested or OrderPaymentStatus.RefundPending or OrderPaymentStatus.RefundFailed))
+            return PaymentErrors.OrderPaymentInvalidState;
+        RejectionCode = failureCode;
+        Touch(now);
+        return Result.Success();
+    }
+
     public Result ObserveCapturedDuringCancellation(DateTimeOffset now)
     {
         if (Status == OrderPaymentStatus.Captured) return Result.Success();
@@ -140,11 +150,10 @@ public sealed class OrderPaymentAttempt
 
     public Result MarkRefundPending(string providerRefundId, DateTimeOffset now)
     {
-        var assigned = AssignProviderRefund(providerRefundId);
-        if (assigned.IsFailure) return assigned.Error;
+        var validation = ValidateRefundTransition(providerRefundId, allowRefunded: true, OrderPaymentStatus.Captured, OrderPaymentStatus.CancellationRequested, OrderPaymentStatus.RefundPending, OrderPaymentStatus.RefundFailed);
+        if (validation.IsFailure) return validation.Error;
         if (Status == OrderPaymentStatus.Refunded) return Result.Success();
-        if (Status is not (OrderPaymentStatus.Captured or OrderPaymentStatus.CancellationRequested or OrderPaymentStatus.RefundPending or OrderPaymentStatus.RefundFailed))
-            return PaymentErrors.OrderPaymentInvalidState;
+        ProviderRefundId ??= providerRefundId;
         Status = OrderPaymentStatus.RefundPending;
         RejectionCode = null;
         Touch(now);
@@ -153,11 +162,10 @@ public sealed class OrderPaymentAttempt
 
     public Result MarkRefunded(string providerRefundId, DateTimeOffset now)
     {
-        var assigned = AssignProviderRefund(providerRefundId);
-        if (assigned.IsFailure) return assigned.Error;
+        var validation = ValidateRefundTransition(providerRefundId, allowRefunded: true, OrderPaymentStatus.Captured, OrderPaymentStatus.CancellationRequested, OrderPaymentStatus.RefundPending, OrderPaymentStatus.RefundFailed);
+        if (validation.IsFailure) return validation.Error;
         if (Status == OrderPaymentStatus.Refunded) return Result.Success();
-        if (Status is not (OrderPaymentStatus.Captured or OrderPaymentStatus.CancellationRequested or OrderPaymentStatus.RefundPending or OrderPaymentStatus.RefundFailed))
-            return PaymentErrors.OrderPaymentInvalidState;
+        ProviderRefundId ??= providerRefundId;
         Status = OrderPaymentStatus.Refunded;
         RejectionCode = null;
         Touch(now);
@@ -166,14 +174,13 @@ public sealed class OrderPaymentAttempt
 
     public Result FailRefund(string providerRefundId, string rejectionCode, DateTimeOffset now)
     {
-        var validation = ValidateRejectionCode(rejectionCode);
-        if (validation.IsFailure) return validation.Error;
-        var assigned = AssignProviderRefund(providerRefundId);
-        if (assigned.IsFailure) return assigned.Error;
+        var rejectionValidation = ValidateRejectionCode(rejectionCode);
+        if (rejectionValidation.IsFailure) return rejectionValidation.Error;
+        var transitionValidation = ValidateRefundTransition(providerRefundId, allowRefunded: false, OrderPaymentStatus.Captured, OrderPaymentStatus.CancellationRequested, OrderPaymentStatus.RefundPending, OrderPaymentStatus.RefundFailed);
+        if (transitionValidation.IsFailure) return transitionValidation.Error;
         if (Status == OrderPaymentStatus.RefundFailed)
             return string.Equals(RejectionCode, rejectionCode, StringComparison.Ordinal) ? Result.Success() : PaymentErrors.OrderPaymentConflict;
-        if (Status is not (OrderPaymentStatus.Captured or OrderPaymentStatus.CancellationRequested or OrderPaymentStatus.RefundPending))
-            return PaymentErrors.OrderPaymentInvalidState;
+        ProviderRefundId ??= providerRefundId;
         Status = OrderPaymentStatus.RefundFailed;
         RejectionCode = rejectionCode;
         Touch(now);
@@ -191,14 +198,12 @@ public sealed class OrderPaymentAttempt
         return Result.Success();
     }
 
-    private Result AssignProviderRefund(string providerRefundId)
+    private Result ValidateRefundTransition(string providerRefundId, bool allowRefunded, params OrderPaymentStatus[] allowedStatuses)
     {
-        if (!IsValidProviderId(providerRefundId))
-            return PaymentErrors.Validation(nameof(providerRefundId), "Provider refund identifier is invalid.");
-        if (ProviderRefundId is not null && !string.Equals(ProviderRefundId, providerRefundId, StringComparison.Ordinal))
-            return PaymentErrors.OrderPaymentConflict;
-        ProviderRefundId ??= providerRefundId;
-        return Result.Success();
+        if (!IsValidProviderId(providerRefundId)) return PaymentErrors.Validation(nameof(providerRefundId), "Provider refund identifier is invalid.");
+        if (ProviderRefundId is not null && !string.Equals(ProviderRefundId, providerRefundId, StringComparison.Ordinal)) return PaymentErrors.OrderPaymentConflict;
+        if (allowRefunded && Status == OrderPaymentStatus.Refunded) return Result.Success();
+        return allowedStatuses.Contains(Status) ? Result.Success() : PaymentErrors.OrderPaymentInvalidState;
     }
 
     private static bool IsValidProviderId(string value) =>
