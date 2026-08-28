@@ -1,4 +1,4 @@
-# Revision 3: invoke the installed global dotnet-ef tool directly.
+# Revision 4: use repository-native Messaging option keys for EF design-time host creation.
 name: order-migration-generation
 
 on:
@@ -27,7 +27,12 @@ jobs:
       Security__RequireHttpsMetadata: 'false'
       Stripe__SecretKey: sk_test_migration_generation_only
       Stripe__WebhookSecret: whsec_migration_generation_only
-      Messaging__RabbitMq__ConnectionString: amqp://guest:guest@localhost:5672/
+      Messaging__Host: localhost
+      Messaging__Port: '5672'
+      Messaging__VirtualHost: '/'
+      Messaging__Username: guest
+      Messaging__Password: guest
+      Messaging__UseTls: 'false'
     steps:
       - name: Check out branch
         uses: actions/checkout@v6
