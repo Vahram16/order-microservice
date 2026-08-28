@@ -62,12 +62,14 @@ src/Shared/
 
 tests/
 ├── Customer.Api.Tests
+├── Inventory.Api.Tests
 ├── Microservices.Application.Tests
 ├── Microservices.ArchitectureTests
 ├── Microservices.Messaging.Tests
 ├── Microservices.Primitives.Tests
 ├── Microservices.Security.Tests
 ├── Microservices.ServiceDefaults.Tests
+├── Order.Api.Tests
 ├── Payment.Api.Tests
 └── Product.Api.Tests
 ```
