@@ -1,3 +1,4 @@
+# Revision 2: rerun after Payment compensation compile fix.
 name: order-migration-generation
 
 on:

@@ -2,6 +2,7 @@ using Microservices.Application.Messaging;
 using Microservices.Contracts.Payments.V1;
 using Payment.Api.Domain;
 using Payment.Api.Features.OrderPayments.Common;
+using Payment.Api.Features.PaymentMethods.Common;
 using Payment.Api.Persistence;
 
 namespace Payment.Api.Integration;
