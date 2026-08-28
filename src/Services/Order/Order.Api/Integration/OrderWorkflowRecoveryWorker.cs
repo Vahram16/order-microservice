@@ -4,6 +4,7 @@ using Microservices.Contracts.Payments.V1;
 using Microsoft.EntityFrameworkCore;
 using Order.Api.Domain;
 using Order.Api.Persistence;
+using OrderAggregate = Order.Api.Domain.Order;
 
 namespace Order.Api.Integration;
 
@@ -17,7 +18,7 @@ internal enum OrderWorkflowRecoveryAction
 internal static class OrderWorkflowRecoveryPolicy
 {
     public static OrderWorkflowRecoveryAction GetAction(
-        Domain.Order order,
+        OrderAggregate order,
         DateTimeOffset now,
         TimeSpan staleAfter)
     {
