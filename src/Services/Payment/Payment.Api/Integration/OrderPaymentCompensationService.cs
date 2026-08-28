@@ -11,8 +11,15 @@ internal sealed class OrderPaymentCompensationService(
     PaymentDbContext dbContext,
     IOrderPaymentProvider provider,
     IIntegrationEventPublisher eventPublisher,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ILogger<OrderPaymentCompensationService> logger)
 {
+    private static readonly Action<ILogger, Guid, Guid, string, string, Exception?> LogRefundRequiresManualReconciliation =
+        LoggerMessage.Define<Guid, Guid, string, string>(
+            LogLevel.Critical,
+            new EventId(1, "RefundRequiresManualReconciliation"),
+            "Refund for order {OrderId} and payment attempt {PaymentAttemptId} is {RefundStatus} with reason {FailureReason}. The failed refund is durable and requires alternative customer reimbursement/manual reconciliation.");
+
     public async Task ReconcileAsync(OrderPaymentAttempt attempt, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(attempt);
@@ -80,16 +87,38 @@ internal sealed class OrderPaymentCompensationService(
     {
         ValidateRefund(attempt, refund);
         var now = timeProvider.GetUtcNow();
+        var requiresManualReconciliation = false;
+
         switch (refund.Status)
         {
-            case "succeeded": Ensure(attempt.MarkRefunded(refund.ProviderRefundId, now)); break;
+            case "succeeded":
+                Ensure(attempt.MarkRefunded(refund.ProviderRefundId, now));
+                break;
             case "pending":
-            case "requires_action": Ensure(attempt.MarkRefundPending(refund.ProviderRefundId, now)); break;
+            case "requires_action":
+                Ensure(attempt.MarkRefundPending(refund.ProviderRefundId, now));
+                break;
             case "failed":
-            case "canceled": Ensure(attempt.FailRefund(refund.ProviderRefundId, refund.FailureReason ?? "refund_failed", now)); break;
-            default: throw PaymentWorkflowException.Transient("payment.order.refund_pending");
+            case "canceled":
+                Ensure(attempt.FailRefund(refund.ProviderRefundId, refund.FailureReason ?? "refund_failed", now));
+                requiresManualReconciliation = true;
+                break;
+            default:
+                throw PaymentWorkflowException.Transient("payment.order.refund_pending");
         }
+
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        if (requiresManualReconciliation)
+        {
+            LogRefundRequiresManualReconciliation(
+                logger,
+                attempt.OrderId,
+                attempt.Id,
+                refund.Status,
+                refund.FailureReason ?? "refund_failed",
+                null);
+        }
     }
 
     private async Task MarkCancelledAsync(OrderPaymentAttempt attempt, CancellationToken cancellationToken)
