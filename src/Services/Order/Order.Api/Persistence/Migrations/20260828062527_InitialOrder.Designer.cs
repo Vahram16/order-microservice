@@ -2,18 +2,21 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
-using Payment.Api.Persistence;
+using Order.Api.Persistence;
 
 #nullable disable
 
-namespace Payment.Api.Persistence.Migrations
+namespace Order.Api.Persistence.Migrations
 {
-    [DbContext(typeof(PaymentDbContext))]
-    partial class PaymentDbContextModelSnapshot : ModelSnapshot
+    [DbContext(typeof(OrderDbContext))]
+    [Migration("20260828062527_InitialOrder")]
+    partial class InitialOrder
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -190,15 +193,16 @@ namespace Payment.Api.Persistence.Migrations
                     b.ToTable("OutboxState");
                 });
 
-            modelBuilder.Entity("Payment.Api.Domain.OrderPaymentAttempt", b =>
+            modelBuilder.Entity("Order.Api.Domain.Order", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<decimal>("Amount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
+                    b.Property<DateTimeOffset?>("CancelledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -209,34 +213,36 @@ namespace Payment.Api.Persistence.Migrations
                         .HasColumnType("character(3)")
                         .IsFixedLength();
 
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ExpiredAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("OrderId")
+                    b.Property<Guid?>("InventoryReservationId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("PaymentCustomerId")
+                    b.Property<Guid?>("PaymentAttemptId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("PaymentMethodId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("ProviderPaymentIntentId")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("ProviderRefundId")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("RejectionCode")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
+
+                    b.Property<string>("TerminalReasonCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<decimal>("Total")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -247,36 +253,55 @@ namespace Payment.Api.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OrderId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_order_payment_attempts_order_id");
+                    b.HasIndex("CustomerId", "CreatedAt");
 
-                    b.HasIndex("PaymentCustomerId");
+                    b.HasIndex("Status", "ExpiresAt");
 
-                    b.HasIndex("PaymentMethodId");
-
-                    b.HasIndex("ProviderPaymentIntentId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_order_payment_attempts_provider_intent")
-                        .HasFilter("\"ProviderPaymentIntentId\" IS NOT NULL");
-
-                    b.HasIndex("ProviderRefundId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_order_payment_attempts_provider_refund")
-                        .HasFilter("\"ProviderRefundId\" IS NOT NULL");
-
-                    b.ToTable("order_payment_attempts", (string)null);
+                    b.ToTable("orders", (string)null);
                 });
 
-            modelBuilder.Entity("Payment.Api.Domain.PaymentCustomer", b =>
+            modelBuilder.Entity("Order.Api.Domain.OrderItem", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                    b.Property<decimal>("LineTotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProductName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Sku")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId", "ProductId")
+                        .IsUnique();
+
+                    b.ToTable("order_items", (string)null);
+                });
+
+            modelBuilder.Entity("Order.Api.Persistence.OrderCustomerProjection", b =>
+                {
                     b.Property<Guid>("CustomerId")
                         .HasColumnType("uuid");
 
@@ -290,181 +315,133 @@ namespace Payment.Api.Persistence.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
-                    b.Property<string>("ProviderCustomerId")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("CustomerId");
+
+                    b.HasIndex("IdentityProvider", "IdentitySubject")
+                        .IsUnique()
+                        .HasDatabaseName("ux_order_customers_identity");
+
+                    b.ToTable("order_customers", (string)null);
+                });
+
+            modelBuilder.Entity("Order.Api.Persistence.OrderProductProjection", b =>
+                {
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character(3)")
+                        .IsFixedLength();
+
+                    b.Property<bool>("IsAvailable")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid?>("LastSnapshotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Sku")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("SourceVersion")
+                        .HasColumnType("bigint");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ProductId");
+
+                    b.ToTable("order_products", (string)null);
+                });
+
+            modelBuilder.Entity("Order.Api.Persistence.OrderReferenceDataSynchronization", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CustomerAfterCustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("CustomerCompleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("CustomerLastRequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CycleStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LastCompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ProductAfterProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("ProductCompleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("ProductLastRequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("ReadyAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("SnapshotId")
+                        .HasColumnType("uuid");
 
                     b.Property<long>("Version")
                         .IsConcurrencyToken()
                         .HasColumnType("bigint");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_order_reference_data_synchronization");
 
-                    b.HasIndex("CustomerId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_payment_customers_customer_id");
-
-                    b.HasIndex("ProviderCustomerId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_payment_customers_provider_customer")
-                        .HasFilter("\"ProviderCustomerId\" IS NOT NULL");
-
-                    b.HasIndex("IdentityProvider", "IdentitySubject")
-                        .IsUnique()
-                        .HasDatabaseName("ux_payment_customers_identity");
-
-                    b.ToTable("payment_customers", (string)null);
+                    b.ToTable("order_reference_data_synchronization", (string)null);
                 });
 
-            modelBuilder.Entity("Payment.Api.Domain.PaymentMethod", b =>
+            modelBuilder.Entity("Order.Api.Persistence.OrderSubmission", b =>
                 {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
+                    b.Property<Guid>("CustomerId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Brand")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
+                    b.Property<Guid>("IdempotencyKey")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<int>("ExpMonth")
-                        .HasColumnType("integer");
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
 
-                    b.Property<int>("ExpYear")
-                        .HasColumnType("integer");
-
-                    b.Property<bool>("IsDefault")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Last4")
+                    b.Property<string>("RequestFingerprint")
                         .IsRequired()
-                        .HasMaxLength(4)
-                        .HasColumnType("character(4)")
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
                         .IsFixedLength();
 
-                    b.Property<Guid>("PaymentCustomerId")
-                        .HasColumnType("uuid");
+                    b.HasKey("CustomerId", "IdempotencyKey")
+                        .HasName("pk_order_submissions");
 
-                    b.Property<string>("ProviderPaymentMethodId")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(24)
-                        .HasColumnType("character varying(24)");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("WalletType")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PaymentCustomerId");
-
-                    b.HasIndex("ProviderPaymentMethodId")
+                    b.HasIndex("OrderId")
                         .IsUnique()
-                        .HasDatabaseName("ux_payment_methods_provider_id");
+                        .HasDatabaseName("ux_order_submissions_order");
 
-                    b.HasIndex("PaymentCustomerId", "IsDefault")
-                        .IsUnique()
-                        .HasDatabaseName("ux_payment_methods_default")
-                        .HasFilter("\"IsDefault\"");
-
-                    b.ToTable("payment_methods", (string)null);
-                });
-
-            modelBuilder.Entity("Payment.Api.Persistence.PaymentMethodSetupOperation", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("PaymentCustomerId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ProviderSetupIntentId")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id")
-                        .HasName("pk_payment_method_setups");
-
-                    b.HasIndex("PaymentCustomerId");
-
-                    b.HasIndex("ProviderSetupIntentId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_payment_method_setups_provider_intent")
-                        .HasFilter("\"ProviderSetupIntentId\" IS NOT NULL");
-
-                    b.ToTable("payment_method_setups", (string)null);
-                });
-
-            modelBuilder.Entity("Payment.Api.Persistence.PaymentWebhookEvent", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("EventType")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<DateTimeOffset?>("ProcessedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ProviderEventId")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("ProviderPaymentIntentId")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("ProviderRefundId")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("ProviderSetupIntentId")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<DateTimeOffset>("ReceivedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProcessedAt");
-
-                    b.HasIndex("ProviderEventId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_payment_webhook_events_provider_event");
-
-                    b.HasIndex("ProviderPaymentIntentId");
-
-                    b.HasIndex("ProviderRefundId");
-
-                    b.HasIndex("ProviderSetupIntentId");
-
-                    b.ToTable("payment_webhook_events", (string)null);
+                    b.ToTable("order_submissions", (string)null);
                 });
 
             modelBuilder.Entity("MassTransit.EntityFrameworkCoreIntegration.OutboxMessage", b =>
@@ -479,37 +456,83 @@ namespace Payment.Api.Persistence.Migrations
                         .HasPrincipalKey("MessageId", "ConsumerId");
                 });
 
-            modelBuilder.Entity("Payment.Api.Domain.OrderPaymentAttempt", b =>
+            modelBuilder.Entity("Order.Api.Domain.Order", b =>
                 {
-                    b.HasOne("Payment.Api.Domain.PaymentCustomer", null)
-                        .WithMany()
-                        .HasForeignKey("PaymentCustomerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                    b.OwnsOne("Order.Api.Domain.ShippingAddress", "ShippingAddress", b1 =>
+                        {
+                            b1.Property<Guid>("OrderId")
+                                .HasColumnType("uuid");
 
-                    b.HasOne("Payment.Api.Domain.PaymentMethod", null)
-                        .WithMany()
-                        .HasForeignKey("PaymentMethodId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                            b1.Property<string>("City")
+                                .IsRequired()
+                                .HasMaxLength(100)
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("ShippingCity");
+
+                            b1.Property<string>("CountryCode")
+                                .IsRequired()
+                                .HasMaxLength(2)
+                                .HasColumnType("character(2)")
+                                .HasColumnName("ShippingCountryCode")
+                                .IsFixedLength();
+
+                            b1.Property<string>("Line1")
+                                .IsRequired()
+                                .HasMaxLength(200)
+                                .HasColumnType("character varying(200)")
+                                .HasColumnName("ShippingLine1");
+
+                            b1.Property<string>("Line2")
+                                .HasMaxLength(200)
+                                .HasColumnType("character varying(200)")
+                                .HasColumnName("ShippingLine2");
+
+                            b1.Property<string>("PhoneNumber")
+                                .HasMaxLength(32)
+                                .HasColumnType("character varying(32)")
+                                .HasColumnName("ShippingPhoneNumber");
+
+                            b1.Property<string>("PostalCode")
+                                .IsRequired()
+                                .HasMaxLength(32)
+                                .HasColumnType("character varying(32)")
+                                .HasColumnName("ShippingPostalCode");
+
+                            b1.Property<string>("RecipientName")
+                                .IsRequired()
+                                .HasMaxLength(200)
+                                .HasColumnType("character varying(200)")
+                                .HasColumnName("ShippingRecipientName");
+
+                            b1.Property<string>("Region")
+                                .HasMaxLength(100)
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("ShippingRegion");
+
+                            b1.HasKey("OrderId");
+
+                            b1.ToTable("orders");
+
+                            b1.WithOwner()
+                                .HasForeignKey("OrderId");
+                        });
+
+                    b.Navigation("ShippingAddress")
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Payment.Api.Domain.PaymentMethod", b =>
+            modelBuilder.Entity("Order.Api.Domain.OrderItem", b =>
                 {
-                    b.HasOne("Payment.Api.Domain.PaymentCustomer", null)
-                        .WithMany()
-                        .HasForeignKey("PaymentCustomerId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                    b.HasOne("Order.Api.Domain.Order", null)
+                        .WithMany("Items")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Payment.Api.Persistence.PaymentMethodSetupOperation", b =>
+            modelBuilder.Entity("Order.Api.Domain.Order", b =>
                 {
-                    b.HasOne("Payment.Api.Domain.PaymentCustomer", null)
-                        .WithMany()
-                        .HasForeignKey("PaymentCustomerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                    b.Navigation("Items");
                 });
 #pragma warning restore 612, 618
         }
