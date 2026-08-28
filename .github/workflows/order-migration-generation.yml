@@ -1,4 +1,4 @@
-# Revision 2: rerun after Payment compensation compile fix.
+# Revision 3: invoke the installed global dotnet-ef tool directly.
 name: order-migration-generation
 
 on:
@@ -64,7 +64,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          dotnet ef migrations add InitialOrder \
+          dotnet-ef migrations add InitialOrder \
             --project src/Services/Order/Order.Api/Order.Api.csproj \
             --startup-project src/Services/Order/Order.Api/Order.Api.csproj \
             --context OrderDbContext \
@@ -72,7 +72,7 @@ jobs:
             --configuration Release \
             --no-build
 
-          dotnet ef migrations add InitialInventory \
+          dotnet-ef migrations add InitialInventory \
             --project src/Services/Inventory/Inventory.Api/Inventory.Api.csproj \
             --startup-project src/Services/Inventory/Inventory.Api/Inventory.Api.csproj \
             --context InventoryDbContext \
@@ -80,7 +80,7 @@ jobs:
             --configuration Release \
             --no-build
 
-          dotnet ef migrations add AddCheckoutOutbox \
+          dotnet-ef migrations add AddCheckoutOutbox \
             --project src/Services/Product/Product.Api/Product.Api.csproj \
             --startup-project src/Services/Product/Product.Api/Product.Api.csproj \
             --context ProductDbContext \
@@ -88,7 +88,7 @@ jobs:
             --configuration Release \
             --no-build
 
-          dotnet ef migrations add AddOrderPaymentsAndRefunds \
+          dotnet-ef migrations add AddOrderPaymentsAndRefunds \
             --project src/Services/Payment/Payment.Api/Payment.Api.csproj \
             --startup-project src/Services/Payment/Payment.Api/Payment.Api.csproj \
             --context PaymentDbContext \
