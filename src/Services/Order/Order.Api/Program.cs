@@ -73,6 +73,7 @@ builder.Services.AddRabbitMqWithPostgresOutbox<OrderDbContext>(
         registration.AddConsumer<InventoryReservationExpiredConsumer>();
         registration.AddConsumer<PaymentCapturedConsumer>();
         registration.AddConsumer<PaymentCaptureFailedConsumer>();
+        registration.AddConsumer<PaymentCancelledConsumer>();
     });
 builder.Services.AddIntegrationCommandRoute<SynchronizeCustomerIdentitySnapshot>(
     SynchronizeCustomerIdentitySnapshot.EndpointName);
