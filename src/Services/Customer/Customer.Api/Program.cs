@@ -1,7 +1,9 @@
 using Customer.Api.Features.Customers;
 using Customer.Api.Features.Customers.Common;
+using Customer.Api.Integration;
 using Customer.Api.Persistence;
 using FluentValidation;
+using MassTransit;
 using MediatR;
 using Microservices.Application;
 using Microservices.Messaging;
@@ -9,7 +11,6 @@ using Microservices.Persistence.Postgres;
 using Microservices.Security;
 using Microservices.ServiceDefaults;
 using Microservices.ServiceDefaults.ProblemDetails;
-using Microsoft.Extensions.Hosting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -35,7 +36,6 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddValidatorsFromAssemblyContaining<Program>(
     ServiceLifetime.Scoped,
     includeInternalTypes: true);
-
 builder.Services.AddMediatR(configuration =>
 {
     configuration.RegisterServicesFromAssemblyContaining<Program>();
@@ -44,7 +44,11 @@ builder.Services.AddMediatR(configuration =>
 });
 builder.Services.AddRabbitMqWithPostgresOutbox<CustomerDbContext>(
     builder.Configuration,
-    "customer");
+    "customer",
+    configureRegistrations: registration =>
+        registration.AddConsumer<
+            CustomerIdentitySnapshotConsumer,
+            CustomerIdentitySnapshotConsumerDefinition>());
 
 var app = builder.Build();
 

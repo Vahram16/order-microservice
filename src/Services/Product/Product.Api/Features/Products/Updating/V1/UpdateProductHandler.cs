@@ -1,4 +1,6 @@
 using Microservices.Application;
+using Microservices.Application.Messaging;
+using Microservices.Contracts.Products.V1;
 using Microsoft.EntityFrameworkCore;
 using Product.Api.Features.Products.Common;
 using Product.Api.Persistence;
@@ -7,6 +9,7 @@ namespace Product.Api.Features.Products.Updating.V1;
 
 internal sealed class UpdateProductHandler(
     ProductDbContext dbContext,
+    IIntegrationEventPublisher eventPublisher,
     TimeProvider timeProvider)
     : ICommandHandler<UpdateProductCommand, Result<ProductResponse>>
 {
@@ -28,17 +31,30 @@ internal sealed class UpdateProductHandler(
             return version.Error;
         }
 
+        var now = timeProvider.GetUtcNow();
         var update = product.Update(
             command.Sku,
             command.Name,
             command.Description,
             command.Price,
             command.CurrencyCode,
-            timeProvider.GetUtcNow());
+            now);
         if (update.IsFailure)
         {
             return update.Error;
         }
+
+        await eventPublisher.PublishAsync(
+            new ProductCatalogChanged(
+                product.Id,
+                product.Sku,
+                product.Name,
+                product.Price,
+                product.CurrencyCode,
+                product.Version,
+                IsAvailable: true,
+                now),
+            cancellationToken: cancellationToken);
 
         try
         {

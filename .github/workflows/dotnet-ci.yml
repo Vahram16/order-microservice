@@ -19,6 +19,8 @@ jobs:
     timeout-minutes: 45
     env:
       CUSTOMER_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=customer_ci;Username=postgres;Password=postgres
+      INVENTORY_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=inventory_ci;Username=postgres;Password=postgres
+      ORDER_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=order_ci;Username=postgres;Password=postgres
       PAYMENT_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=payment_ci;Username=postgres;Password=postgres
       PRODUCT_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=product_ci;Username=postgres;Password=postgres
       MESSAGING_TEST_POSTGRES_CONNECTION_STRING: Host=localhost;Port=5432;Database=messaging_ci;Username=postgres;Password=postgres
@@ -110,6 +112,30 @@ jobs:
             --dbname postgres \
             --command 'CREATE DATABASE messaging_ci;' 2>&1 \
             | tee Logs/messaging-database.log
+
+      - name: Create Inventory test database
+        shell: bash
+        run: |
+          set -euo pipefail
+          postgres_container="$(docker ps --filter ancestor=postgres:18 --format '{{.ID}}' | head -n 1)"
+          test -n "$postgres_container"
+          docker exec "$postgres_container" psql \
+            --username postgres \
+            --dbname postgres \
+            --command 'CREATE DATABASE inventory_ci;' 2>&1 \
+            | tee Logs/inventory-database.log
+
+      - name: Create Order test database
+        shell: bash
+        run: |
+          set -euo pipefail
+          postgres_container="$(docker ps --filter ancestor=postgres:18 --format '{{.ID}}' | head -n 1)"
+          test -n "$postgres_container"
+          docker exec "$postgres_container" psql \
+            --username postgres \
+            --dbname postgres \
+            --command 'CREATE DATABASE order_ci;' 2>&1 \
+            | tee Logs/order-database.log
 
       - name: Create Payment test database
         shell: bash

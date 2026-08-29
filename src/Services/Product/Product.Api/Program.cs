@@ -1,12 +1,15 @@
 using FluentValidation;
+using MassTransit;
 using MediatR;
 using Microservices.Application;
+using Microservices.Messaging;
 using Microservices.Persistence.Postgres;
 using Microservices.Security;
 using Microservices.ServiceDefaults;
 using Microservices.ServiceDefaults.ProblemDetails;
 using Product.Api.Features.Products;
 using Product.Api.Features.Products.Common;
+using Product.Api.Integration;
 using Product.Api.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -37,6 +40,13 @@ builder.Services.AddMediatR(configuration =>
     configuration.AddOpenBehavior(typeof(ValidationBehavior<,>));
     configuration.LicenseKey = builder.Configuration["Licensing:MediatR"];
 });
+builder.Services.AddRabbitMqWithPostgresOutbox<ProductDbContext>(
+    builder.Configuration,
+    "product",
+    configureRegistrations: registration =>
+        registration.AddConsumer<
+            ProductCatalogSnapshotConsumer,
+            ProductCatalogSnapshotConsumerDefinition>());
 
 var app = builder.Build();
 

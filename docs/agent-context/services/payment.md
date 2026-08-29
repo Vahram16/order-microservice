@@ -1,84 +1,74 @@
 # Payment Service Context
 
-`Payment.Api` owns provider-facing payment identity, reusable payment methods, setup orchestration, provider webhook reconciliation, and later money-movement behavior once an Order-to-Payment contract exists.
+`Payment.Api` owns the customer-to-provider payment relationship, reusable payment methods, provider setup, Order payment attempts, Stripe execution, provider webhook reconciliation, and payment-domain outcomes.
 
 ## Ownership
 
 Payment owns:
 
-- a small `PaymentCustomer` aggregate that maps the authoritative Customer-service `CustomerId` and authenticated identity to a provider customer;
-- provider customer creation, performed lazily on the first provider operation;
-- reusable `PaymentMethod` metadata required to identify and display a payment method safely;
-- payment-method setup operations and their idempotency lifecycle;
-- provider webhook verification, durable receipt, broker-backed retry/error handling, and reconciliation;
-- Payment persistence, migrations, and provider-specific infrastructure.
+- `PaymentCustomer`, mapping authoritative CustomerId/identity to a provider customer;
+- reusable `PaymentMethod` display-safe metadata;
+- payment-method setup/idempotency and Stripe SetupIntent reconciliation;
+- `OrderPaymentAttempt`, one durable provider-neutral payment attempt per Order;
+- PaymentIntent creation/confirmation/cancellation and future capture/refund behavior when explicitly required;
+- Stripe webhook signature verification, durable deduplication, provider-state reconciliation, and Payment persistence/migrations.
 
-Payment does not own customer profile data, addresses, Customer account lifecycle, order totals/state, inventory, pricing, PAN, CVC, wallet cryptograms, or provider identifiers in cross-service business contracts.
+Payment does not own Customer profile/addresses, Order totals/lifecycle, Product pricing, Inventory, PAN/CVC, or Stripe identifiers in cross-service contracts.
 
-## Naming and model
+## Reusable payment methods
 
-`PaymentCustomer` is not a copy of the Customer aggregate and is not a generic account. It is Payment's local aggregate for the customer-to-payment-provider relationship. `CustomerId` is an immutable reference to the Customer bounded context. `ProviderCustomerId` is Payment-owned provider state and is created only when a provider operation needs it.
+The browser never supplies an internal CustomerId. Customer publishes authoritative identity synchronization; Payment creates its local `PaymentCustomer` and lazily creates the provider customer only when a provider operation needs it.
 
-`PaymentMethod` is the reusable way the customer can pay. The domain does not call it `SavedPaymentMethod`: "saved" describes a UI/storage state rather than the business concept. The current capability supports card-backed payment methods, including provider-reported wallet metadata, and stores only display-safe metadata such as brand, last four digits, expiry, and wallet type.
+`POST /api/v1/payment-methods/setup` persists a `PaymentMethodSetupOperation` before external provider creation and uses stable Stripe idempotency keys. Stripe.net owns typed SetupIntent/PaymentMethod calls and exact-raw-body webhook verification. Successful setup is reconciled from current Stripe state and stores only display-safe card metadata.
 
-Domain invariants return `Result`/`OperationError`. Expected conflicts do not use exceptions and failed operations do not partially mutate aggregate state.
+## Order payment execution
 
-## Customer identity synchronization
+Order sends provider-neutral `AuthorizeOrderPayment` with OrderId, authoritative CustomerId, PaymentMethodId, amount/currency, and deadline. Payment does not recalculate the commerce total.
 
-The browser never supplies an internal `CustomerId` to Payment.
+Payment resolves the Customer-owned identity mapping and verifies that the selected active PaymentMethod belongs to that PaymentCustomer. It persists `OrderPaymentAttempt` **before** PaymentIntent creation; OrderId is unique so duplicate/redelivered authorization commands converge on one logical attempt. External creation/confirmation/cancellation uses stable provider idempotency keys derived from OrderId.
 
-Customer service publishes `CustomerIdentitySynchronized` through its PostgreSQL-backed transactional outbox after customer provisioning. Payment consumes that fact through its consumer inbox/outbox and creates the local `PaymentCustomer` from the authoritative `CustomerId`, identity provider, and identity subject. Rebinding an existing identity or CustomerId is a permanent integration failure.
+Provider states are translated into durable business outcomes:
 
-The local `PaymentCustomer` may exist without a provider customer. This preserves Customer as the identity authority without coupling Customer provisioning to Stripe availability.
+- customer authentication needed -> `PaymentActionRequired`;
+- provider authorization available (`requires_capture`) -> `PaymentAuthorized`;
+- payment method/business rejection -> `PaymentRejected`;
+- cancellation -> `PaymentCancelled`.
 
-## Adding a payment method
+Order and RabbitMQ contracts never contain Stripe PaymentIntent IDs, Stripe Customer IDs, client secrets, or Stripe status strings.
 
-1. The authenticated customer calls `POST /api/v1/payment-methods/setup` with a stable GUID `Idempotency-Key`.
-2. Payment resolves the validated identity to an already synchronized `PaymentCustomer`; it never trusts a caller-supplied CustomerId.
-3. Payment lazily creates/reuses the provider customer using a stable provider idempotency key derived from `PaymentCustomer.Id`.
-4. Payment persists a local `PaymentMethodSetupOperation` before creating the external setup resource. The caller's idempotency key is the operation id and cannot be reused by another payment customer.
-5. Payment creates/reuses a Stripe SetupIntent with the provider customer, `usage=off_session`, and card payment-method type.
-6. The client confirms the SetupIntent using Stripe-hosted client tooling. PAN/CVC never transit Payment API.
-7. Stripe attaches the successful PaymentMethod to the Stripe Customer as part of successful SetupIntent setup.
-8. Stripe sends `setup_intent.succeeded` to `/webhooks/stripe`.
-9. Payment verifies the signature over the untouched request payload with Stripe.net.
-10. In one PostgreSQL commit, Payment inserts the deduplicated `PaymentWebhookEvent` receipt and a MassTransit bus-outbox command to process it. RabbitMQ availability is not on the webhook acknowledgement path.
-11. The MassTransit consumer receives that command with the platform retry/redelivery/error-queue policy, retrieves current SetupIntent/payment-method state from Stripe, correlates it to the local setup operation, verifies provider-customer ownership, and upserts the local `PaymentMethod` in a short serializable transaction.
-12. The first active method becomes default. Later preference changes use `PUT /api/v1/payment-methods/{id}/default`.
+## 3-D Secure/customer action
 
-The webhook never attaches the method to the Stripe Customer. It reconciles local state after provider setup succeeded.
+`RequiresCustomerAction` is normal payment state, not an infrastructure failure. Order moves to its awaiting-customer-action state and keeps its inventory reservation until the checkout deadline.
 
-## Stripe boundary
+The authenticated customer obtains current provider action data only through `GET /api/v1/payment-attempts/{id}/action`. Payment verifies PaymentCustomer ownership and current provider state before returning the client secret. Client secrets are not stored in Order, message payloads, URLs, or logs.
 
-Stripe.net is an infrastructure dependency only. `StripeClient`, Stripe services, Stripe DTOs, and `EventUtility.ConstructEvent` stay under `Infrastructure/Stripe`. Application features depend on provider-neutral `IPaymentProvider` and webhook contracts.
-
-The webhook endpoint must read the untouched request payload because Stripe signature verification depends on the exact body. That HTTP-body plumbing remains at the infrastructure boundary; cryptographic verification and Stripe event parsing are performed by Stripe.net, not custom code.
+The browser/Stripe SDK performs the challenge, but the browser is never authoritative for payment success. Stripe sends a signed PaymentIntent webhook; Payment deduplicates the webhook, re-fetches current PaymentIntent state, verifies customer/method/amount/currency ownership, updates `OrderPaymentAttempt`, and publishes the provider-neutral outcome through its PostgreSQL bus outbox. That event—not a browser callback—resumes Order.
 
 ## Reliability
 
-External Stripe side effects are not atomically committed with PostgreSQL. Correctness therefore uses layered idempotency and reconciliation:
+- PostgreSQL uniqueness fences duplicate setup, webhook, and Order-payment operations;
+- optimistic concurrency protects mutable Payment aggregates;
+- MassTransit PostgreSQL bus/consumer outbox closes local DB/message gaps;
+- provider I/O remains outside database atomicity and therefore uses stable idempotency plus authoritative re-fetch/reconciliation;
+- webhook receipt is a durable idempotency fence and RabbitMQ retry/redelivery/error queues own asynchronous delivery policy;
+- late provider authorization after Order compensation is cancelled when it remains uncaptured; impossible/already-captured late states are surfaced for explicit reconciliation rather than silently mutating Order;
+- `RefundPending` remains automatically reconciled from authoritative provider state. A provider refund that becomes `failed` or `canceled` is persisted as `RefundFailed` and emits a Critical `RefundRequiresManualReconciliation` log after the durable save. It is deliberately not blindly retried: Stripe treats a failed refund as requiring an alternative customer reimbursement path. Operations must alert on this event and close the financial obligation through the approved reconciliation runbook.
 
-- durable setup-operation idempotency in PostgreSQL;
-- stable Stripe idempotency keys for customer and SetupIntent creation;
-- unique provider customer, payment-method, SetupIntent, and webhook event identifiers;
-- MassTransit PostgreSQL bus outbox for atomic webhook receipt + processing-command dispatch;
-- MassTransit/RabbitMQ retry, delayed redelivery, consumer concurrency, and error queues for asynchronous webhook processing;
-- signature-verified, deduplicated webhook receipt retained as audit/reconciliation state;
-- current-provider-state reconciliation rather than event-order assumptions;
-- a short serializable reconciliation transaction with the durable webhook receipt as the redelivery idempotency fence;
-- filtered unique database enforcement for one default payment method per payment customer.
-
-Payment deliberately does not implement a second queue in PostgreSQL. There is no service-owned poller, processing lease, retry scheduler, or dead-letter state for Stripe webhooks; those delivery concerns belong to the messaging platform already operated by the repository.
-
-A provider timeout is an unknown outcome, not proof of failure. Retrying the same business operation reuses the same idempotency key.
+The Order-payment flow currently authorizes with manual capture. Capture timing is a separate fulfillment/business policy and must not be invented inside Order or Stripe infrastructure; a future explicit capture requirement extends the Payment contract.
 
 ## Public surface
 
-- `POST /api/v1/payment-methods/setup` — create or resume a future-use setup session.
-- `GET /api/v1/payment-methods` — list active reusable methods for the authenticated payment customer.
-- `PUT /api/v1/payment-methods/{id}/default` — change the preferred method.
-- `POST /webhooks/stripe` — anonymous at the bearer layer but authenticated by Stripe's webhook signature.
+- `POST /api/v1/payment-methods/setup`
+- `GET /api/v1/payment-methods`
+- `PUT /api/v1/payment-methods/{id}/default`
+- `GET /api/v1/payment-attempts/{id}/action`
+- `POST /webhooks/stripe` (bearer-anonymous, Stripe-signature authenticated)
 
-## Deliberately not implemented yet
+## Context routing
 
-Order charging, `Payment`/`PaymentAttempt` money-movement aggregates, PaymentIntent execution, refunds, disputes, and Order-facing payment integration events are not invented here because the repository still has no approved Order bounded context or durable Order-to-Payment contract. When that contract exists, Order will own amount/purchase state while Payment owns provider execution and business payment outcomes, including a first-class `RequiresCustomerAction` outcome for off-session authentication fallback.
+- Payment API slice -> `../architecture/vertical-slice.md` / `api-and-errors.md`;
+- Payment aggregate -> `../architecture/domain-boundary.md`;
+- persistence/idempotency -> `../architecture/persistence.md` / `concurrency-idempotency.md`;
+- Order/payment commands/events -> `../architecture/messaging.md`;
+- resource ownership -> `../architecture/security.md`;
+- verification -> `../testing-map.md`.

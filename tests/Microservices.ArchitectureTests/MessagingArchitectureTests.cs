@@ -1,9 +1,12 @@
 using System.Reflection;
 using Customer.Api.Persistence;
+using Inventory.Api.Persistence;
 using MassTransit;
 using Microservices.Application.Messaging;
 using Microservices.Contracts;
 using Microservices.Messaging;
+using Order.Api.Persistence;
+using Payment.Api.Persistence;
 using Product.Api.Persistence;
 using ServiceTemplate.Api.Persistence;
 
@@ -11,11 +14,19 @@ namespace Microservices.ArchitectureTests;
 
 public sealed class MessagingArchitectureTests
 {
-    private static readonly Assembly[] ApplicationAssemblies =
+    private static readonly Assembly[] ServiceAssemblies =
     [
         typeof(CustomerDbContext).Assembly,
+        typeof(InventoryDbContext).Assembly,
+        typeof(OrderDbContext).Assembly,
+        typeof(PaymentDbContext).Assembly,
         typeof(ProductDbContext).Assembly,
-        typeof(ServiceTemplateDbContext).Assembly,
+        typeof(ServiceTemplateDbContext).Assembly
+    ];
+
+    private static readonly Assembly[] ApplicationAssemblies =
+    [
+        .. ServiceAssemblies,
         typeof(IIntegrationEventPublisher).Assembly
     ];
 
@@ -52,14 +63,13 @@ public sealed class MessagingArchitectureTests
     [Fact]
     public void DomainTypesDoNotDependOnMessagingPersistenceOrTransportInfrastructure()
     {
-        var domainTypes = new[]
-            {
-                typeof(CustomerDbContext).Assembly,
-                typeof(ProductDbContext).Assembly
-            }
+        var domainTypes = ServiceAssemblies
             .SelectMany(SafeGetTypes)
             .Where(type =>
                 type.Namespace?.StartsWith("Customer.Api.Domain", StringComparison.Ordinal) == true ||
+                type.Namespace?.StartsWith("Inventory.Api.Domain", StringComparison.Ordinal) == true ||
+                type.Namespace?.StartsWith("Order.Api.Domain", StringComparison.Ordinal) == true ||
+                type.Namespace?.StartsWith("Payment.Api.Domain", StringComparison.Ordinal) == true ||
                 type.Namespace?.StartsWith("Product.Api.Domain", StringComparison.Ordinal) == true);
         var violations = MessagingDependencyRules.FindDependenciesWithPrefixes(
             domainTypes,
@@ -83,6 +93,9 @@ public sealed class MessagingArchitectureTests
         var forbiddenAssemblyPrefixes = new[]
         {
             "Customer.",
+            "Inventory.",
+            "Order.",
+            "Payment.",
             "Product.",
             "ServiceTemplate.",
             "Microservices.Messaging",

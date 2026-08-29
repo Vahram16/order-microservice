@@ -14,6 +14,10 @@
   <ItemGroup>
     <ProjectReference Include="../../Services/Customer/Customer.Api/Customer.Api.csproj" />
     <ProjectReference Include="../../Services/Customer/Customer.Migrator/Customer.Migrator.csproj" />
+    <ProjectReference Include="../../Services/Inventory/Inventory.Api/Inventory.Api.csproj" />
+    <ProjectReference Include="../../Services/Inventory/Inventory.Migrator/Inventory.Migrator.csproj" />
+    <ProjectReference Include="../../Services/Order/Order.Api/Order.Api.csproj" />
+    <ProjectReference Include="../../Services/Order/Order.Migrator/Order.Migrator.csproj" />
     <ProjectReference Include="../../Services/Payment/Payment.Api/Payment.Api.csproj" />
     <ProjectReference Include="../../Services/Payment/Payment.Migrator/Payment.Migrator.csproj" />
     <ProjectReference Include="../../Services/Product/Product.Api/Product.Api.csproj" />

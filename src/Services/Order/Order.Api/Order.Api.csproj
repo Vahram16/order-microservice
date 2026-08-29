@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+    <PackageReference Include="MediatR" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design"><PrivateAssets>all</PrivateAssets></PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../Shared/Microservices.Application/Microservices.Application.csproj" />
+    <ProjectReference Include="../../../Shared/Microservices.Contracts/Microservices.Contracts.csproj" />
+    <ProjectReference Include="../../../Shared/Microservices.Messaging/Microservices.Messaging.csproj" />
+    <ProjectReference Include="../../../Shared/Microservices.Persistence.Postgres/Microservices.Persistence.Postgres.csproj" />
+    <ProjectReference Include="../../../Shared/Microservices.Primitives/Microservices.Primitives.csproj" />
+    <ProjectReference Include="../../../Shared/Microservices.Security/Microservices.Security.csproj" />
+    <ProjectReference Include="../../../Shared/Microservices.ServiceDefaults/Microservices.ServiceDefaults.csproj" />
+  </ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="Order.Api.Tests" /></ItemGroup>
+</Project>

@@ -1,3 +1,4 @@
+using Microservices.Application.Messaging;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Product.Api.Features.Products.Updating.V1;
@@ -21,14 +22,16 @@ public sealed class ProductConcurrencyIntegrationTests(ProductApiFactory factory
         await using var secondScope = factory.Services.CreateAsyncScope();
         var firstDbContext = firstScope.ServiceProvider.GetRequiredService<ProductDbContext>();
         var secondDbContext = secondScope.ServiceProvider.GetRequiredService<ProductDbContext>();
+        var firstEventPublisher = firstScope.ServiceProvider.GetRequiredService<IIntegrationEventPublisher>();
+        var secondEventPublisher = secondScope.ServiceProvider.GetRequiredService<IIntegrationEventPublisher>();
 
         var firstCopy = await firstDbContext.Products.SingleAsync(product => product.Id == productId);
         var secondCopy = await secondDbContext.Products.SingleAsync(product => product.Id == productId);
         Assert.Equal(1, firstCopy.Version);
         Assert.Equal(1, secondCopy.Version);
 
-        var firstHandler = new UpdateProductHandler(firstDbContext, TimeProvider.System);
-        var secondHandler = new UpdateProductHandler(secondDbContext, TimeProvider.System);
+        var firstHandler = new UpdateProductHandler(firstDbContext, firstEventPublisher, TimeProvider.System);
+        var secondHandler = new UpdateProductHandler(secondDbContext, secondEventPublisher, TimeProvider.System);
         var firstResult = await firstHandler.Handle(
             new UpdateProductCommand(
                 productId,

@@ -116,12 +116,14 @@ assert_json \
      "com.example.order:/oauth2redirect",
      "https://localhost:7050/scalar/v1",
      "https://localhost:7060/scalar/v1",
-     "https://localhost:7070/scalar/v1"
+     "https://localhost:7070/scalar/v1",
+     "https://localhost:7090/scalar/v1"
    ]) and
    (.[0].webOrigins | sort == [
      "https://localhost:7050",
      "https://localhost:7060",
-     "https://localhost:7070"
+     "https://localhost:7070",
+     "https://localhost:7090"
    ])' \
   "${mobile_client}"
 
@@ -147,6 +149,8 @@ assert_json \
     "customers.self.export",
     "customers.self.read",
     "customers.self.update",
+    "orders.read",
+    "orders.write",
     "payments.manage",
     "payments.read",
     "product.manage",
@@ -163,6 +167,8 @@ assert_json \
     "customers.self.export",
     "customers.self.read",
     "customers.self.update",
+    "orders.read",
+    "orders.write",
     "payments.manage",
     "payments.read",
     "product.manage",
@@ -177,6 +183,8 @@ assert_json \
     "customers.addresses.write",
     "customers.self.read",
     "customers.self.update",
+    "orders.read",
+    "orders.write",
     "payments.manage",
     "payments.read",
     "product.read"
@@ -192,6 +200,8 @@ assert_json \
     "customers.self.export",
     "customers.self.read",
     "customers.self.update",
+    "orders.read",
+    "orders.write",
     "payments.manage",
     "payments.read",
     "product.manage",

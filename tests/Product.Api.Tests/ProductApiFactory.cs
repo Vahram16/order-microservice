@@ -27,20 +27,34 @@ public sealed class ProductApiFactory : WebApplicationFactory<Program>
     ];
     private const string ConnectionStringEnvironmentVariable =
         "ConnectionStrings__product-db";
+    private const string RabbitMqConnectionStringEnvironmentVariable =
+        "ConnectionStrings__rabbitmq";
+    private const string RabbitMqUseTlsEnvironmentVariable =
+        "Messaging__UseTls";
     private static readonly SymmetricSecurityKey SigningKey = new(
         RandomNumberGenerator.GetBytes(64));
     private readonly string _connectionString =
         Environment.GetEnvironmentVariable("PRODUCT_TEST_CONNECTION_STRING")
         ?? throw new InvalidOperationException(
             "PRODUCT_TEST_CONNECTION_STRING is required for Product API integration tests.");
+    private readonly string _rabbitMqConnectionString =
+        Environment.GetEnvironmentVariable("MESSAGING_TEST_RABBITMQ_CONNECTION_STRING")
+        ?? throw new InvalidOperationException(
+            "MESSAGING_TEST_RABBITMQ_CONNECTION_STRING is required for Product API integration tests.");
 
     public ProductApiFactory()
     {
-        // Minimal-hosting Program reads connection strings while composing services,
+        // Minimal-hosting Program reads these settings while composing services,
         // before WebApplicationFactory's configuration callback executes.
         Environment.SetEnvironmentVariable(
             ConnectionStringEnvironmentVariable,
             _connectionString);
+        Environment.SetEnvironmentVariable(
+            RabbitMqConnectionStringEnvironmentVariable,
+            _rabbitMqConnectionString);
+        Environment.SetEnvironmentVariable(
+            RabbitMqUseTlsEnvironmentVariable,
+            "false");
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
